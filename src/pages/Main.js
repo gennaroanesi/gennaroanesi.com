@@ -6,18 +6,17 @@ import Typography from 'material-ui/Typography';
 import { withStyles } from 'material-ui/styles';
 import Typist from 'react-typist';
 
-
 import AppLayout from '../layout/App';
 import ContentLayout from '../layout/Content';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
 const Wrapper = styled.div`
-  {
+   {
     position: absolute;
     top: 50%;
     left: 50%;
-    transform: translate(-50%,-50%);    
+    transform: translate(-50%, -50%);
   }
 `;
 
@@ -30,44 +29,41 @@ const styles = {
   },
 };
 
-
-const Main = ({ classes }) => {
-  return (
-    <AppLayout>
-      <Header />
-      <ContentLayout>
-        <Wrapper>
-          <Typography
-            className={classNames(classes.title)}
-            variant="display3"
-            align="center"
-            gutterBottom
+const Main = ({ classes }) => (
+  <AppLayout>
+    <Header />
+    <ContentLayout>
+      <Wrapper>
+        <Typography
+          className={classNames(classes.title)}
+          variant="display3"
+          align="center"
+          gutterBottom
+        >
+          Gennaro Anesi
+        </Typography>
+        <Typography
+          className={classNames(classes.secondaryText)}
+          variant="title"
+          align="center"
+          gutterBottom
+        >
+          <Typist
+            avgTypingDelay={50}
+            startDelay={500}
+            cursor={{
+              hideWhenDone: true,
+              hideWhenDoneDelay: 200,
+            }}
           >
-            Gennaro Anesi
-          </Typography>
-          <Typography
-            className={classNames(classes.secondaryText)}
-            variant="title"
-            align="center"
-            gutterBottom
-          >
-            <Typist
-              avgTypingDelay={50}
-              startDelay={500}
-              cursor={{
-                hideWhenDone: true,
-                hideWhenDoneDelay: 200,
-              }}
-            >
-              Making smarter businesses.
-            </Typist>
-          </Typography>
-        </Wrapper>
-      </ContentLayout>
-      <Footer/>
-    </AppLayout>
-  );
-}
+            Making smarter businesses.
+          </Typist>
+        </Typography>
+      </Wrapper>
+    </ContentLayout>
+    <Footer />
+  </AppLayout>
+);
 
 Main.propTypes = {
   classes: PropTypes.object.isRequired,

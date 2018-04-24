@@ -38,7 +38,7 @@ export default class NavigationPanel extends React.PureComponent {
         <ListContainer>
           <List>
             <ListItem>
-              <ListItemText disableTypography >
+              <ListItemText disableTypography>
                 <Typography variant="title">Gennaro Anesi</Typography>
               </ListItemText>
             </ListItem>

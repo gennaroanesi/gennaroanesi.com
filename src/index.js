@@ -10,7 +10,6 @@ import { MuiThemeProvider } from 'material-ui/styles';
 
 import Main from './pages/Main';
 import Feedback from './pages/Feedback';
-import HiddenFeatures from './pages/HiddenFeatures';
 
 import configureStore from './store/configure';
 import materialUiTheme from './theme/config';
@@ -24,7 +23,6 @@ const store = configureStore();
 
 const Routes = () => (
   <div>
-    <Route component={HiddenFeatures} />
     <Switch>
       <Route path="/" exact component={Main} />
       <Route path="/feedback" component={Feedback} />

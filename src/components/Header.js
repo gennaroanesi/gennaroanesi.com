@@ -5,7 +5,6 @@ import { connect } from 'react-redux';
 
 import AppBar from 'material-ui/AppBar';
 import MaterialToolbar from 'material-ui/Toolbar';
-import Typography from 'material-ui/Typography';
 import IconButton from 'material-ui/IconButton';
 import MenuIcon from 'material-ui-icons/Menu';
 
@@ -16,21 +15,9 @@ const Container = styled(AppBar)`
 `;
 
 const Logo = styled.img`
- && {
-   height: 50px;
-   width: auto;
- }
-`
-
-const Title = styled(Typography)`
   && {
-    margin-left: 10px;
-  }
-`;
-
-const MeetText = styled(Typography)`
-  && {
-    text-align: right;
+    height: 50px;
+    width: auto;
   }
 `;
 
@@ -48,13 +35,6 @@ const LineBlock = styled.div`
 `;
 
 class Header extends React.PureComponent {
-  static propTypes = {
-    username: PropTypes.string,
-  };
-
-  static defaultProps = {
-    username: '',
-  };
 
   state = { isPanelOpened: false };
 
@@ -63,8 +43,6 @@ class Header extends React.PureComponent {
   };
 
   render() {
-    const { username } = this.props;
-    const meetText = username ? `Hello, ${username}!` : 'Hello!';
     return (
       <Container position="static" color="primary">
         <Toolbar>
@@ -78,9 +56,6 @@ class Header extends React.PureComponent {
             </IconButton>
             <Logo src="/statics/logo.png" alt="Gennaro Anesi" />
           </LineBlock>
-          <LineBlock>
-            <MeetText>{meetText}</MeetText>
-          </LineBlock>
         </Toolbar>
         <NavigationPanel
           isOpened={this.state.isPanelOpened}
@@ -91,8 +66,10 @@ class Header extends React.PureComponent {
   }
 }
 
+/*
 const mapStateToProps = state => ({
   username: state.get('user').get('name'),
 });
+*/
 
-export default connect(mapStateToProps)(Header);
+export default connect()(Header);

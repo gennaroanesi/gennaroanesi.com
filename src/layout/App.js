@@ -9,14 +9,15 @@ const Container = styled.div`
   flex-direction: column;
   min-height: 100vh;
   overflow: hidden;
-  height: 100vh;  
+  height: 100vh;
   background: url('/statics/home-background-2.jpg') no-repeat center center,
-    linear-gradient(45deg, 
-    rgba(51,51,51,0.7) 30%,
-    rgba(120,120,140,0.5) 60%, 
-    rgba(253,184,19,0.5) 90%
+    linear-gradient(
+      45deg,
+      rgba(51, 51, 51, 0.7) 30%,
+      rgba(120, 120, 140, 0.5) 60%,
+      rgba(253, 184, 19, 0.5) 90%
     );
-    
+
   background-blend-mode: darken;
   background-size: cover;
 
