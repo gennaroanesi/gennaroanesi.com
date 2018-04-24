@@ -5,9 +5,12 @@ import PropTypes from 'prop-types';
 
 import Drawer from 'material-ui/Drawer';
 import List, { ListItem, ListItemIcon, ListItemText } from 'material-ui/List';
+import Typography from 'material-ui/Typography';
 import Divider from 'material-ui/Divider';
 import HomeIcon from 'material-ui-icons/Home';
-import FeedbackIcon from 'material-ui-icons/Feedback';
+import Timeline from 'material-ui-icons/Timeline';
+import DoneAll from 'material-ui-icons/DoneAll';
+import Build from 'material-ui-icons/Build';
 import CodeIcon from 'material-ui-icons/Code';
 
 import { AUTHOR_GITHUB } from '../constants/contact-info';
@@ -29,13 +32,15 @@ export default class NavigationPanel extends React.PureComponent {
         type="temporary"
         anchor="left"
         open={isOpened}
-        onRequestClose={toggle}
+        onClose={toggle}
         ModalProps={{ keepMounted: true }}
       >
         <ListContainer>
           <List>
             <ListItem>
-              <ListItemText primary="App v0.0.1" />
+              <ListItemText disableTypography >
+                <Typography variant="title">Gennaro Anesi</Typography>
+              </ListItemText>
             </ListItem>
           </List>
           <Divider />
@@ -46,11 +51,23 @@ export default class NavigationPanel extends React.PureComponent {
               </ListItemIcon>
               <ListItemText primary="Home" />
             </ListItem>
-            <ListItem button component={Link} to="/feedback">
+            <ListItem button component={Link} to="/timeline">
               <ListItemIcon>
-                <FeedbackIcon />
+                <Timeline />
               </ListItemIcon>
-              <ListItemText primary="Feedback" />
+              <ListItemText primary="Timeline" />
+            </ListItem>
+            <ListItem button component={Link} to="/projects">
+              <ListItemIcon>
+                <DoneAll />
+              </ListItemIcon>
+              <ListItemText primary="Projects" />
+            </ListItem>
+            <ListItem button component={Link} to="/technology">
+              <ListItemIcon>
+                <Build />
+              </ListItemIcon>
+              <ListItemText primary="Technologies & Tools" />
             </ListItem>
           </List>
           <Divider />
@@ -58,13 +75,13 @@ export default class NavigationPanel extends React.PureComponent {
             <ListItem
               button
               onClick={() =>
-                window.open(`${AUTHOR_GITHUB}/MUISCRR-boilerplate`, '_blank')
+                window.open(`${AUTHOR_GITHUB}/gennaroanesi.com`, '_blank')
               }
             >
               <ListItemIcon>
                 <CodeIcon />
               </ListItemIcon>
-              <ListItemText primary="Go to code" />
+              <ListItemText primary="View code" />
             </ListItem>
           </List>
         </ListContainer>

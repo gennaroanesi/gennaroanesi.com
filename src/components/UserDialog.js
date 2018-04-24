@@ -45,7 +45,7 @@ export default class UserDialog extends React.PureComponent {
         open={isOpened}
         transition={Transition}
         keepMounted
-        onRequestClose={this.onSetName}
+        onClose={this.onSetName}
       >
         <DialogTitle>First time here..?</DialogTitle>
         <DialogContent>

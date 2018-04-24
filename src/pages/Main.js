@@ -1,84 +1,76 @@
 import React from 'react';
+import PropTypes from 'prop-types';
+import classNames from 'classnames';
 import styled from 'styled-components';
-
-import MuiExpansionPanel, {
-  ExpansionPanelSummary,
-  ExpansionPanelDetails as MuiExpansionPanelDetails,
-} from 'material-ui/ExpansionPanel';
 import Typography from 'material-ui/Typography';
-import ExpandMoreIcon from 'material-ui-icons/ExpandMore';
+import { withStyles } from 'material-ui/styles';
+import Typist from 'react-typist';
+
 
 import AppLayout from '../layout/App';
 import ContentLayout from '../layout/Content';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 
-const PanelContainer = styled.div`
-  && {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    height: calc(100% - 60px);
-    opacity: 0.8;
-    width: 90%;
-    margin: 0 auto;
+const Wrapper = styled.div`
+  {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%,-50%);    
   }
 `;
 
-const ExpansionPanelDetails = styled(MuiExpansionPanelDetails)`
-  && {
-    display: flex;
-    flex-direction: column;
-  }
-`;
+const styles = {
+  title: {
+    color: 'rgba(255,255,255,0.9)',
+  },
+  secondaryText: {
+    color: 'rgba(220,220,220,0.9)',
+  },
+};
 
-const ExpansionPanel = styled(MuiExpansionPanel)`
-  && {
-    width: 100%;
-  }
-`;
 
-export default class Main extends React.PureComponent {
-  render() {
-    return (
-      <AppLayout>
-        <Header />
-        <ContentLayout>
-          <PanelContainer>
-            <ExpansionPanel>
-              <ExpansionPanelSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography>How can it help?</Typography>
-              </ExpansionPanelSummary>
-              <ExpansionPanelDetails>
-                <Typography>
-                  This project can help you to easy start new project with
-                  latest trends.
-                </Typography>
-                <Typography>
-                  Material UI, Styled Components, React, Redux, Offline mode,
-                  Redux Saga, Webpack are used.
-                </Typography>
-              </ExpansionPanelDetails>
-            </ExpansionPanel>
-            <ExpansionPanel>
-              <ExpansionPanelSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography>Have question...</Typography>
-              </ExpansionPanelSummary>
-              <ExpansionPanelDetails>
-                <Typography>
-                  Do not hesitate to ask any kind of questions in issues.
-                </Typography>
-                <Typography>
-                  You can suggest any additinal feature and if it is interesting
-                  - it is most likely will be added here!
-                </Typography>
-              </ExpansionPanelDetails>
-            </ExpansionPanel>
-          </PanelContainer>
-        </ContentLayout>
-        <Footer />
-      </AppLayout>
-    );
-  }
+const Main = ({ classes }) => {
+  return (
+    <AppLayout>
+      <Header />
+      <ContentLayout>
+        <Wrapper>
+          <Typography
+            className={classNames(classes.title)}
+            variant="display3"
+            align="center"
+            gutterBottom
+          >
+            Gennaro Anesi
+          </Typography>
+          <Typography
+            className={classNames(classes.secondaryText)}
+            variant="title"
+            align="center"
+            gutterBottom
+          >
+            <Typist
+              avgTypingDelay={50}
+              startDelay={500}
+              cursor={{
+                hideWhenDone: true,
+                hideWhenDoneDelay: 200,
+              }}
+            >
+              Making smarter businesses.
+            </Typist>
+          </Typography>
+        </Wrapper>
+      </ContentLayout>
+      <Footer/>
+    </AppLayout>
+  );
 }
+
+Main.propTypes = {
+  classes: PropTypes.object.isRequired,
+};
+
+export default withStyles(styles)(Main);

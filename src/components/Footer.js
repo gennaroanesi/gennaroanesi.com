@@ -1,11 +1,15 @@
 import React from 'react';
 import styled from 'styled-components';
-
+import PropTypes from 'prop-types';
+import classNames from 'classnames';
 import List, { ListItem, ListItemIcon, ListItemText } from 'material-ui/List';
+import Typography from 'material-ui/Typography';
 import DraftsIcon from 'material-ui-icons/Drafts';
 import StarIcon from 'material-ui-icons/Star';
-
+import { withStyles } from 'material-ui/styles/index';
 import { AUTHOR_MAIL, AUTHOR_GITHUB } from '../constants/contact-info';
+
+
 
 const Container = styled(List)`
   && {
@@ -41,8 +45,15 @@ const ListItemContainer = styled(ListItem)`
   }
 `;
 
-export default class Footer extends React.PureComponent {
+const styles = {
+  whiteText: {
+    color: 'rgba(255, 255, 255, 0.68)',
+  },
+};
+
+class Footer extends React.PureComponent {
   render() {
+    const { classes } = this.props;
     return (
       <Container>
         <ListContainer>
@@ -50,7 +61,11 @@ export default class Footer extends React.PureComponent {
             button
             onClick={() => window.open(AUTHOR_GITHUB, '_blank')}
           >
-            <ListItemText primary="© 2017, Yankouskia Aliaksandr" />
+            <ListItemText
+              disableTypography
+            >
+              <Typography className={classNames(classes.whiteText)}>© 2018, Gennaro Anesi</Typography>
+            </ListItemText>
           </ListItemContainer>
         </ListContainer>
         <ListContainer>
@@ -58,22 +73,22 @@ export default class Footer extends React.PureComponent {
             button
             onClick={() =>
               window.open(
-                `mailto:${AUTHOR_MAIL}?subject=Question&body=Hi, Alex!`,
+                `mailto:${AUTHOR_MAIL}?subject=Question&body=Hi, Gennaro!`,
               )
             }
           >
             <ListItemIcon>
-              <DraftsIcon />
+              <DraftsIcon className={classNames(classes.whiteText)} />
             </ListItemIcon>
           </ListItemContainer>
           <ListItemContainer
             button
             onClick={() =>
-              window.open(`${AUTHOR_GITHUB}/MUISCRR-boilerplate`, '_blank')
+              window.open(`${AUTHOR_GITHUB}/gennaroanesi.com`, '_blank')
             }
           >
             <ListItemIcon>
-              <StarIcon />
+              <StarIcon className={classNames(classes.whiteText)} />
             </ListItemIcon>
           </ListItemContainer>
         </ListContainer>
@@ -81,3 +96,9 @@ export default class Footer extends React.PureComponent {
     );
   }
 }
+
+Footer.propTypes = {
+  classes: PropTypes.object.isRequired,
+};
+
+export default withStyles(styles)(Footer);

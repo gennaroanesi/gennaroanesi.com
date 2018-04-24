@@ -15,6 +15,13 @@ const Container = styled(AppBar)`
   min-height: 5vh;
 `;
 
+const Logo = styled.img`
+ && {
+   height: 50px;
+   width: auto;
+ }
+`
+
 const Title = styled(Typography)`
   && {
     margin-left: 10px;
@@ -64,12 +71,12 @@ class Header extends React.PureComponent {
           <LineBlock>
             <IconButton
               onClick={this.togglePanel}
-              color="contrast"
+              color="default"
               aria-label="Menu"
             >
               <MenuIcon />
             </IconButton>
-            <Title type="title">Application</Title>
+            <Logo src="/statics/logo.png" alt="Gennaro Anesi" />
           </LineBlock>
           <LineBlock>
             <MeetText>{meetText}</MeetText>
