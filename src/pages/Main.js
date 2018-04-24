@@ -56,7 +56,7 @@ const Main = ({ classes }) => (
               hideWhenDoneDelay: 200,
             }}
           >
-            Making smarter businesses.
+            Making businesses smarter
           </Typist>
         </Typography>
       </Wrapper>
