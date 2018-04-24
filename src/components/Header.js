@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import PropTypes from 'prop-types';
+// import PropTypes from 'prop-types';
 import { connect } from 'react-redux';
 
 import AppBar from 'material-ui/AppBar';
@@ -35,7 +35,6 @@ const LineBlock = styled.div`
 `;
 
 class Header extends React.PureComponent {
-
   state = { isPanelOpened: false };
 
   togglePanel = () => {
