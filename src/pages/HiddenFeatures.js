@@ -1,7 +1,7 @@
 import React from 'react';
 import { connect } from 'react-redux';
 import PropTypes from 'prop-types';
-import UserDialog from '../components/UserDialog';
+import UserDialog from '../presentational/UserDialog';
 import { SAVE_USER_NAME } from '../constants/actions';
 
 class HiddenFeatures extends React.PureComponent {

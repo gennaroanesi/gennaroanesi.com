@@ -27,8 +27,8 @@ const Container = styled(List)`
     flex: 0;
     padding: 0;
     overflow: hidden;
-    min-height: 60px;
-    height: 60px;
+    min-height: 40px;
+    height: 40px;
   }
 `;
 
@@ -40,7 +40,7 @@ const ListContainer = styled(List)`
     padding: 0;
     overflow: hidden;
     flex-grow: 0;
-    height: 60px;
+    height: 40px;
     padding-bottom: 15px;
   }
 `;

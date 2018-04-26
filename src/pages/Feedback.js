@@ -10,8 +10,8 @@ import Typography from 'material-ui/Typography';
 
 import AppLayout from '../layout/App';
 import ContentLayout from '../layout/Content';
-import Header from '../components/Header';
-import Footer from '../components/Footer';
+import Header from '../presentational/Header';
+import Footer from '../presentational/Footer';
 import { SEND_FEEDBACK } from '../constants/actions';
 import TextField from '../form-wrappers/TextField';
 import { REQUIRED_FIELDS, FORM_NAME } from '../constants/feedback-form';

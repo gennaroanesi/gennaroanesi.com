@@ -8,8 +8,8 @@ import Typist from 'react-typist';
 
 import AppLayout from '../layout/App';
 import ContentLayout from '../layout/Content';
-import Header from '../components/Header';
-import Footer from '../components/Footer';
+import Header from '../presentational/Header';
+import Footer from '../presentational/Footer';
 
 const Wrapper = styled.div`
    {

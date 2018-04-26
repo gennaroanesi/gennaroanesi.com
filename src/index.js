@@ -9,7 +9,7 @@ import injectTapEventPlugin from 'react-tap-event-plugin';
 import { MuiThemeProvider } from 'material-ui/styles';
 
 import Main from './pages/Main';
-import Feedback from './pages/Feedback';
+import TechNTools from './pages/TechNTools';
 
 import configureStore from './store/configure';
 import materialUiTheme from './theme/config';
@@ -25,7 +25,7 @@ const Routes = () => (
   <div>
     <Switch>
       <Route path="/" exact component={Main} />
-      <Route path="/feedback" component={Feedback} />
+      <Route path="/tech-n-tools" component={TechNTools} />
     </Switch>
   </div>
 );

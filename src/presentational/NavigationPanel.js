@@ -63,7 +63,7 @@ export default class NavigationPanel extends React.PureComponent {
               </ListItemIcon>
               <ListItemText primary="Projects" />
             </ListItem>
-            <ListItem button component={Link} to="/technology">
+            <ListItem button component={Link} to="/tech-n-tools">
               <ListItemIcon>
                 <Build />
               </ListItemIcon>

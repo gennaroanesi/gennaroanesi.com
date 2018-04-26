@@ -8,8 +8,6 @@ const Container = styled.div`
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  overflow: hidden;
-  height: 100vh;
   background: url('/statics/home-background-2.jpg') no-repeat center center,
     linear-gradient(
       45deg,
@@ -24,7 +22,7 @@ const Container = styled.div`
   & ${ContentContainer} {
     position: relative;
     flex-grow: 1;
-    height: calc(100% - 60px);
+    height: calc(100% - 40px);
   }
 `;
 
