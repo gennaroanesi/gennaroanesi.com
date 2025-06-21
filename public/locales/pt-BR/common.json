@@ -1,0 +1,130 @@
+{
+  "navbar": {
+    "home": "Home",
+    "welcome": "Bem-vindo",
+    "wedding": "Casamento",
+    "tips": "Dicas de Viagem",
+    "about_us": "Os noivos",
+    "language": "País",
+    "message_board": "Mural de Mensagens"
+  },
+  "home": {
+    "coming_soon": "Em breve...",
+    "home": "Home",
+    "welcome": "Bem-vindo",
+    "welcome_title": "Seja Bem-Vindo",
+    "welcome_text": "Estamos muito felizes por você estar aqui!\nNosso casamento está chegando, e estamos animados para compartilhar todos os detalhes deste momento tão especial. Aqui você vai encontrar todas as informações sobre o nosso dia, incluindo dicas importantes.",
+    "wedding": "Casamento",
+    "wedding_title": "Nosso Casamento",
+    "wedding_date": "Sábado, 20 de Setembro de 2025 - 16h30",
+    "wedding_location": "Gramado - RS",
+    "rsvp": "Confirme sua presença",
+    "leave_a_message": "Escreva uma mensagem!",
+    "tips": "Dicas",
+    "tips_title": "Dicas e Informações Importantes",
+    "tips_subtitle": "Clique nos botões abaixo para recomendações detalhadas dos noivos!",
+    "tips_buttons": {
+      "hotels": "Hoteis",
+      "food": "Restaurantes",
+      "beauty": "Beleza",
+      "things": "Passeios"
+    },
+    "countdown": {
+      "title": "Em contagem regressiva:",
+      "subtitle": "Faltam...",
+      "days": "dias",
+      "hours": "horas",
+      "minutes": "minutos",
+      "seconds": "segundos",
+      "footer": "para o grande dia!"
+    }
+  },
+  "travel_tips": {
+    "tips_title": "Dicas para viagem",
+    "tips_intro": "O casamento acontecerá na cidade de Gramado, no estado do Rio Grande do Sul — o estado mais ao sul do Brasil e onde os noivos nasceram. A cidade faz parte da Serra Gaúcha, uma região montanhosa cuja arquitetura, gastronomia e cultura são fortemente influenciadas pelas raízes alemãs e italianas. Gramado é um destino turístico amplamente conhecido no Brasil, oferecendo diversas opções de lazer, passeios, restaurantes e hospedagem.",
+    "hotels_title": "Hoteis",
+    "hotels_caption": "Sugerimos hotéis na região do centro de Gramado, que ficam a aproximadamente 20 minutos do local do casamento. Há serviço de Uber na cidade e disponibilizaremos transporte para a volta.",
+    "beauty_title": "Beleza",
+    "food_title": "Restaurante",
+    "things_to_do_title": "Passeios"
+  },
+  "rsvp": {
+    "name_label": "Nome",
+    "name_placeholder": "Por favor insira o seu nome",
+    "name_error_message": "Por favor verifique o seu nome",
+    "email_label": "Email",
+    "email_placeholder": "Por favor insira o seu email",
+    "email_error_message": "Por favor verifique o seu email",
+    "phone_label": "Telefone",
+    "phone_placeholder": "Por favor insira o seu telefone",
+    "phone_error_message": "Por favor verifique o seu telefone",
+    "phone_description": "Será usado para entrar em contato se necessário",
+    "phone_contact_opt_in": "Aceito receber mensagens via SMS/Whatsapp com informações sobre o casamento",
+    "plus_one_label": "Levará +1 (se aplicável)",
+    "plus_one_placeholder": "Nome +1",
+    "plus_one_error_message": "Por favor verifique o nome do seu +1",
+    "kids_label": "Levará Criancas",
+    "kid_name": "Crianca",
+    "too_many_kids_1": "Serinho?",
+    "too_many_kids_2": "Jura?",
+    "food_restrictions_label": "Restrições alimentares",
+    "food_restriction_list": ["Vegano", "Vegetariano", "Alergia a gluten"],
+    "leave_a_message_label": "Deixe uma mensagem para os noivos!",
+    "leave_a_message_placeholder": "Mensagem",
+    "success_message": "Confirmado! Estamos muito felizes por compartilhar esse momento com você!",
+    "error_message": "Huh... Gennaro esqueceu de fazer essa parte do site..."
+  },
+  "message_us": {
+    "leave_a_message": "Escreva uma mensagem!",
+    "name_label": "Nome",
+    "name_placeholder": "Por favor insira o seu nome",
+    "leave_a_message_label": "Deixe uma mensagem para os noivos!",
+    "leave_a_message_placeholder": "Aproveite para nos contar qual música você acha que PRECISA estar na playlist do casamento!",
+    "send": "Enviar",
+    "success_message": "Successo!"
+  },
+  "dress_code": {
+    "title": "Dress Code",
+    "intro_text": "Para nosso casamento, escolhemos o traje Social, também conhecido como Passeio Completo, que é composto por uma vestimenta mais formal. A cerimônia será realizada ao ar livre, seguida de recepção em espaço fechado.",
+    "women": "Mulheres",
+    "men": "Homens",
+    "women_text": "Vestido longo ou midi, brilhos são bem-vindos. Saltos muito finos não são recomendados, pois parte do evento acontecerá em área externa. Como a temperatura pode cair à noite, sugerimos levar uma pashmina.",
+    "men_text": "Terno completo com camisa e gravata.",
+    "close": "Fechar"
+  },
+  "about_us": {
+    "timeline_title": "Nossa Linha do Tempo",
+    "timeline_items": [
+      {
+        "date": "Jun, 2015",
+        "upper_caption": "First Date",
+        "title": "Went to a soccer match",
+        "description": ""
+      },
+      {
+        "date": "Jun, 2015",
+        "upper_caption": "*A bit of a mishap...*",
+        "title": "Appeared on local news",
+        "description": "After having their car stolen, appeared on local news"
+      },
+      {
+        "date": "MM, YYYY",
+        "upper_caption": "The first move",
+        "title": "Gennaro moves to Sao Paulo",
+        "description": ""
+      },
+      {
+        "date": "MM, YYYY",
+        "upper_caption": "Going abroad",
+        "title": "Move to the US",
+        "description": ""
+      },
+      {
+        "date": "MM, YYYY",
+        "upper_caption": "Furry love",
+        "title": "Say hi to Dolce!",
+        "description": "This should be **bold**"
+      }
+    ]
+  }
+}

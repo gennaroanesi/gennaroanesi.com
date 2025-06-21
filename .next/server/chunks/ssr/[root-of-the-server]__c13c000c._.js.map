@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 55, "column": 0}, "map": {"version":3,"sources":["file:///home/gennaroanesi/repositories/gennaroanesi.com/pages/_document.tsx"],"sourcesContent":["import React from \"react\";\nimport { Html, Head, Main, NextScript } from \"next/document\";\n\nexport default function Document() {\n  return (\n    <Html className=\"fade\" lang=\"en\">\n      <Head />\n      <link\n        rel=\"preload\"\n        href=\"https://use.typekit.net/azs0lbm.css\"\n        as=\"style\"\n      />\n      <link rel=\"stylesheet\" href=\"https://use.typekit.net/azs0lbm.css\" />\n      <body className=\"min-h-screen bg-background font-sans antialiased\">\n        <Main />\n        <NextScript />\n      </body>\n    </Html>\n  );\n}\n"],"names":[],"mappings":";;;;AACA;;;AAEe,SAAS;IACtB,qBACE,qKAAC,yHAAA,CAAA,OAAI;QAAC,WAAU;QAAO,MAAK;;0BAC1B,qKAAC,yHAAA,CAAA,OAAI;;;;;0BACL,qKAAC;gBACC,KAAI;gBACJ,MAAK;gBACL,IAAG;;;;;;0BAEL,qKAAC;gBAAK,KAAI;gBAAa,MAAK;;;;;;0BAC5B,qKAAC;gBAAK,WAAU;;kCACd,qKAAC,yHAAA,CAAA,OAAI;;;;;kCACL,qKAAC,yHAAA,CAAA,aAAU;;;;;;;;;;;;;;;;;AAInB","debugId":null}}]
+}
