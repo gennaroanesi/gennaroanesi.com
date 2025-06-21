@@ -220,26 +220,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   caret-color: #735f55 !important;
 }
 
-.carousel-arrow {
-  fill: #f1f2eb;
-  cursor: pointer;
-  width: 20px;
-  height: 20px;
-  position: absolute;
-  top: 50%;
-  -webkit-transform: translateY(-50%);
-  transform: translateY(-50%);
-}
-
-.carousel-arrow--left {
-  left: 5px;
-}
-
-.carousel-arrow--right {
-  left: auto;
-  right: 5px;
-}
-
 *, :before, :after, ::backdrop {
   --tw-border-spacing-x: 0;
   --tw-border-spacing-y: 0;
@@ -880,16 +860,8 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   height: 100dvh;
 }
 
-.h-\[250px\] {
-  height: 250px;
-}
-
 .h-\[2px\] {
   height: 2px;
-}
-
-.h-\[400px\] {
-  height: 400px;
 }
 
 .h-\[40px\] {
@@ -1096,10 +1068,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   width: .875rem;
 }
 
-.w-36 {
-  width: 9rem;
-}
-
 .w-4 {
   width: 1rem;
 }
@@ -1126,10 +1094,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .w-\[25\%\] {
   width: 25%;
-}
-
-.w-\[250px\] {
-  width: 250px;
 }
 
 .w-\[80\%\] {
@@ -1350,10 +1314,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .basis-1\/5 {
   flex-basis: 20%;
-}
-
-.basis-2\/4 {
-  flex-basis: 50%;
 }
 
 .table-auto {
@@ -1888,10 +1848,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   white-space: nowrap;
 }
 
-.whitespace-pre-line {
-  white-space: pre-line;
-}
-
 .break-words {
   overflow-wrap: break-word;
 }
@@ -2110,10 +2066,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 .border-background {
   --tw-border-opacity: 1;
   border-color: hsl(var(--heroui-background) / var(--heroui-background-opacity, var(--tw-border-opacity)));
-}
-
-.border-current {
-  border-color: currentColor;
 }
 
 .border-danger {
@@ -2338,11 +2290,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .\!bg-transparent {
   background-color: #0000 !important;
-}
-
-.bg-alternateBackgroundColor {
-  --tw-bg-opacity: 1;
-  background-color: rgb(172 162 156 / var(--tw-bg-opacity));
 }
 
 .bg-background {
@@ -2590,11 +2537,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   background-color: rgb(255 255 255 / var(--tw-bg-opacity));
 }
 
-.bg-whiteishText {
-  --tw-bg-opacity: 1;
-  background-color: rgb(241 242 235 / var(--tw-bg-opacity));
-}
-
 .bg-gradient-to-b {
   background-image: linear-gradient(to bottom, var(--tw-gradient-stops));
 }
@@ -2784,10 +2726,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   padding: .25rem;
 }
 
-.p-16 {
-  padding: 4rem;
-}
-
 .p-2 {
   padding: .5rem;
 }
@@ -2802,10 +2740,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .p-4 {
   padding: 1rem;
-}
-
-.p-8 {
-  padding: 2rem;
 }
 
 .\!px-1 {
@@ -2831,11 +2765,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 .px-1\.5 {
   padding-left: .375rem;
   padding-right: .375rem;
-}
-
-.px-16 {
-  padding-left: 4rem;
-  padding-right: 4rem;
 }
 
 .px-2 {
@@ -2898,11 +2827,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   padding-bottom: .375rem;
 }
 
-.py-12 {
-  padding-top: 3rem;
-  padding-bottom: 3rem;
-}
-
 .py-16 {
   padding-top: 4rem;
   padding-bottom: 4rem;
@@ -2926,16 +2850,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 .py-4 {
   padding-top: 1rem;
   padding-bottom: 1rem;
-}
-
-.py-6 {
-  padding-top: 1.5rem;
-  padding-bottom: 1.5rem;
-}
-
-.py-8 {
-  padding-top: 2rem;
-  padding-bottom: 2rem;
 }
 
 .\!pb-0 {
@@ -2964,10 +2878,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .pb-4 {
   padding-bottom: 1rem;
-}
-
-.pb-8 {
-  padding-bottom: 2rem;
 }
 
 .pe-2 {
@@ -3016,10 +2926,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .pt-0 {
   padding-top: 0;
-}
-
-.pt-10 {
-  padding-top: 2.5rem;
 }
 
 .pt-2 {
@@ -3093,20 +2999,8 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   font-size: 100%;
 }
 
-.text-\[1rem\] {
-  font-size: 1rem;
-}
-
 .text-\[2\.3rem\] {
   font-size: 2.3rem;
-}
-
-.text-\[3rem\] {
-  font-size: 3rem;
-}
-
-.text-\[4rem\] {
-  font-size: 4rem;
 }
 
 .text-\[6rem\] {
@@ -3261,11 +3155,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .text-danger\/80 {
   color: hsl(var(--heroui-danger) / .8);
-}
-
-.text-darkGreen {
-  --tw-text-opacity: 1;
-  color: rgb(27 39 39 / var(--tw-text-opacity));
 }
 
 .text-default {
@@ -4261,16 +4150,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .spinner-dot-blink-animation {
   animation-delay: calc(.2s * var(--dot-index));
-}
-
-.animate-fade {
-  opacity: 0;
-  animation-name: fade-in;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-  animation-timeline: view();
-  animation-range: entry 30vh;
-  scale: 1;
 }
 
 .blur-navbar {
@@ -5377,16 +5256,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 
 .autofill\:bg-transparent:autofill {
   background-color: #0000;
-}
-
-.autofill\:\!text-mainTextColor:-webkit-autofill {
-  --tw-text-opacity: 1 !important;
-  color: rgb(115 95 85 / var(--tw-text-opacity)) !important;
-}
-
-.autofill\:\!text-mainTextColor:autofill {
-  --tw-text-opacity: 1 !important;
-  color: rgb(115 95 85 / var(--tw-text-opacity)) !important;
 }
 
 .focus-within\:border-danger:focus-within {
@@ -9250,38 +9119,9 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   .md\:w-1\/2 {
     width: 50%;
   }
-
-  .md\:flex-row {
-    flex-direction: row;
-  }
-
-  .md\:text-\[1\.2rem\] {
-    font-size: 1.2rem;
-  }
-
-  .md\:text-\[1\.5rem\] {
-    font-size: 1.5rem;
-  }
-
-  .md\:text-\[5rem\] {
-    font-size: 5rem;
-  }
-
-  .md\:text-\[6rem\] {
-    font-size: 6rem;
-  }
 }
 
 @media (width >= 1024px) {
-  .lg\:m-auto {
-    margin: auto;
-  }
-
-  .lg\:mx-auto {
-    margin-left: auto;
-    margin-right: auto;
-  }
-
   .lg\:block {
     display: block;
   }
@@ -9294,30 +9134,8 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
     display: none;
   }
 
-  .lg\:w-1\/2 {
-    width: 50%;
-  }
-
   .lg\:w-1\/4 {
     width: 25%;
-  }
-
-  .lg\:max-w-screen-lg {
-    max-width: 1024px;
-  }
-
-  .lg\:max-w-screen-xl {
-    max-width: 1280px;
-  }
-
-  .lg\:px-4 {
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
-
-  .lg\:py-16 {
-    padding-top: 4rem;
-    padding-bottom: 4rem;
   }
 
   .lg\:align-middle {
@@ -9337,10 +9155,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
   .lg\:text-6xl {
     font-size: 3.75rem;
     line-height: 1;
-  }
-
-  .lg\:text-\[6rem\] {
-    font-size: 6rem;
   }
 
   .lg\:text-\[8rem\] {
@@ -9366,18 +9180,6 @@ input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:foc
 }
 
 @media (width >= 1280px) {
-  .xl\:h-\[500px\] {
-    height: 500px;
-  }
-
-  .xl\:h-\[650px\] {
-    height: 650px;
-  }
-
-  .xl\:w-\[500px\] {
-    width: 500px;
-  }
-
   .xl\:bg-center {
     background-position: center;
   }

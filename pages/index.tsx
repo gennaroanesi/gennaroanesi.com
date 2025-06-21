@@ -1,14 +1,7 @@
 import React from "react";
 import DefaultLayout from "@/layouts/default";
-import { useTranslation } from "next-i18next";
-
-import type { GetStaticProps } from "next";
-
-import { serverSideTranslations } from "next-i18next/serverSideTranslations";
 
 export default function IndexPage({}) {
-  const { t, i18n } = useTranslation("common");
-
   return (
     <DefaultLayout>
       <div className="relative mt-[-4rem] bg-darkGreen">
@@ -28,12 +21,3 @@ export default function IndexPage({}) {
     </DefaultLayout>
   );
 }
-
-export const getStaticProps: GetStaticProps = async ({ locale }) => ({
-  props: {
-    ...(await serverSideTranslations(locale ?? "en", ["common"], null, [
-      "en",
-      "pt-BR",
-    ])),
-  },
-});

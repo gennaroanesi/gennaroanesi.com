@@ -1,33 +1,33 @@
 globalThis.__BUILD_MANIFEST = {
   "pages": {
     "/": [
-      "static/chunks/node_modules_@heroui_dom-animation_dist_index_mjs_e9b9577f._.js",
-      "static/chunks/node_modules_next_8699da97._.js",
+      "static/chunks/node_modules_@heroui_dom-animation_dist_index_mjs_658c29db._.js",
+      "static/chunks/node_modules_next_c3be3e08._.js",
       "static/chunks/node_modules_react_1cad9b0b._.js",
       "static/chunks/node_modules_react-dom_cjs_react-dom_development_ab7e073c.js",
       "static/chunks/node_modules_react-dom_f14d0471._.js",
-      "static/chunks/node_modules_@react-aria_06d6d30f._.js",
-      "static/chunks/node_modules_@react-aria_cc447376._.js",
-      "static/chunks/node_modules_@heroui_theme_dist_1e97254a._.js",
       "static/chunks/node_modules_framer-motion_dist_es_8e8b0785._.js",
-      "static/chunks/node_modules_@react-aria_27c462ed._.js",
-      "static/chunks/node_modules_@heroui_b713eaf0._.js",
-      "static/chunks/node_modules_b1b356ab._.js",
-      "static/chunks/[root-of-the-server]__36be3367._.js",
+      "static/chunks/node_modules_@react-aria_75430c75._.js",
+      "static/chunks/node_modules_@react-aria_5ae31139._.js",
+      "static/chunks/node_modules_@heroui_theme_dist_6a4787e0._.js",
+      "static/chunks/node_modules_@heroui_5587c052._.js",
+      "static/chunks/node_modules_@react-aria_3fc9483f._.js",
+      "static/chunks/node_modules_e30dc663._.js",
+      "static/chunks/[root-of-the-server]__698b1f1f._.js",
       "static/chunks/pages_index_5771e187._.js",
-      "static/chunks/pages_index_548f4012._.js"
+      "static/chunks/pages_index_8968d1d7._.js"
     ],
     "/_app": [
-      "static/chunks/node_modules_next_03519191._.js",
+      "static/chunks/node_modules_next_b2e7ba59._.js",
       "static/chunks/node_modules_react_1cad9b0b._.js",
       "static/chunks/node_modules_react-dom_cjs_react-dom_development_ab7e073c.js",
       "static/chunks/node_modules_react-dom_f14d0471._.js",
       "static/chunks/node_modules_@aws-amplify_core_dist_esm_c53de872._.js",
-      "static/chunks/node_modules_2a350237._.js",
-      "static/chunks/[root-of-the-server]__87e6d7d2._.js",
+      "static/chunks/node_modules_4c90a4ea._.js",
+      "static/chunks/[root-of-the-server]__48acbdc5._.js",
       "static/chunks/styles_globals_79636149.css",
       "static/chunks/pages__app_5771e187._.js",
-      "static/chunks/pages__app_310d9604._.js"
+      "static/chunks/pages__app_ff2af2d8._.js"
     ]
   },
   "devFiles": [],
