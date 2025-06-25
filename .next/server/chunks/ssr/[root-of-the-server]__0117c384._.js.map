@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 104, "column": 0}, "map": {"version":3,"sources":["file:///home/gennaroanesi/repositories/gennaroanesi.com/pages/_app.tsx"],"sourcesContent":["import type { AppProps } from \"next/app\";\n\nimport { HeroUIProvider } from \"@heroui/system\";\nimport { ThemeProvider as NextThemesProvider } from \"next-themes\";\nimport { useRouter } from \"next/router\";\n\nimport \"@/styles/globals.css\";\n\nimport { Amplify } from \"aws-amplify\";\nimport outputs from \"@/amplify_outputs.json\";\n\nAmplify.configure(outputs);\n\nexport default function App({ Component, pageProps }: AppProps) {\n  const router = useRouter();\n\n  return (\n    <NextThemesProvider>\n      <div>\n        <HeroUIProvider navigate={router.push}>\n          <Component {...pageProps} />\n        </HeroUIProvider>\n      </div>\n    </NextThemesProvider>\n  );\n}\n"],"names":[],"mappings":";;;;AAEA;AACA;AACA;AAIA;AACA;;;;;;;;;;;;;AAEA,4HAAA,CAAA,UAAO,CAAC,SAAS,CAAC,uFAAA,CAAA,UAAO;AAEV,SAAS,IAAI,EAAE,SAAS,EAAE,SAAS,EAAY;IAC5D,MAAM,SAAS,CAAA,GAAA,uHAAA,CAAA,YAAS,AAAD;IAEvB,qBACE,qKAAC,qHAAA,CAAA,gBAAkB;kBACjB,cAAA,qKAAC;sBACC,cAAA,qKAAC,oIAAA,CAAA,iBAAc;gBAAC,UAAU,OAAO,IAAI;0BACnC,cAAA,qKAAC;oBAAW,GAAG,SAAS;;;;;;;;;;;;;;;;;;;;;AAKlC","debugId":null}}]
-}
