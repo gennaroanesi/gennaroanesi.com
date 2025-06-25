@@ -16,8 +16,10 @@ export const auth = defineAuth({
     },
   },
   userAttributes: {
-    fullname: {
+    "custom:full_name": {
+      dataType: "String",
       mutable: true,
+      minLen: 1,
     },
   },
 });
