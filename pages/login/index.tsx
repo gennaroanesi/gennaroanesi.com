@@ -1,3 +1,5 @@
+"use client";
+
 import React, { FormEvent, useState, useEffect } from "react";
 import { useRouter } from "next/router";
 
@@ -12,9 +14,11 @@ import {
 } from "aws-amplify/auth";
 import { Amplify } from "aws-amplify";
 
-import outputs from "../../amplify_outputs.json";
+import outputs from "@/amplify_outputs.json";
 
 Amplify.configure(outputs);
+
+import DefaultLayout from "@/layouts/default";
 
 import { Tabs, Tab } from "@heroui/tabs";
 import { Card, CardBody } from "@heroui/card";
@@ -24,16 +28,6 @@ import { Button } from "@heroui/button";
 import { Link } from "@heroui/link";
 import { Form } from "@heroui/form";
 import { Progress } from "@heroui/progress";
-import next from "next";
-
-interface SignInFormElements extends HTMLFormControlsCollection {
-  username: HTMLInputElement;
-  password: HTMLInputElement;
-}
-
-interface SignInForm extends HTMLFormElement {
-  readonly elements: SignInFormElements;
-}
 
 export default function Admin() {
   const router = useRouter();
@@ -109,7 +103,7 @@ export default function Admin() {
         password: data.password.toString(),
         options: {
           userAttributes: {
-            "custom:full_name": name,
+            fullname: name,
           },
         },
       });
@@ -151,135 +145,137 @@ export default function Admin() {
   }
 
   return (
-    <div className="flex justify-center">
-      <div className="w-full py-16 px-8 lg:w-1/4">
-        <Card className="max-w-full">
-          {isLoading ? (
-            <Progress
-              isIndeterminate
-              aria-label="Loading..."
-              className="max-w-md"
-              size="sm"
-            />
-          ) : null}
-          <CardBody className="overflow-hidden">
-            <Tabs
-              fullWidth
-              aria-label="Tabs form"
-              selectedKey={selectedTab}
-              size="md"
-              onSelectionChange={(e) => {
-                setSelectedTab(e.toString());
-                setIsLoading(false);
-              }}
-            >
-              <Tab key="login" title="Login">
-                <Form className="flex flex-col gap-4" onSubmit={handleSignIn}>
-                  <Input
-                    isRequired
-                    name="email"
-                    label="Email"
-                    placeholder="Enter your email"
-                    type="email"
-                    value={username}
-                    onValueChange={setUsername}
-                  />
-                  <Input
-                    isRequired
-                    name="password"
-                    label="Password"
-                    placeholder="Enter your password"
-                    type="password"
-                    value={password}
-                    onValueChange={setPassword}
-                  />
-                  <p className="text-center text-small">
-                    Need to create an account?{" "}
-                    <Link
-                      className="cursor-pointer"
-                      size="sm"
-                      onPress={() => setSelectedTab("sign-up")}
-                    >
-                      Sign up
-                    </Link>
-                  </p>
-                  <div className="flex gap-2 justify-end">
-                    <Button fullWidth color="primary" type="submit">
-                      Login
-                    </Button>
-                  </div>
-                </Form>
-              </Tab>
-              <Tab key="sign-up" title="Sign up">
-                <Form className="flex flex-col gap-4" onSubmit={handleSignUp}>
-                  <Input
-                    isRequired
-                    name="name"
-                    label="Name"
-                    placeholder="Enter your name"
-                    type="name"
-                    value={name}
-                    onValueChange={setName}
-                  />
-                  <Input
-                    isRequired
-                    name="email"
-                    label="Email"
-                    placeholder="Enter your email"
-                    type="email"
-                    value={username}
-                    onValueChange={setUsername}
-                  />
-                  <Input
-                    isRequired
-                    name="password"
-                    label="Password"
-                    placeholder="Enter your password"
-                    type="password"
-                  />
-                  <p className="text-center text-small">
-                    Already have an account?{" "}
-                    <Link
-                      className="cursor-pointer"
-                      size="sm"
-                      onPress={() => setSelectedTab("login")}
-                    >
-                      Login
-                    </Link>
-                  </p>
-                  <div className="flex gap-2 justify-end">
-                    <Button color="primary" type="submit">
-                      Sign up
-                    </Button>
-                  </div>
-                </Form>
-                <div className="py-4">
-                  {showOtp ? (
-                    <>
-                      <InputOtp
-                        className="py-4"
-                        length={6}
-                        value={otp}
-                        onValueChange={setOtp}
-                        description="Enter your One-Time Passcode"
-                      />
-                      <Button
-                        color="primary"
-                        type="submit"
+    <DefaultLayout>
+      <div className="flex justify-center">
+        <div className="w-full py-16 px-8 lg:w-1/4">
+          <Card className="max-w-full">
+            {isLoading ? (
+              <Progress
+                isIndeterminate
+                aria-label="Loading..."
+                className="max-w-md"
+                size="sm"
+              />
+            ) : null}
+            <CardBody className="overflow-hidden">
+              <Tabs
+                fullWidth
+                aria-label="Tabs form"
+                selectedKey={selectedTab}
+                size="md"
+                onSelectionChange={(e) => {
+                  setSelectedTab(e.toString());
+                  setIsLoading(false);
+                }}
+              >
+                <Tab key="login" title="Login">
+                  <Form className="flex flex-col gap-4" onSubmit={handleSignIn}>
+                    <Input
+                      isRequired
+                      name="email"
+                      label="Email"
+                      placeholder="Enter your email"
+                      type="email"
+                      value={username}
+                      onValueChange={setUsername}
+                    />
+                    <Input
+                      isRequired
+                      name="password"
+                      label="Password"
+                      placeholder="Enter your password"
+                      type="password"
+                      value={password}
+                      onValueChange={setPassword}
+                    />
+                    <p className="text-center text-small">
+                      Need to create an account?{" "}
+                      <Link
+                        className="cursor-pointer"
                         size="sm"
-                        variant="light"
-                        onPress={handleResendOtp}
+                        onPress={() => setSelectedTab("sign-up")}
                       >
-                        Resend OTP
+                        Sign up
+                      </Link>
+                    </p>
+                    <div className="flex gap-2 justify-end">
+                      <Button fullWidth color="primary" type="submit">
+                        Login
                       </Button>
-                    </>
-                  ) : null}
-                </div>
-              </Tab>
-            </Tabs>
-          </CardBody>
-        </Card>
+                    </div>
+                  </Form>
+                </Tab>
+                <Tab key="sign-up" title="Sign up">
+                  <Form className="flex flex-col gap-4" onSubmit={handleSignUp}>
+                    <Input
+                      isRequired
+                      name="name"
+                      label="Name"
+                      placeholder="Enter your name"
+                      type="name"
+                      value={name}
+                      onValueChange={setName}
+                    />
+                    <Input
+                      isRequired
+                      name="email"
+                      label="Email"
+                      placeholder="Enter your email"
+                      type="email"
+                      value={username}
+                      onValueChange={setUsername}
+                    />
+                    <Input
+                      isRequired
+                      name="password"
+                      label="Password"
+                      placeholder="Enter your password"
+                      type="password"
+                    />
+                    <p className="text-center text-small">
+                      Already have an account?{" "}
+                      <Link
+                        className="cursor-pointer"
+                        size="sm"
+                        onPress={() => setSelectedTab("login")}
+                      >
+                        Login
+                      </Link>
+                    </p>
+                    <div className="flex gap-2 justify-end">
+                      <Button color="primary" type="submit">
+                        Sign up
+                      </Button>
+                    </div>
+                  </Form>
+                  <div className="py-4">
+                    {showOtp ? (
+                      <>
+                        <InputOtp
+                          className="py-4"
+                          length={6}
+                          value={otp}
+                          onValueChange={setOtp}
+                          description="Enter your One-Time Passcode"
+                        />
+                        <Button
+                          color="primary"
+                          type="submit"
+                          size="sm"
+                          variant="light"
+                          onPress={handleResendOtp}
+                        >
+                          Resend OTP
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </Tab>
+              </Tabs>
+            </CardBody>
+          </Card>
+        </div>
       </div>
-    </div>
+    </DefaultLayout>
   );
 }

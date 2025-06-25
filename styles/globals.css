@@ -1,3 +1,5 @@
+@import url("https://use.typekit.net/jmz6tea.css");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,7 +7,9 @@
 @layer base {
   html {
     scroll-behavior: smooth;
-    color-scheme: light only;
+    font-family: "source-sans-pro", sans-serif;
+    font-weight: 400;
+    font-style: normal;
   }
   .fade {
     opacity: 1;
@@ -62,8 +66,8 @@
     backdrop-filter: none;
     animation-name: blur-fade-in;
     animation-fill-mode: forwards;
-    animation-timing-function: ease-in;  
-    animation-duration: 1s;  
+    animation-timing-function: ease-in;
+    animation-duration: 1s;
   }
 }
 

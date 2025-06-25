@@ -14,7 +14,9 @@ import {
 } from "@heroui/navbar";
 import { Link } from "@heroui/link";
 import NextLink from "next/link";
-import { Button } from "@heroui/button";
+import Image from "next/image";
+
+import IconSvg from "@/public/icon_svg.svg";
 
 export const Navbar = () => {
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -61,8 +63,8 @@ export const Navbar = () => {
       id="top"
       className={
         router.pathname == "/"
-          ? `bg-transparent backdrop-blur-none text-whiteishText ${offset > 80 ? "blur-navbar" : ""}`
-          : `text-mainTextColor bg-transparent`
+          ? `bg-transparent backdrop-blur-none  ${offset > 80 ? "blur-navbar" : ""}`
+          : `bg-transparent`
       }
       maxWidth="xl"
       position="sticky"
@@ -72,17 +74,12 @@ export const Navbar = () => {
       <NavbarContent className="basis-1/5 sm:basis-full" justify="start">
         <NavbarBrand className="max-w-fit">
           <NextLink className="flex justify-start items-center gap-1" href="/">
-            <p className="hidden lg:block font-bold text-inherit font-FrancieScript text-3xl">
-              GA
-            </p>
-            <p className="display-flex lg:hidden font-bold text-inherit font-FrancieScript text-xl">
-              GA
-            </p>
+            <Image className="w-8 h-8" src={IconSvg} alt="icon" />
           </NextLink>
         </NavbarBrand>
       </NavbarContent>
       <NavbarContent
-        className="hidden lg:flex gap-10 justify-end ml-auto font-CaslonPro font-semibold"
+        className="hidden lg:flex gap-10 justify-end ml-auto font-semibold text-purple"
         justify="end"
       >
         {menuItems.map((item) => (
@@ -94,14 +91,11 @@ export const Navbar = () => {
       {/*Mobile Menu*/}
       <NavbarMenuToggle
         aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-        className="flex lg:hidden"
+        className="flex lg:hidden text-purple"
       />
-      <NavbarMenu className="backdrop-blur-sm bg-transparent backdrop-brightness-[30%] font-CaslonPro uppercase">
+      <NavbarMenu className="backdrop-blur-sm bg-transparent backdrop-brightness-[30%] uppercase">
         {menuItems.map((item, index) => (
-          <NavbarMenuItem
-            key={`${item}-${index}`}
-            className="text-whiteishText"
-          >
+          <NavbarMenuItem key={`${item}-${index}`}>
             {menuOption(item.name, item.href)}
           </NavbarMenuItem>
         ))}

@@ -9,24 +9,16 @@ export default {
     "./node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    fontFamily: {
-      FrancieScript: "var(--font-francie-script)",
-      CaslonPro: "adobe-caslon-pro",
-    },
     extend: {
       colors: {
-        primary: "#aca29c",
+        primary: "#BCABAE",
         secondary: "#4e5e53",
         text: "#aca29c",
-        mainTextColor: "#735f55",
-        alternateBackgroundColor: "#aca29c",
-        lightBackgroundColor: "#f1f2eb",
-        whiteishText: "#f1f2eb",
-        darkGreen: "#1b2727",
-        softGreen: "#4e5e53",
-      },
-      radius: {
-        none: "0px",
+        darkPurple: "#323243",
+        purple: "#3D3D52",
+        rose: "#BCABAE",
+        green: "#587D71",
+        gold: "#DEBA02",
       },
     },
   },
