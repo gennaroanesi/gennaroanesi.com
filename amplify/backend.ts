@@ -5,7 +5,6 @@ import { Bucket } from "aws-cdk-lib/aws-s3";
 import { auth } from "./auth/resource";
 
 // import { data } from "./data/resource";
-// import { storage } from "./storage/resource";
 
 const backend = defineBackend({
   auth,
@@ -14,10 +13,12 @@ const backend = defineBackend({
 });
 
 
+// Use existing gennaroanesi.com bucket
+
 const customBucketStack = backend.createStack("gennaroanesi-bucket-stack");
 
 
-// Import existing bucket
+
 const customBucket = Bucket.fromBucketAttributes(customBucketStack, "gennaroAnesiBucket", {
   bucketArn: "arn:aws:s3:::gennaroanesi.com",
   region: "us-east-1"
@@ -41,6 +42,9 @@ backend.addOutput({
             // "write" and "delete" can also be added depending on your use case
             guest: ["get", "list"], 
           },
+          "*": {
+            authenticated: ["read", "write"]
+          }
         },
       }
     ]
