@@ -14,8 +14,8 @@ import {
 } from "@heroui/navbar";
 import { Link } from "@heroui/link";
 import NextLink from "next/link";
-import Image from "next/image";
 
+import { ReactSVG } from 'react-svg'
 import IconSvg from "@/public/icon_svg.svg";
 
 export const Navbar = () => {
@@ -39,6 +39,10 @@ export const Navbar = () => {
     {
       name: "Home",
       href: "/#top",
+    },
+    {
+      name: "Login",
+      href: "/login",
     },
   ];
 
@@ -74,7 +78,7 @@ export const Navbar = () => {
       <NavbarContent className="basis-1/5 sm:basis-full" justify="start">
         <NavbarBrand className="max-w-fit">
           <NextLink className="flex justify-start items-center gap-1" href="/">
-            <Image className="w-8 h-8" src={IconSvg} alt="icon" />
+            <ReactSVG className="h-8 w-8 fill-purple" src={IconSvg.src} wrapper="svg"/>
           </NextLink>
         </NavbarBrand>
       </NavbarContent>
