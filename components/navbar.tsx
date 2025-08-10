@@ -52,7 +52,7 @@ export const Navbar = () => {
         return (
           <Link
             as={NextLink}
-            className="text-inherit w-full transparent h-[40px] lg:leading-loose lg:align-middle lg:uppercase lg:mix-blend-difference"
+            className="dark:text-rose text-purple w-full transparent h-[40px] lg:leading-loose lg:align-middle lg:uppercase lg:mix-blend-difference"
             href={href}
             size="lg"
           >
@@ -78,7 +78,7 @@ export const Navbar = () => {
       <NavbarContent className="basis-1/5 sm:basis-full" justify="start">
         <NavbarBrand className="max-w-fit">
           <NextLink className="flex justify-start items-center gap-1" href="/">
-            <ReactSVG className="h-8 w-8 fill-purple" src={IconSvg.src} wrapper="svg"/>
+            <ReactSVG className="h-8 w-8 fill-purple dark:fill-rose" src={IconSvg.src} wrapper="svg"/>
           </NextLink>
         </NavbarBrand>
       </NavbarContent>
@@ -95,9 +95,9 @@ export const Navbar = () => {
       {/*Mobile Menu*/}
       <NavbarMenuToggle
         aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-        className="flex lg:hidden text-purple"
+        className="flex lg:hidden text-purple dark:text-rose"
       />
-      <NavbarMenu className="backdrop-blur-sm bg-transparent backdrop-brightness-[30%] uppercase">
+      <NavbarMenu className="backdrop-blur-sm bg-transparent backdrop-brightness-[80%] dark:backdrop-brightness-[30%] uppercase">
         {menuItems.map((item, index) => (
           <NavbarMenuItem key={`${item}-${index}`}>
             {menuOption(item.name, item.href)}
