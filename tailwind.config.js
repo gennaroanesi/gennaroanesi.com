@@ -22,16 +22,20 @@ export default {
       },
     },
   },
-  darkMode: "class",
   plugins: [
     heroui({
       defaultTheme: "light",
       themes: {
         light: {
           colors: {
-            primary: "#aca29c",
+            primary: "#323243",
           },
         },
+        dark: {
+          colors: {
+            primary: "#3D3D52",            
+          }
+        }
       },
     }),
   ],

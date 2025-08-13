@@ -19,7 +19,7 @@ export default function DefaultLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative flex flex-col h-dvh">
+    <div className="relative flex flex-col h-dvh dark:bg-darkPurple">
       <main className="container mx-auto max-w-full flex-grow ">
         <Head />
         <Navbar />
