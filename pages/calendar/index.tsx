@@ -35,7 +35,7 @@ export default function IndexPage({}) {
   return (
     <DefaultLayout>
       <div className="h-screen">
-        <div className="p-12 m-auto">
+        <div className="p-4 xl:p-12 m-auto">
           <Calendar
             localizer={localizer}
             events={eventsList}

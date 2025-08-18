@@ -33,9 +33,9 @@ export default {
         },
         dark: {
           colors: {
-            primary: "#3D3D52",            
-          }
-        }
+            primary: "#3D3D52",
+          },
+        },
       },
     }),
   ],

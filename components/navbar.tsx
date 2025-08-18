@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
+import { getCurrentUser } from "aws-amplify/auth";
 
 import {
   Navbar as NextUINavbar,
@@ -12,20 +13,74 @@ import {
   NavbarItem,
   NavbarMenuItem,
 } from "@heroui/navbar";
+import {
+  DropdownItem,
+  DropdownTrigger,
+  Dropdown,
+  DropdownMenu,
+} from "@heroui/dropdown";
+import { Button } from "@heroui/button";
 import { Link } from "@heroui/link";
 import NextLink from "next/link";
 
-import { ReactSVG } from 'react-svg'
+import { FaUserSecret, FaChevronDown } from "react-icons/fa";
+import { ReactSVG } from "react-svg";
 import IconSvg from "@/public/icon_svg.svg";
 
+const menuItems = [
+  {
+    name: "Home",
+    href: "/#top",
+  },
+];
+
+const adminMenu = [
+  {
+    name: "Admin Home",
+    href: "/admin",
+  },
+  {
+    name: "Calendar",
+    href: "/calendar",
+  },
+];
+
+const AdminDropdown = () => {
+  return (
+    <div className="">
+      <Dropdown className="rounded-none">
+        <NavbarItem>
+          <DropdownTrigger>
+            <Link
+              className="dark:text-rose text-purple w-full transparent h-[40px] lg:leading-loose lg:align-middle lg:uppercase lg:mix-blend-difference cursor-pointer"
+              size="lg"
+            >
+              Admin
+            </Link>
+          </DropdownTrigger>
+        </NavbarItem>
+        <DropdownMenu
+          aria-label="Admin Menu"
+          itemClasses={{
+            base: "gap-4",
+          }}
+        >
+          {adminMenu.map((opt, idx) => (
+            <DropdownItem key={idx} href={opt.href} className="rounded-none">
+              {opt.name}
+            </DropdownItem>
+          ))}
+        </DropdownMenu>
+      </Dropdown>
+    </div>
+  );
+};
+
 export const Navbar = () => {
-  const [showMessageModal, setShowMessageModal] = useState(false);
-
   const router = useRouter();
-
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
   const [offset, setOffset] = useState(0);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setOffset(window.scrollY);
@@ -35,18 +90,27 @@ export const Navbar = () => {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const menuItems = [
-    {
-      name: "Home",
-      href: "/#top",
-    },
-    {
-      name: "Login",
-      href: "/login",
-    },
-  ];
+  useEffect(() => {
+    getUserData();
+  }, []);
+
+  async function getUserData() {
+    try {
+      const { username, userId, signInDetails } = await getCurrentUser();
+      if (userId) {
+        setIsLoggedIn(true);
+      } else {
+        setIsLoggedIn(false);
+      }
+    } catch (e) {
+      setIsLoggedIn(false);
+    }
+  }
 
   const menuOption = (name: string, href: string) => {
+    if (name == "Login" && isLoggedIn) {
+      return;
+    }
     switch (name) {
       default:
         return (
@@ -78,7 +142,11 @@ export const Navbar = () => {
       <NavbarContent className="basis-1/5 sm:basis-full" justify="start">
         <NavbarBrand className="max-w-fit">
           <NextLink className="flex justify-start items-center gap-1" href="/">
-            <ReactSVG className="h-8 w-8 fill-purple dark:fill-rose" src={IconSvg.src} wrapper="svg"/>
+            <ReactSVG
+              className="h-8 w-8 fill-purple dark:fill-rose"
+              src={IconSvg.src}
+              wrapper="svg"
+            />
           </NextLink>
         </NavbarBrand>
       </NavbarContent>
@@ -91,6 +159,20 @@ export const Navbar = () => {
             {menuOption(item.name, item.href)}
           </NavbarItem>
         ))}
+        {isLoggedIn ? (
+          <AdminDropdown />
+        ) : (
+          <NavbarItem key="admin" className="hidden lg:flex">
+            <Link
+              as={NextLink}
+              className="text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
+              href="/login"
+              size="lg"
+            >
+              <FaUserSecret />
+            </Link>
+          </NavbarItem>
+        )}
       </NavbarContent>
       {/*Mobile Menu*/}
       <NavbarMenuToggle
@@ -101,6 +183,28 @@ export const Navbar = () => {
         {menuItems.map((item, index) => (
           <NavbarMenuItem key={`${item}-${index}`}>
             {menuOption(item.name, item.href)}
+          </NavbarMenuItem>
+        ))}
+        <NavbarMenuItem key="Admin" className="text-whiteishText">
+          Admin
+        </NavbarMenuItem>
+        {adminMenu.map((item, index) => (
+          <NavbarMenuItem
+            key={`10-${item}-${index}`}
+            className="text-whiteishText"
+          >
+            <Link
+              as={NextLink}
+              className="indent-8 lg:block text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
+              size="lg"
+              href="#"
+              onPress={(e) => {
+                router.push(item.href);
+                setIsMenuOpen(false);
+              }}
+            >
+              {item.name}
+            </Link>
           </NavbarMenuItem>
         ))}
       </NavbarMenu>

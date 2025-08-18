@@ -16,10 +16,9 @@ export const auth = defineAuth({
     },
   },
   userAttributes: {
-    "custom:full_name": {
-      dataType: "String",
+    fullname: {
       mutable: true,
-      minLen: 1,
+      required: true,
     },
   },
   groups: ["admins"],

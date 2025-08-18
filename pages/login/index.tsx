@@ -82,7 +82,7 @@ export default function Admin() {
       console.log(isSignedIn);
       console.log(nextStep);
       if (nextStep.signInStep === "DONE") {
-        router.push("/admin");
+        router.push("/");
       }
     } catch (e) {
       setIsLoading(false);
@@ -103,7 +103,7 @@ export default function Admin() {
         password: data.password.toString(),
         options: {
           userAttributes: {
-            fullname: name,
+            name: name,
           },
         },
       });
