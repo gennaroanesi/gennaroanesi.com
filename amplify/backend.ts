@@ -6,7 +6,7 @@ import { auth } from "./auth/resource";
 import { data } from "./data/resource";
 
 const backend = defineBackend({
-  auth,
+  // auth,
   data,
   //storage,
 });
@@ -33,7 +33,7 @@ backend.addOutput({
         bucket_name: customBucket.bucketName,
         name: customBucket.bucketName,
         /*
-          optional: `paths` can be used to set up access to specific 
+          optional: `paths` can be used to set up access to specific
           bucket prefixes and configure user access types to them
         */
         paths: {
@@ -75,6 +75,8 @@ const unauthPolicy = new Policy(backend.stack, "customBucketUnauthPolicy", {
 });
 
 // Add the policies to the unauthenticated user role
+/*
 backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(
   unauthPolicy,
 );
+*/
