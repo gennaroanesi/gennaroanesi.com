@@ -20,7 +20,8 @@ const schema = a
         allDay: a.boolean(),
       })
       .identifier(['date'])
-      .authorization((allow) => [allow.group("admins")]),
+      //.authorization((allow) => [allow.group("admins")]),
+      .authorization((allow) => [allow.guest()]),
     event: a
       .model({
         title: a.string().required(),
@@ -28,7 +29,7 @@ const schema = a
         endAt: a.datetime(),
         allDay: a.boolean(),
       })
-      .authorization((allow) => [allow.group("admins")])
+      .authorization((allow) => [allow.guest()]),
     })
 
 
@@ -36,7 +37,8 @@ export type Schema = ClientSchema<typeof schema>;
 
 export const data = defineData({
   schema,
-  authorizationModes: {
+  /*authorizationModes: {
     defaultAuthorizationMode: "userPool",
   },
+  */
 });
