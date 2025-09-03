@@ -2,11 +2,11 @@ import { defineBackend } from "@aws-amplify/backend";
 import { Effect, Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 
-// import { auth } from "./auth/resource";
+import { auth } from "./auth/resource";
 import { data } from "./data/resource";
 
 const backend = defineBackend({
-  //auth,
+  auth,
   data,
   //storage,
 });
@@ -75,8 +75,6 @@ const unauthPolicy = new Policy(backend.stack, "customBucketUnauthPolicy", {
 });
 
 // Add the policies to the unauthenticated user role
-/*
 backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(
   unauthPolicy,
 );
-*/
