@@ -84,17 +84,140 @@ function tripToRbcEvent(trip: TripRecord): RbcEvent {
   };
 }
 
-// Convert a timed event record into an RBC event
-function eventToRbcEvent(event: EventRecord): RbcEvent {
-  const tz = event.timezone ?? "America/Chicago";
+// Convert a timed event record into an RBC event, displayed in viewTimezone.
+// RBC uses the browser's local Date rendering, so we produce a "fake local" date
+// whose wall-clock time matches the event's time in viewTz.
+function eventToRbcEvent(event: EventRecord, viewTz: string): RbcEvent {
+  function toFakeLocal(iso: string) {
+    const d = dayjs(iso).tz(viewTz);
+    // Build a Date using the tz-local fields so the browser renders the right time
+    return new Date(d.year(), d.month(), d.date(), d.hour(), d.minute(), d.second());
+  }
   return {
     title: event.title,
-    start: dayjs(event.startAt).tz(tz).toDate(),
-    end:   dayjs(event.endAt).tz(tz).toDate(),
+    start: toFakeLocal(event.startAt),
+    end:   toFakeLocal(event.endAt),
     allDay: event.isAllDay ?? false,
     resource: { kind: "event", event },
   };
 }
+
+// ── US Federal Holidays (static + computed) ────────────────────────────
+
+function nthWeekday(year: number, month: number, weekday: number, n: number): string {
+  // month is 1-based; weekday is 0=Sun … 6=Sat
+  const d = new Date(year, month - 1, 1);
+  let count = 0;
+  while (d.getMonth() === month - 1) {
+    if (d.getDay() === weekday) { count++; if (count === n) break; }
+    d.setDate(d.getDate() + 1);
+  }
+  return dayjs(d).format("YYYY-MM-DD");
+}
+
+function lastWeekday(year: number, month: number, weekday: number): string {
+  const d = new Date(year, month, 0); // last day of month
+  while (d.getDay() !== weekday) d.setDate(d.getDate() - 1);
+  return dayjs(d).format("YYYY-MM-DD");
+}
+
+function buildHolidays(years: number[]): Set<string> {
+  const set = new Set<string>();
+  for (const y of years) {
+    // Fixed-date holidays
+    set.add(`${y}-01-01`); // New Year's Day
+    set.add(`${y}-06-19`); // Juneteenth
+    set.add(`${y}-07-04`); // Independence Day
+    set.add(`${y}-11-11`); // Veterans Day
+    set.add(`${y}-12-25`); // Christmas Day
+    // Computed holidays
+    set.add(nthWeekday(y, 1, 1, 3));  // MLK Day — 3rd Mon Jan
+    set.add(nthWeekday(y, 2, 1, 3));  // Presidents Day — 3rd Mon Feb
+    set.add(lastWeekday(y, 5, 1));     // Memorial Day — last Mon May
+    set.add(nthWeekday(y, 9, 1, 1));  // Labor Day — 1st Mon Sep
+    set.add(nthWeekday(y, 10, 4, 4)); // Columbus Day — 2nd Mon Oct (actually 2nd)
+    set.add(nthWeekday(y, 11, 4, 4)); // Thanksgiving — 4th Thu Nov
+  }
+  return set;
+}
+
+// Pre-build for the years covered by the app
+const HOLIDAYS = buildHolidays([2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035]);
+
+// ── Timezone options ────────────────────────────────────────────────────────
+
+const TIMEZONE_OPTIONS = [
+  // Americas
+  { value: "America/New_York",      label: "Eastern Time (ET)" },
+  { value: "America/Chicago",       label: "Central Time (CT)" },
+  { value: "America/Denver",        label: "Mountain Time (MT)" },
+  { value: "America/Phoenix",       label: "Mountain Time - Arizona (no DST)" },
+  { value: "America/Los_Angeles",   label: "Pacific Time (PT)" },
+  { value: "America/Anchorage",     label: "Alaska Time (AKT)" },
+  { value: "Pacific/Honolulu",      label: "Hawaii Time (HT)" },
+  { value: "America/Sao_Paulo",     label: "Brasília Time (BRT)" },
+  { value: "America/Argentina/Buenos_Aires", label: "Argentina Time (ART)" },
+  { value: "America/Santiago",      label: "Chile Time (CLT)" },
+  { value: "America/Bogota",        label: "Colombia Time (COT)" },
+  { value: "America/Lima",          label: "Peru Time (PET)" },
+  { value: "America/Mexico_City",   label: "Mexico City Time (CST)" },
+  { value: "America/Toronto",       label: "Toronto Time (ET)" },
+  { value: "America/Vancouver",     label: "Vancouver Time (PT)" },
+  // Europe
+  { value: "Europe/London",         label: "London (GMT/BST)" },
+  { value: "Europe/Lisbon",         label: "Lisbon (WET/WEST)" },
+  { value: "Europe/Paris",          label: "Paris / Madrid / Rome (CET)" },
+  { value: "Europe/Berlin",         label: "Berlin / Amsterdam (CET)" },
+  { value: "Europe/Rome",           label: "Rome (CET)" },
+  { value: "Europe/Madrid",         label: "Madrid (CET)" },
+  { value: "Europe/Amsterdam",      label: "Amsterdam (CET)" },
+  { value: "Europe/Zurich",         label: "Zurich (CET)" },
+  { value: "Europe/Stockholm",      label: "Stockholm (CET)" },
+  { value: "Europe/Warsaw",         label: "Warsaw (CET)" },
+  { value: "Europe/Athens",         label: "Athens (EET)" },
+  { value: "Europe/Helsinki",       label: "Helsinki (EET)" },
+  { value: "Europe/Bucharest",      label: "Bucharest (EET)" },
+  { value: "Europe/Moscow",         label: "Moscow (MSK)" },
+  { value: "Europe/Istanbul",       label: "Istanbul (TRT)" },
+  // Africa
+  { value: "Africa/Cairo",          label: "Cairo (EET)" },
+  { value: "Africa/Johannesburg",   label: "Johannesburg (SAST)" },
+  { value: "Africa/Lagos",          label: "Lagos (WAT)" },
+  { value: "Africa/Nairobi",        label: "Nairobi (EAT)" },
+  { value: "Africa/Casablanca",     label: "Casablanca (WET)" },
+  // Middle East
+  { value: "Asia/Dubai",            label: "Dubai (GST)" },
+  { value: "Asia/Riyadh",           label: "Riyadh (AST)" },
+  { value: "Asia/Beirut",           label: "Beirut (EET)" },
+  { value: "Asia/Jerusalem",        label: "Jerusalem (IST)" },
+  { value: "Asia/Tehran",           label: "Tehran (IRST)" },
+  // Asia
+  { value: "Asia/Karachi",          label: "Karachi (PKT)" },
+  { value: "Asia/Kolkata",          label: "India (IST)" },
+  { value: "Asia/Dhaka",            label: "Dhaka (BST)" },
+  { value: "Asia/Bangkok",          label: "Bangkok (ICT)" },
+  { value: "Asia/Singapore",        label: "Singapore (SGT)" },
+  { value: "Asia/Shanghai",         label: "China (CST)" },
+  { value: "Asia/Hong_Kong",        label: "Hong Kong (HKT)" },
+  { value: "Asia/Tokyo",            label: "Tokyo (JST)" },
+  { value: "Asia/Seoul",            label: "Seoul (KST)" },
+  { value: "Asia/Taipei",           label: "Taipei (CST)" },
+  { value: "Asia/Kuala_Lumpur",     label: "Kuala Lumpur (MYT)" },
+  { value: "Asia/Jakarta",          label: "Jakarta (WIB)" },
+  { value: "Asia/Colombo",          label: "Colombo (IST)" },
+  { value: "Asia/Tashkent",         label: "Tashkent (UZT)" },
+  { value: "Asia/Almaty",           label: "Almaty (ALMT)" },
+  // Oceania
+  { value: "Australia/Sydney",      label: "Sydney (AEST)" },
+  { value: "Australia/Melbourne",   label: "Melbourne (AEST)" },
+  { value: "Australia/Brisbane",    label: "Brisbane (AEST, no DST)" },
+  { value: "Australia/Adelaide",    label: "Adelaide (ACST)" },
+  { value: "Australia/Perth",       label: "Perth (AWST)" },
+  { value: "Pacific/Auckland",      label: "Auckland (NZST)" },
+  { value: "Pacific/Fiji",          label: "Fiji (FJT)" },
+  // UTC
+  { value: "UTC",                   label: "UTC" },
+];
 
 // ── Input / Label shared styles ───────────────────────────────────────────────
 
@@ -107,6 +230,15 @@ const labelCls =
 
 export default function CalendarPage() {
   const { authState } = useRequireAuth();
+
+  // ── Timezone ───────────────────────────────────────────────────────────────
+  const [viewTimezone, setViewTimezone] = useState<string>(() => {
+    // Detect browser timezone and fall back to America/Chicago if not in our list
+    const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return TIMEZONE_OPTIONS.some((o) => o.value === browserTz)
+      ? browserTz
+      : "America/Chicago";
+  });
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [days,   setDays]   = useState<Map<string, DayRecord>>(new Map());
@@ -159,22 +291,34 @@ export default function CalendarPage() {
   // ── Derived: merge trips + timed events into one RBC events array ──────────
   const rbcEvents: RbcEvent[] = [
     ...trips.map(tripToRbcEvent),
-    ...events.map(eventToRbcEvent),
+    ...events.map((e) => eventToRbcEvent(e, viewTimezone)),
   ];
 
   // ── Day cell background (replaces event boxes for day status) ─────────────
   const dayPropGetter = useCallback(
     (date: Date) => {
       const dateStr = dayjs(date).format("YYYY-MM-DD");
+      const isHoliday = HOLIDAYS.has(dateStr);
       const day = days.get(dateStr);
-      if (!day?.status) return {};
-      const config = STATUS_CONFIG[day.status as StatusKey];
+      const config = day?.status ? STATUS_CONFIG[day.status as StatusKey] : null;
+
+      if (isHoliday) {
+        return {
+          style: {
+            backgroundColor: config?.bg ?? "#2a2a3a",
+            color: config?.text ?? "#888899",
+            backgroundImage: "linear-gradient(rgba(222,186,2,0.15), rgba(222,186,2,0.05))",
+            borderTop: "2px solid #DEBA02",
+            boxSizing: "border-box" as const,
+          },
+        };
+      }
+
       if (!config) return {};
       return {
         style: {
           backgroundColor: config.bg,
           color: config.text,
-          opacity: 0.85,
         },
       };
     },
@@ -201,8 +345,8 @@ export default function CalendarPage() {
     // Timed event
     return {
       style: {
-        backgroundColor: "#323243",
-        color: "#BCABAE",
+        backgroundColor: "#4a4a6a",
+        color: "#f0ebe8",
         border: "1px solid #BCABAE",
         borderRadius: "3px",
         fontSize: "0.72rem",
@@ -427,11 +571,24 @@ export default function CalendarPage() {
 
         {/* ── Calendar ────────────────────────────────────────────────────── */}
         <div className="flex-1 p-4 xl:p-8 min-w-0">
-          {loading && (
-            <div className="text-xs text-center text-gray-400 mb-1 animate-pulse">
-              Loading…
+          <div className="flex items-center justify-between mb-2">
+            {loading && (
+              <span className="text-xs text-gray-400 animate-pulse">Loading…</span>
+            )}
+            {!loading && <span />}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 uppercase tracking-widest">Timezone</span>
+              <select
+                className="text-xs border rounded px-2 py-1 dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-700 border-gray-300"
+                value={viewTimezone}
+                onChange={(e) => setViewTimezone(e.target.value)}
+              >
+                {TIMEZONE_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
             </div>
-          )}
+          </div>
           <Calendar
             localizer={localizer}
             events={rbcEvents}
@@ -447,7 +604,7 @@ export default function CalendarPage() {
             onSelectEvent={handleSelectEvent}
             onDoubleClickEvent={handleSelectEvent}
             onDrillDown={(date) => setPanel({ kind: "newEvent", date: dayjs(date).format("YYYY-MM-DD"), startTime: "09:00", endTime: "10:00" })}
-            style={{ height: "100%" }}
+            style={{ height: "calc(100% - 2rem)" }}
           />
         </div>
 
@@ -1021,12 +1178,15 @@ function EventFormFields({
       {/* Timezone */}
       <div>
         <label className={labelCls}>Timezone</label>
-        <input
-          type="text" className={inputCls} placeholder="America/Chicago"
+        <select
+          className={inputCls}
           value={timezone}
           onChange={(e) => setTimezone(e.target.value)}
-        />
-        <p className="text-xs text-gray-400 mt-0.5">IANA — e.g. Europe/Rome</p>
+        >
+          {TIMEZONE_OPTIONS.map(({ value, label }) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Description */}

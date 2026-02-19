@@ -4,6 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Neutralize react-big-calendar's default blue "today" highlight.
+   Our dayPropGetter already handles all cell coloring. */
+.rbc-today {
+  background-color: transparent !important;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
