@@ -33,6 +33,7 @@
     "@heroui/theme": "2.4.13",
     "@react-aria/visually-hidden": "3.8.12",
     "@types/uuid": "^10.0.0",
+    "@vis.gl/react-google-maps": "^1.7.1",
     "aws-amplify": "^6.14.1",
     "aws-cdk-lib": "^2.188.0",
     "cldr-data": "^36.0.4",
