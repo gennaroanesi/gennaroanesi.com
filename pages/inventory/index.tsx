@@ -137,7 +137,7 @@ export default function InventoryPage() {
 
   return (
     <InventoryLayout>
-      <div className="px-6 py-6 overflow-auto h-full">
+      <div className="px-3 py-4 md:px-6 md:py-6 overflow-auto h-full">
 
         {/* ── Header ────────────────────────────────────────────────────── */}
         <div className="mb-6">
@@ -145,7 +145,7 @@ export default function InventoryPage() {
         </div>
 
         {/* ── Summary cards ─────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           {(Object.entries(CATEGORY_CONFIG) as [Category, typeof CATEGORY_CONFIG[Category]][]).map(([cat, cfg]) => (
             <NextLink
               key={cat}
@@ -175,11 +175,11 @@ export default function InventoryPage() {
         </div>
 
         {/* ── Filters ───────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap gap-3 mb-4">
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2 mb-4">
           <input
             type="text"
             placeholder="Search name, brand, vendor…"
-            className="border rounded px-3 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300 w-64"
+            className="border rounded px-3 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300 w-full sm:w-64"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -211,20 +211,20 @@ export default function InventoryPage() {
               <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
                 <tr>
                   {([
-                    ["name",         "Name"],
-                    ["brand",        "Brand"],
-                    ["category",     "Category"],
-                    ["datePurchased","Date"],
-                    ["pricePaid",    "Total Paid"],
-                  ] as [SortKey, string][]).map(([k, label]) => (
-                    <th key={k} className={thCls}>
+                    ["name",         "Name",       ""],
+                    ["brand",        "Brand",      "hidden sm:table-cell"],
+                    ["category",     "Category",   "hidden md:table-cell"],
+                    ["datePurchased","Date",       "hidden md:table-cell"],
+                    ["pricePaid",    "Total Paid", "hidden sm:table-cell"],
+                  ] as [SortKey, string, string][]).map(([k, label, cls]) => (
+                    <th key={k} className={`${thCls} ${cls}`}>
                       <button className="flex items-center hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
                         onClick={() => toggleSort(k)}>
                         {label}<SortIcon k={k} />
                       </button>
                     </th>
                   ))}
-                  <th className={thCls}>Vendor</th>
+                  <th className={`${thCls} hidden md:table-cell`}>Vendor</th>
                   <th className={thCls}>Details</th>
                 </tr>
               </thead>
@@ -235,11 +235,11 @@ export default function InventoryPage() {
                     <tr key={it.id}
                       className="hover:bg-gray-50 dark:hover:bg-purple/30 transition-colors">
                       <td className={`${tdCls} font-medium`}>{it.name}</td>
-                      <td className={tdCls}>{it.brand ?? "—"}</td>
-                      <td className={tdCls}><CategoryBadge category={it.category ?? "OTHER"} /></td>
-                      <td className={tdCls}>{fmtDate(it.datePurchased)}</td>
-                      <td className={tdCls}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
-                      <td className={tdCls}>{it.vendor ?? "—"}</td>
+                      <td className={`${tdCls} hidden sm:table-cell`}>{it.brand ?? "—"}</td>
+                      <td className={`${tdCls} hidden md:table-cell`}><CategoryBadge category={it.category ?? "OTHER"} /></td>
+                      <td className={`${tdCls} hidden md:table-cell`}>{fmtDate(it.datePurchased)}</td>
+                      <td className={`${tdCls} hidden sm:table-cell`}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
+                      <td className={`${tdCls} hidden md:table-cell`}>{it.vendor ?? "—"}</td>
                       <td className={tdCls}>
                         <NextLink
                           href={`${cfg.href}?id=${it.id}`}

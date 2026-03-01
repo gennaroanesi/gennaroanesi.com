@@ -68,7 +68,8 @@ export const FILAMENT_MATS = [
   "NYLON",
   "OTHER",
 ] as const;
-export const FILAMENT_DIAMS = ["1.75", "2.85"] as const;
+export const FILAMENT_DIAMS = ["d175", "d285"] as const;
+export const FILAMENT_DIAM_LABELS: Record<string, string> = { d175: "1.75 mm", d285: "2.85 mm" };
 export const INSTRUMENT_TYPES = [
   "GUITAR",
   "BASS",
@@ -585,6 +586,7 @@ export type ColDef<T> = {
   label: string;
   render: (row: T) => React.ReactNode;
   className?: string;
+  mobileHidden?: boolean; // hidden on screens < md
 };
 
 export function InventoryTable<
@@ -620,7 +622,7 @@ export function InventoryTable<
           <tr>
             <th className={`${thCls} w-12`}> </th>
             {columns.map((col) => (
-              <th key={col.key} className={`${thCls} ${col.className ?? ""}`}>
+              <th key={col.key} className={`${thCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}>
                 {col.label}
               </th>
             ))}
@@ -675,7 +677,7 @@ export function InventoryTable<
                   {columns.map((col) => (
                     <td
                       key={col.key}
-                      className={`${tdCls} ${col.className ?? ""}`}
+                      className={`${tdCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}
                     >
                       {isDummy ? (
                         <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-gray-600" />

@@ -6,7 +6,7 @@ import InventoryLayout from "@/layouts/inventory";
 import { useRouter } from "next/router";
 import {
   ItemRecord, FilamentRecord,
-  FILAMENT_MATS, FILAMENT_DIAMS,
+  FILAMENT_MATS, FILAMENT_DIAMS, FILAMENT_DIAM_LABELS,
   inputCls, labelCls, thCls, tdCls,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
@@ -94,7 +94,7 @@ export default function FilamentsPage() {
 
   function openNew() {
     setItemDraft({ category: "FILAMENT", currency: "USD" });
-    setFilamentDraft({ material: "PLA", diameter: "1.75", weightG: 1000 });
+    setFilamentDraft({ material: "PLA", diameter: "d175", weightG: 1000 });
     setPanel({ kind: "new" });
   }
 
@@ -127,7 +127,7 @@ export default function FilamentsPage() {
           material: (filamentDraft.material ?? "PLA") as any,
           color:    filamentDraft.color    ?? null,
           weightG:  filamentDraft.weightG  ?? null,
-          diameter: (filamentDraft.diameter ?? "1.75") as any,
+          diameter: (filamentDraft.diameter ?? "d175") as any,
         });
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
@@ -155,7 +155,7 @@ export default function FilamentsPage() {
           material: (filamentDraft.material ?? "PLA") as any,
           color:    filamentDraft.color    ?? null,
           weightG:  filamentDraft.weightG  ?? null,
-          diameter: (filamentDraft.diameter ?? "1.75") as any,
+          diameter: (filamentDraft.diameter ?? "d175") as any,
         });
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
         await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
@@ -199,7 +199,7 @@ export default function FilamentsPage() {
       <div className="flex h-full">
 
         {/* ── Main ────────────────────────────────────────────────────── */}
-        <div className="flex-1 px-6 py-6 overflow-auto">
+        <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Filaments</h1>
             <button onClick={openNew}
@@ -230,9 +230,14 @@ export default function FilamentsPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
                   <tr>
-                    {["Name", "Brand", "Material", "Color", "Weight", "Diameter", "Price", "Date"].map((h) => (
-                      <th key={h} className={thCls}>{h}</th>
-                    ))}
+                    <th className={thCls}>Name</th>
+                    <th className={thCls}>Material</th>
+                    <th className={thCls}>Color</th>
+                    <th className={`${thCls} hidden sm:table-cell`}>Weight</th>
+                    <th className={`${thCls} hidden sm:table-cell`}>Diameter</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Brand</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Price</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -243,7 +248,6 @@ export default function FilamentsPage() {
                         className="hover:bg-gray-50 dark:hover:bg-purple/30 transition-colors cursor-pointer"
                         onClick={() => fl && openEdit(it, fl)}>
                         <td className={`${tdCls} font-medium`}>{it.name}</td>
-                        <td className={tdCls}>{it.brand ?? "—"}</td>
                         <td className={tdCls}>
                           <span className="font-mono text-xs px-1.5 py-0.5 rounded"
                             style={{ backgroundColor: "#8B5CF622", color: "#8B5CF6" }}>
@@ -251,10 +255,11 @@ export default function FilamentsPage() {
                           </span>
                         </td>
                         <td className={tdCls}>{colorSwatch(fl?.color) ?? "—"}</td>
-                        <td className={tdCls}>{fl?.weightG ? `${fl.weightG} g` : "—"}</td>
-                        <td className={tdCls}>{fl?.diameter ? `${fl.diameter} mm` : "—"}</td>
-                        <td className={tdCls}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
-                        <td className={tdCls}>{fmtDate(it.datePurchased)}</td>
+                        <td className={`${tdCls} hidden sm:table-cell`}>{fl?.weightG ? `${fl.weightG} g` : "—"}</td>
+                        <td className={`${tdCls} hidden sm:table-cell`}>{fl?.diameter ? FILAMENT_DIAM_LABELS[fl.diameter] ?? fl.diameter : "—"}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{it.brand ?? "—"}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{fmtDate(it.datePurchased)}</td>
                       </tr>
                     );
                   })}
@@ -266,7 +271,7 @@ export default function FilamentsPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Filament" : itemDraft.name}
@@ -292,9 +297,9 @@ export default function FilamentsPage() {
                 <div>
                   <label className={labelCls}>Diameter</label>
                   <select className={inputCls}
-                    value={filamentDraft.diameter ?? "1.75"}
+                    value={filamentDraft.diameter ?? "d175"}
                     onChange={(e) => setFilamentDraft((d) => ({ ...d, diameter: e.target.value as any }))}>
-                    {FILAMENT_DIAMS.map((d) => <option key={d} value={d}>{d} mm</option>)}
+                    {FILAMENT_DIAMS.map((d) => <option key={d} value={d}>{FILAMENT_DIAM_LABELS[d]}</option>)}
                   </select>
                 </div>
               </div>

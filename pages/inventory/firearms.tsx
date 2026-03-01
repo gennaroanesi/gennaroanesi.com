@@ -176,14 +176,14 @@ export default function FirearmsPage() {
   const suggestions = useSuggestions(items);
 
   const columns: ColDef<ItemRecord>[] = [
-    { key: "name",   label: "Name",     render: (r) => <span className="font-medium">{r.name}</span> },
-    { key: "brand",  label: "Brand",    render: (r) => r.brand ?? "—" },
-    { key: "type",   label: "Type",     render: (r) => details.get(r.id)?.type ?? "—" },
-    { key: "caliber",label: "Caliber",  render: (r) => details.get(r.id)?.caliber ?? "—" },
-    { key: "serial", label: "Serial #", render: (r) => details.get(r.id)?.serialNumber ?? "—" },
-    { key: "date",   label: "Date",     render: (r) => fmtDate(r.datePurchased) },
-    { key: "price",  label: "Price",    render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD") },
-    { key: "action", label: "Action",   render: (r) => details.get(r.id)?.action ?? "—" },
+    { key: "name",    label: "Name",       render: (r) => <span className="font-medium">{r.name}</span> },
+    { key: "type",    label: "Type",       render: (r) => details.get(r.id)?.type ?? "—" },
+    { key: "caliber", label: "Caliber",    render: (r) => details.get(r.id)?.caliber ?? "—" },
+    { key: "brand",   label: "Brand",      render: (r) => r.brand ?? "—",                                      mobileHidden: true },
+    { key: "serial",  label: "Serial #",   render: (r) => details.get(r.id)?.serialNumber ?? "—",             mobileHidden: true },
+    { key: "action",  label: "Action",     render: (r) => details.get(r.id)?.action ?? "—",                   mobileHidden: true },
+    { key: "price",   label: "Total Paid", render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD"),      mobileHidden: true },
+    { key: "date",    label: "Date",       render: (r) => fmtDate(r.datePurchased),                           mobileHidden: true },
   ];
 
   if (authState !== "authenticated") return null;
@@ -193,7 +193,7 @@ export default function FirearmsPage() {
       <div className="flex h-full">
 
         {/* ── Table ───────────────────────────────────────────────────── */}
-        <div className="flex-1 px-6 py-6 overflow-auto">
+        <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Firearms</h1>
             <button onClick={openNew}
@@ -224,7 +224,7 @@ export default function FirearmsPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Firearm" : itemDraft.name}

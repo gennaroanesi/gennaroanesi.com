@@ -173,22 +173,22 @@ export default function AmmoPage() {
   const suggestions = useSuggestions(items);
 
   const columns: ColDef<ItemRecord>[] = [
-    { key: "name",     label: "Name",       render: (r) => <span className="font-medium">{r.name}</span> },
-    { key: "brand",    label: "Brand",      render: (r) => r.brand ?? "—" },
-    { key: "caliber",  label: "Caliber",    render: (r) => details.get(r.id)?.caliber ?? "—" },
-    { key: "qty",      label: "Qty",        render: (r) => {
+    { key: "name",    label: "Name",        render: (r) => <span className="font-medium">{r.name}</span> },
+    { key: "caliber", label: "Caliber",     render: (r) => details.get(r.id)?.caliber ?? "—" },
+    { key: "qty",     label: "Qty",         render: (r) => {
       const am = details.get(r.id);
       if (!am) return "—";
       const totalRounds = (am.quantity ?? 0) * (am.roundsPerUnit ?? 1);
       const unitLabel = am.unit === "ROUNDS" ? "rds" : `× ${am.roundsPerUnit ?? 1} rds/${am.unit?.toLowerCase()}`;
       return `${totalRounds.toLocaleString()} ${unitLabel}`;
     }},
-    { key: "unit",     label: "Unit",       render: (r) => details.get(r.id)?.unit ?? "—" },
-    { key: "grain",    label: "Grain",      render: (r) => { const g = details.get(r.id)?.grain; return g ? `${g} gr` : "—"; } },
-    { key: "type",     label: "Bullet Type",render: (r) => details.get(r.id)?.bulletType ?? "—" },
-    { key: "vel",      label: "Vel (fps)",  render: (r) => details.get(r.id)?.velocityFps?.toString() ?? "—" },
-    { key: "price",    label: "Price/Unit", render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD") },
-    { key: "date",     label: "Date",       render: (r) => fmtDate(r.datePurchased) },
+    { key: "brand",   label: "Brand",       render: (r) => r.brand ?? "—",                                                         mobileHidden: true },
+    { key: "unit",    label: "Unit",        render: (r) => details.get(r.id)?.unit ?? "—",                                          mobileHidden: true },
+    { key: "grain",   label: "Grain",       render: (r) => { const g = details.get(r.id)?.grain; return g ? `${g} gr` : "—"; },   mobileHidden: true },
+    { key: "type",    label: "Bullet Type", render: (r) => details.get(r.id)?.bulletType ?? "—",                                  mobileHidden: true },
+    { key: "vel",     label: "Vel (fps)",   render: (r) => details.get(r.id)?.velocityFps?.toString() ?? "—",                     mobileHidden: true },
+    { key: "price",   label: "Total Paid",  render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD"),                          mobileHidden: true },
+    { key: "date",    label: "Date",        render: (r) => fmtDate(r.datePurchased),                                               mobileHidden: true },
   ];
 
   // ── Totals by caliber ─────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ export default function AmmoPage() {
       <div className="flex h-full">
 
         {/* ── Main ────────────────────────────────────────────────────── */}
-        <div className="flex-1 px-6 py-6 overflow-auto">
+        <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Ammunition</h1>
             <button onClick={openNew}
@@ -247,7 +247,7 @@ export default function AmmoPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Ammo" : itemDraft.name}

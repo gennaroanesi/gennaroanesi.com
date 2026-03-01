@@ -189,7 +189,7 @@ export default function InstrumentsPage() {
       <div className="flex h-full">
 
         {/* ── Main ────────────────────────────────────────────────────── */}
-        <div className="flex-1 px-6 py-6 overflow-auto">
+        <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Instruments</h1>
             <button onClick={openNew}
@@ -220,9 +220,15 @@ export default function InstrumentsPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
                   <tr>
-                    {["Name", "Brand", "Type", "Color", "Strings", "Tuning", "Body", "Price", "Date"].map((h) => (
-                      <th key={h} className={thCls}>{h}</th>
-                    ))}
+                    <th className={thCls}>Name</th>
+                    <th className={thCls}>Type</th>
+                    <th className={thCls}>Color</th>
+                    <th className={`${thCls} hidden sm:table-cell`}>Strings</th>
+                    <th className={`${thCls} hidden sm:table-cell`}>Tuning</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Brand</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Body</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Price</th>
+                    <th className={`${thCls} hidden md:table-cell`}>Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -233,18 +239,18 @@ export default function InstrumentsPage() {
                         className="hover:bg-gray-50 dark:hover:bg-purple/30 transition-colors cursor-pointer"
                         onClick={() => inst && openEdit(it, inst)}>
                         <td className={`${tdCls} font-medium`}>{it.name}</td>
-                        <td className={tdCls}>{it.brand ?? "—"}</td>
                         <td className={tdCls}>
                           {inst?.type
                             ? <span>{INSTRUMENT_ICONS[inst.type]} {inst.type}</span>
                             : "—"}
                         </td>
                         <td className={tdCls}>{inst?.color ?? "—"}</td>
-                        <td className={tdCls}>{inst?.strings ?? "—"}</td>
-                        <td className={tdCls}>{inst?.tuning ?? "—"}</td>
-                        <td className={tdCls}>{inst?.bodyMaterial ?? "—"}</td>
-                        <td className={tdCls}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
-                        <td className={tdCls}>{fmtDate(it.datePurchased)}</td>
+                        <td className={`${tdCls} hidden sm:table-cell`}>{inst?.strings ?? "—"}</td>
+                        <td className={`${tdCls} hidden sm:table-cell`}>{inst?.tuning ?? "—"}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{it.brand ?? "—"}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{inst?.bodyMaterial ?? "—"}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
+                        <td className={`${tdCls} hidden md:table-cell`}>{fmtDate(it.datePurchased)}</td>
                       </tr>
                     );
                   })}
@@ -256,7 +262,7 @@ export default function InstrumentsPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Instrument" : itemDraft.name}
