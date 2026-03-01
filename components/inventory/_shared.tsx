@@ -36,12 +36,18 @@ export const CATEGORY_CONFIG: Record<
   AMMO:       { label: "Ammo",       color: "#B8940A", href: "/inventory/ammo" },
   FILAMENT:   { label: "Filament",   color: "#8B5CF6", href: "/inventory/filaments" },
   INSTRUMENT: { label: "Instrument", color: "#EC4899", href: "/inventory/instruments" },
-  OTHER:      { label: "Other",      color: "#BCABAE", href: "/inventory" },
+  OTHER:      { label: "Other",      color: "#BCABAE", href: "/inventory/other" },
 };
 
 export const FIREARM_TYPES = ["HANDGUN","RIFLE","SHOTGUN","SBR","SUPPRESSOR","OTHER"] as const;
 export const AMMO_UNITS    = ["ROUNDS","BOX","CASE"] as const;
-export const FILAMENT_MATS = ["PLA","ABS","PETG","TPU","ASA","NYLON","OTHER"] as const;
+export const FILAMENT_MATS = ["PLA","ABS","PETG","TPU","ASA","NYLON","PC","PLA_CF","PETG_CF","PA","PA_CF","PA6_GF","PVA","HIPS","OTHER"] as const;
+export const FILAMENT_MAT_LABELS: Record<string, string> = {
+  PLA: "PLA", ABS: "ABS", PETG: "PETG", TPU: "TPU", ASA: "ASA",
+  NYLON: "Nylon", PC: "PC", PLA_CF: "PLA-CF", PETG_CF: "PETG-CF",
+  PA: "PA", PA_CF: "PA-CF", PA6_GF: "PA6-GF", PVA: "PVA", HIPS: "HIPS", OTHER: "Other",
+};
+export const FILAMENT_VARIANTS = ["Basic", "HF", "95A HF", "for AMS", "Translucent", "Matte", "Silk", "Metal", "Sparkle", "Galaxy", "Marble", "Glow", "Gradient", "CF", "GF"] as const;
 export const FILAMENT_DIAMS = ["d175","d285"] as const;
 export const FILAMENT_DIAM_LABELS: Record<string, string> = { d175: "1.75 mm", d285: "2.85 mm" };
 export const INSTRUMENT_TYPES = ["GUITAR","BASS","AMPLIFIER","PEDAL","KEYBOARD","OTHER"] as const;
@@ -192,6 +198,104 @@ export const tdCls =
   "px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// ── Filament color map ───────────────────────────────────────────────────────
+// Maps lowercase color names/aliases to CSS hex values.
+export const FILAMENT_COLOR_MAP: Record<string, string> = {
+  // Neutrals
+  black:           "#1a1a1a",
+  white:           "#f5f5f5",
+  gray:            "#757575",
+  grey:            "#757575",
+  "dark gray":     "#424242",
+  "dark grey":     "#424242",
+  "light gray":    "#bdbdbd",
+  "light grey":    "#bdbdbd",
+  silver:          "#c0c0c0",
+  natural:         "#f5deb3",
+  translucent:     "#c8e6f5",
+  transparent:     "#c8e6f5",
+  // Reds / Pinks
+  red:             "#d32f2f",
+  "dark red":      "#7f0000",
+  pink:            "#f48fb1",
+  "cherry pink":   "#de3163",
+  // Oranges
+  orange:          "#e65100",
+  "pumpkin orange":"#d2691e",
+  // Yellows
+  yellow:          "#f9a825",
+  gold:            "#ffd700",
+  "sunflower yellow": "#ffc200",
+  tan:             "#d2b48c",
+  copper:          "#b87333",
+  // Greens
+  green:           "#2e7d32",
+  // Blues
+  blue:            "#1565c0",
+  // Purples
+  purple:          "#6a1b9a",
+};
+
+// Resolve a color name to hex, falling back to a neutral
+export function resolveFilamentColor(color: string | null | undefined): string {
+  if (!color) return "#bcabae";
+  return FILAMENT_COLOR_MAP[color.toLowerCase().trim()] ?? "#bcabae";
+}
+
+// Round color dot — used in summary cards and detail page
+export function ColorDot({
+  color, size = 16, title,
+}: {
+  color: string | null | undefined;
+  size?: number;
+  title?: string;
+}) {
+  const hex = resolveFilamentColor(color);
+  const isLight = hex === "#f5f5f5" || hex === "#c8e6f5" || hex === "#f5deb3" || hex === "#bdbdbd" || hex === "#c0c0c0" || hex === "#ffd700" || hex === "#ffc200";
+  return (
+    <span
+      title={title ?? color ?? ""}
+      className="rounded-full flex-shrink-0 inline-block"
+      style={{
+        width:  size,
+        height: size,
+        backgroundColor: hex,
+        border: `1.5px solid ${isLight ? "#00000033" : "#ffffff22"}`,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
+      }}
+    />
+  );
+}
+
+// Row of color dots for a set of filament records
+export function FilamentColorDots({
+  colors, size = 16, max = 12,
+}: {
+  colors: (string | null | undefined)[];
+  size?: number;
+  max?: number;
+}) {
+  // Deduplicate by resolved hex so near-duplicate names don't show twice
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const c of colors) {
+    const hex = resolveFilamentColor(c);
+    if (!seen.has(hex)) { seen.add(hex); unique.push(c ?? ""); }
+  }
+  const visible  = unique.slice(0, max);
+  const overflow = unique.length - visible.length;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {visible.map((c, i) => (
+        <ColorDot key={i} color={c} size={size} title={c} />
+      ))}
+      {overflow > 0 && (
+        <span className="text-[10px] text-gray-400 leading-none">+{overflow}</span>
+      )}
+    </div>
+  );
+}
 
 export function fmtCurrency(amount: number | null | undefined, currency = "USD") {
   if (amount == null) return "—";

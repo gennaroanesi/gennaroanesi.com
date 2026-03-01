@@ -6,13 +6,14 @@ import InventoryLayout from "@/layouts/inventory";
 import { useRouter } from "next/router";
 import {
   ItemRecord, FilamentRecord,
-  FILAMENT_MATS, FILAMENT_DIAMS, FILAMENT_DIAM_LABELS,
+  FILAMENT_MATS, FILAMENT_MAT_LABELS, FILAMENT_VARIANTS, FILAMENT_DIAMS, FILAMENT_DIAM_LABELS,
   inputCls, labelCls,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle, useSuggestions,
   InventoryTable, ColDef, useThumbnails,
   useTableControls, TableControls,
+  FilamentColorDots, ColorDot, resolveFilamentColor,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -22,24 +23,11 @@ type PanelState =
   | { kind: "edit"; item: ItemRecord; filament: FilamentRecord }
   | null;
 
-// Swatch colors for common filament colors (best effort)
-const COLOR_SWATCHES: Record<string, string> = {
-  black: "#1a1a1a", white: "#f5f5f5", red: "#d32f2f", blue: "#1565c0",
-  green: "#2e7d32", yellow: "#f9a825", orange: "#e65100", purple: "#6a1b9a",
-  pink: "#c2185b", gray: "#616161", grey: "#616161", silver: "#9e9e9e",
-  brown: "#4e342e", transparent: "#e0f7fa", natural: "#f5deb3",
-};
-
 function colorSwatch(color: string | null | undefined) {
   if (!color) return null;
-  const key = color.toLowerCase().trim();
-  const hex = COLOR_SWATCHES[key];
   return (
     <span className="flex items-center gap-1.5">
-      <span
-        className="inline-block w-3 h-3 rounded-full border border-gray-300 dark:border-gray-600 flex-shrink-0"
-        style={{ backgroundColor: hex ?? "#bcabae" }}
-      />
+      <ColorDot color={color} size={12} />
       {color}
     </span>
   );
@@ -128,6 +116,7 @@ export default function FilamentsPage() {
         const { data: newFilament } = await client.models.inventoryFilament.create({
           itemId:   newItem.id,
           material: (filamentDraft.material ?? "PLA") as any,
+          variant:  filamentDraft.variant  ?? null,
           color:    filamentDraft.color    ?? null,
           weightG:  filamentDraft.weightG  ?? null,
           diameter: (filamentDraft.diameter ?? "d175") as any,
@@ -156,6 +145,7 @@ export default function FilamentsPage() {
         await client.models.inventoryFilament.update({
           id:       panel.filament.id,
           material: (filamentDraft.material ?? "PLA") as any,
+          variant:  filamentDraft.variant  ?? null,
           color:    filamentDraft.color    ?? null,
           weightG:  filamentDraft.weightG  ?? null,
           diameter: (filamentDraft.diameter ?? "d175") as any,
@@ -191,11 +181,18 @@ export default function FilamentsPage() {
   const columns: ColDef<ItemRecord>[] = [
     { key: "name",     label: "Name",     render: (r) => <span className="font-medium">{r.name}</span>,                                                 sortValue: (r) => r.name ?? "" },
     { key: "material", label: "Material", render: (r) => {
-      const mat = details.get(r.id)?.material;
-      return mat
-        ? <span className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#8B5CF622", color: "#8B5CF6" }}>{mat}</span>
-        : <span>—</span>;
-    },                                                                                                                                                   sortValue: (r) => details.get(r.id)?.material ?? "" },
+      const d = details.get(r.id);
+      const mat = d?.material;
+      const variant = d?.variant;
+      return mat ? (
+        <span className="flex items-center gap-1">
+          <span className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#8B5CF622", color: "#8B5CF6" }}>
+            {FILAMENT_MAT_LABELS[mat] ?? mat}
+          </span>
+          {variant && <span className="text-xs text-gray-400">{variant}</span>}
+        </span>
+      ) : <span>—</span>;
+    }, sortValue: (r) => details.get(r.id)?.material ?? "" },
     { key: "color",    label: "Color",    render: (r) => colorSwatch(details.get(r.id)?.color) ?? <span>—</span>,                                     sortValue: (r) => details.get(r.id)?.color ?? "" },
     { key: "weight",   label: "Weight",   render: (r) => { const w = details.get(r.id)?.weightG; return w ? `${w} g` : "—"; }, mobileHidden: true, sortValue: (r) => details.get(r.id)?.weightG ?? 0 },
     { key: "diam",     label: "Diameter", render: (r) => { const d = details.get(r.id)?.diameter; return d ? FILAMENT_DIAM_LABELS[d] ?? d : "—"; }, mobileHidden: true, sortValue: (r) => details.get(r.id)?.diameter ?? "" },
@@ -209,12 +206,19 @@ export default function FilamentsPage() {
     return col?.sortValue?.(item);
   });
 
-  // ── Totals by material ────────────────────────────────────────────────────
+  // ── Totals + colors by material ──────────────────────────────────────────
   const materialTotals = Array.from(details.values()).reduce((acc, f) => {
     const key = f.material ?? "OTHER";
     acc[key] = (acc[key] ?? 0) + (f.weightG ?? 0);
     return acc;
   }, {} as Record<string, number>);
+
+  const materialColors = Array.from(details.values()).reduce((acc, f) => {
+    const key = f.material ?? "OTHER";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(f.color);
+    return acc;
+  }, {} as Record<string, (string | null | undefined)[]>);
 
   if (authState !== "authenticated") return null;
 
@@ -232,16 +236,26 @@ export default function FilamentsPage() {
             </button>
           </div>
 
-          {/* Material summary pills */}
+          {/* Material summary cards with color dots */}
           {Object.keys(materialTotals).length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
-              {Object.entries(materialTotals).map(([mat, grams]) => (
-                <span key={mat}
-                  className="px-3 py-1 rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: "#8B5CF622", color: "#8B5CF6", border: "1px solid #8B5CF655" }}>
-                  {mat} — {(grams / 1000).toFixed(2)} kg
-                </span>
-              ))}
+              {Object.entries(materialTotals)
+                .sort((a, b) => b[1] - a[1])
+                .map(([mat, grams]) => (
+                  <div key={mat}
+                    className="flex flex-col gap-1.5 px-3 py-2 rounded-lg"
+                    style={{ backgroundColor: "#8B5CF611", border: "1px solid #8B5CF633" }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold" style={{ color: "#8B5CF6" }}>
+                        {FILAMENT_MAT_LABELS[mat] ?? mat}
+                      </span>
+                      <span className="text-[10px] text-gray-400">
+                        {(grams / 1000).toFixed(1)} kg
+                      </span>
+                    </div>
+                    <FilamentColorDots colors={materialColors[mat] ?? []} size={14} max={16} />
+                  </div>
+                ))}
             </div>
           )}
 
@@ -295,7 +309,7 @@ export default function FilamentsPage() {
                   <select className={inputCls}
                     value={filamentDraft.material ?? "PLA"}
                     onChange={(e) => setFilamentDraft((d) => ({ ...d, material: e.target.value as any }))}>
-                    {FILAMENT_MATS.map((m) => <option key={m} value={m}>{m}</option>)}
+                    {FILAMENT_MATS.map((m) => <option key={m} value={m}>{FILAMENT_MAT_LABELS[m] ?? m}</option>)}
                   </select>
                 </div>
                 <div>
@@ -306,6 +320,16 @@ export default function FilamentsPage() {
                     {FILAMENT_DIAMS.map((d) => <option key={d} value={d}>{FILAMENT_DIAM_LABELS[d]}</option>)}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className={labelCls}>Variant</label>
+                <input type="text" list="filament-variants" className={inputCls} placeholder="HF, Translucent, Matte…"
+                  value={filamentDraft.variant ?? ""}
+                  onChange={(e) => setFilamentDraft((d) => ({ ...d, variant: e.target.value }))} />
+                <datalist id="filament-variants">
+                  {FILAMENT_VARIANTS.map((v) => <option key={v} value={v} />)}
+                </datalist>
               </div>
 
               <div className="grid grid-cols-2 gap-2">

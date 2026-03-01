@@ -7,10 +7,11 @@ import NextLink from "next/link";
 import {
   ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord,
   Category,
-  CATEGORY_CONFIG,
+  CATEGORY_CONFIG, FILAMENT_MAT_LABELS,
   thCls, tdCls,
   fmtCurrency, fmtDate,
   CategoryBadge, EmptyState, TableControls,
+  FilamentColorDots,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -112,18 +113,28 @@ export default function InventoryPage() {
     return acc;
   }, {} as Record<string, number>);
 
+  const totalRoundsAvailable = ammos.reduce((acc, am) => acc + (am.roundsAvailable ?? 0), 0);
+
   const ammoByCaliberQty = ammos.reduce((acc, am) => {
     const k = am.caliber ?? "Unknown";
-    const totalRounds = (am.quantity ?? 0) * (am.roundsPerUnit ?? 1);
-    acc[k] = (acc[k] ?? 0) + totalRounds;
+    acc[k] = (acc[k] ?? 0) + (am.roundsAvailable ?? 0);
     return acc;
   }, {} as Record<string, number>);
+
+  function fmtCompact(n: number) {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+    if (n >= 1_000)     return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+    return n.toString();
+  }
 
   const filamentByMaterial = filaments.reduce((acc, fl) => {
     const k = fl.material ?? "OTHER";
     acc[k] = (acc[k] ?? 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  // All filament colors for the summary card dots
+  const allFilamentColors = filaments.map((fl) => fl.color);
 
   const instrumentByType = instruments.reduce((acc, inst) => {
     const k = inst.type ?? "OTHER";
@@ -139,7 +150,7 @@ export default function InventoryPage() {
   };
 
   function breakdownLabel(cat: string, key: string, val: number) {
-    if (cat === "AMMO") return `${key} · ${val.toLocaleString()} rds`;
+    if (cat === "AMMO") return `${key} · ${fmtCompact(val)} rds`;
     return `${key} · ${val}`;
   }
 
@@ -167,17 +178,27 @@ export default function InventoryPage() {
                 {cfg.label}
               </span>
               <span className="text-2xl font-bold text-gray-700 dark:text-gray-200">
-                {countByCat[cat] ?? 0}
+                {cat === "AMMO" ? fmtCompact(totalRoundsAvailable) : (countByCat[cat] ?? 0)}
               </span>
+              {cat === "AMMO" && (
+                <span className="text-[11px] text-gray-400">
+                  rds available · {countByCat[cat] ?? 0} records
+                </span>
+              )}
               {breakdowns[cat] && Object.keys(breakdowns[cat]).length > 0 && (
                 <div className="flex flex-col gap-0.5 mt-1 border-t pt-1.5" style={{ borderColor: cfg.color + "33" }}>
                   {Object.entries(breakdowns[cat])
                     .sort((a, b) => b[1] - a[1])
                     .map(([key, val]) => (
                       <span key={key} className="text-[11px] leading-tight" style={{ color: cfg.color + "cc" }}>
-                        {breakdownLabel(cat, key, val)}
+                        {cat === "FILAMENT" ? (FILAMENT_MAT_LABELS[key] ?? key) : key} · {val}
                       </span>
                     ))}
+                  {cat === "FILAMENT" && allFilamentColors.length > 0 && (
+                    <div className="mt-1.5 pt-1 border-t" style={{ borderColor: cfg.color + "22" }}>
+                      <FilamentColorDots colors={allFilamentColors} size={12} max={20} />
+                    </div>
+                  )}
                 </div>
               )}
             </NextLink>

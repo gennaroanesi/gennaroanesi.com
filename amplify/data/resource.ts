@@ -1,5 +1,6 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { statusEnum } from "./enum";
+import { sendNotification } from "../functions/sendNotification/resource";
 
 // Reusable location shape — used on both day and event
 const locationCustomType = a.customType({
@@ -109,7 +110,8 @@ const schema = a
     inventoryFilament: a
       .model({
         itemId:    a.id().required(),        // FK → inventoryItem.id
-        material:  a.enum(["PLA", "ABS", "PETG", "TPU", "ASA", "NYLON", "OTHER"]),
+        material:  a.enum(["PLA", "ABS", "PETG", "TPU", "ASA", "NYLON", "PC", "PLA_CF", "PETG_CF", "PA", "PA_CF", "PA6_GF", "PVA", "HIPS", "OTHER"]),
+        variant:   a.string(),               // free-text sub-type: HF, CF, Translucent, Matte, Silk, etc.
         color:     a.string(),
         weightG:   a.integer(),              // spool weight in grams
         diameter:  a.enum(["d175", "d285"]),
@@ -163,7 +165,7 @@ const schema = a
       })
       .returns(a.customType({ ok: a.boolean(), error: a.string() }))
       .authorization((allow) => [allow.group("admins")])
-      .handler(a.handler.function("sendNotification")),
+      .handler(a.handler.function(sendNotification)),
 
     // ── Custom types ─────────────────────────────────────────────────────────
     FirearmPart: a.customType({

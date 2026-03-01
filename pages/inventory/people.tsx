@@ -112,15 +112,19 @@ export default function PeoplePage() {
     try {
       const { data, errors } = await (client.mutations as any).testNotification({ personId: person.id });
       if (errors?.length || !data?.ok) {
-        setTestStatus({ personId: person.id, state: "error", error: data?.error ?? errors?.[0]?.message ?? "Unknown error" });
+        const errMsg = data?.error ?? errors?.map((e: any) => e.message).join(" | ") ?? "Unknown error";
+        console.error(`[sendTest] Failed for ${person.name}:`, { data, errors });
+        setTestStatus({ personId: person.id, state: "error", error: errMsg });
       } else {
+        console.log(`[sendTest] OK for ${person.name}:`, data);
         setTestStatus({ personId: person.id, state: "ok" });
+        setTimeout(() => setTestStatus(null), 5000);
       }
     } catch (e: any) {
-      setTestStatus({ personId: person.id, state: "error", error: e?.message ?? "Request failed" });
+      const errMsg = e?.message ?? "Request failed";
+      console.error(`[sendTest] Exception for ${person.name}:`, e);
+      setTestStatus({ personId: person.id, state: "error", error: errMsg });
     }
-    // Auto-clear after 5s
-    setTimeout(() => setTestStatus(null), 5000);
   }
 
   async function handleDelete(person: Person) {
@@ -296,20 +300,44 @@ export default function PeoplePage() {
               {panel.kind === "edit" && (() => {
                 const ts = testStatus?.personId === panel.person.id ? testStatus : null;
                 return (
-                  <button
-                    onClick={() => sendTest(panel.person)}
-                    disabled={ts?.state === "sending"}
-                    className="w-full py-2 rounded text-sm font-semibold border transition-colors disabled:opacity-50"
-                    style={ts?.state === "ok"
-                      ? { borderColor: "#22c55e", color: "#22c55e", backgroundColor: "#22c55e11" }
-                      : ts?.state === "error"
-                      ? { borderColor: "#ef4444", color: "#ef4444", backgroundColor: "#ef444411" }
-                      : { borderColor: "#64748b55", color: "#64748b" }
-                    }
-                    title={ts?.state === "error" ? ts.error : undefined}
-                  >
-                    {ts?.state === "sending" ? "Sending…" : ts?.state === "ok" ? "✓ Test sent!" : ts?.state === "error" ? `✗ Failed: ${ts.error}` : "🔔 Send Test Notification"}
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => sendTest(panel.person)}
+                      disabled={ts?.state === "sending"}
+                      className="w-full py-2 rounded text-sm font-semibold border transition-colors disabled:opacity-50"
+                      style={ts?.state === "ok"
+                        ? { borderColor: "#22c55e", color: "#22c55e", backgroundColor: "#22c55e11" }
+                        : ts?.state === "error"
+                        ? { borderColor: "#ef4444", color: "#ef4444", backgroundColor: "#ef444411" }
+                        : { borderColor: "#64748b55", color: "#64748b" }
+                      }
+                    >
+                      {ts?.state === "sending" ? "Sending…" : ts?.state === "ok" ? "✓ Test sent!" : ts?.state === "error" ? "✗ Failed — see details below" : "🔔 Send Test Notification"}
+                    </button>
+                    {ts?.state === "error" && ts.error && (
+                      <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] uppercase tracking-widest text-red-500 font-semibold">Error</span>
+                          <button
+                            onClick={() => {
+                              if (navigator.clipboard?.writeText) {
+                                navigator.clipboard.writeText(ts.error!);
+                              } else {
+                                const el = document.createElement("textarea");
+                                el.value = ts.error!;
+                                document.body.appendChild(el);
+                                el.select();
+                                document.execCommand("copy");
+                                document.body.removeChild(el);
+                              }
+                            }}
+                            className="text-[11px] text-red-400 hover:text-red-600 underline"
+                          >Copy</button>
+                        </div>
+                        <pre className="text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap break-all font-mono select-all">{ts.error}</pre>
+                      </div>
+                    )}
+                  </div>
                 );
               })()}
 

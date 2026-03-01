@@ -135,45 +135,65 @@ backend.auth.resources.groups["admins"].role.attachInlinePolicy(
   }),
 );
 
-// ── Notification infrastructure ────────────────────────────────────────────────────
+// ── Notification infrastructure ──────────────────────────────────────────────
 
-// 1. Pull Twilio credentials from Secrets Manager.
-//    Create this secret manually once:
+const sendFn = backend.sendNotification.resources.lambda as LambdaFunction;
+
+// 1. Twilio secret — WhatsApp only (SMS + Email now use AWS-native services)
+//    Secret shape: { accountSid, authToken, fromWhatsapp }
+//    Create once:
+//      aws secretsmanager create-secret --name gennaroanesi/twilio \
+//        --secret-string '{"accountSid":"ACxxx","authToken":"xxx","fromWhatsapp":"+14155238886"}'
 const twilioSecret = Secret.fromSecretNameV2(
   backend.stack,
   "TwilioSecret",
   "gennaroanesi/twilio",
 );
-
-// 2. Inject credentials into sendNotification Lambda
-const sendFn = backend.sendNotification.resources.lambda as LambdaFunction;
 twilioSecret.grantRead(sendFn);
+
+// Inject all sendNotification env vars in one block via CfnFunction.
+// PERSON_TABLE_NAME must also go here (not via addEnvironment) because
+// sendFn lives in the data stack — addEnvironment across stacks doesn't apply.
 const cfnSendFn = sendFn.node.defaultChild as any;
+const personTable = backend.data.resources.tables["notificationPerson"];
+personTable.grantReadData(sendFn);
 Object.assign(cfnSendFn, {
   environment: {
     variables: {
-      TWILIO_ACCOUNT_SID: twilioSecret
-        .secretValueFromJson("accountSid")
-        .unsafeUnwrap(),
-      TWILIO_AUTH_TOKEN: twilioSecret
-        .secretValueFromJson("authToken")
-        .unsafeUnwrap(),
-      TWILIO_FROM_SMS: twilioSecret
-        .secretValueFromJson("fromSms")
-        .unsafeUnwrap(),
-      TWILIO_FROM_WHATSAPP: twilioSecret
-        .secretValueFromJson("fromWhatsapp")
-        .unsafeUnwrap(),
+      TWILIO_ACCOUNT_SID:   twilioSecret.secretValueFromJson("accountSid").unsafeUnwrap(),
+      TWILIO_AUTH_TOKEN:    twilioSecret.secretValueFromJson("authToken").unsafeUnwrap(),
+      TWILIO_FROM_WHATSAPP: twilioSecret.secretValueFromJson("fromWhatsapp").unsafeUnwrap(),
+      SES_FROM_EMAIL:       "noreply@gennaroanesi.com",
+      PERSON_TABLE_NAME:    personTable.tableName,
     },
   },
 });
+
+// 2. SNS — direct-to-phone SMS (no topic; just Publish to a phone number)
+sendFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:    Effect.ALLOW,
+    actions:   ["sns:Publish"],
+    resources: ["*"], // SNS direct-to-phone requires * resource
+  }),
+);
+
+// 3. SES — outbound email
+//    Verify your sender address once:
+//      aws ses verify-email-identity --email-address noreply@gennaroanesi.com
+sendFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:    Effect.ALLOW,
+    actions:   ["ses:SendEmail", "ses:SendRawEmail"],
+    resources: ["*"],
+  }),
+);
 
 // 3. Wire checkAmmoThresholds Lambda
 const checkFn = backend.checkAmmoThresholds.resources.lambda as LambdaFunction;
 const tables = backend.data.resources.tables;
 const ammoTable = tables["inventoryAmmo"];
 const thresholdTable = tables["ammoThreshold"];
-const personTable = tables["notificationPerson"];
 
 // Give it read access to the three tables it needs
 [ammoTable, thresholdTable, personTable].forEach((t) =>
@@ -185,10 +205,6 @@ checkFn.addEnvironment("AMMO_TABLE_NAME", ammoTable.tableName);
 checkFn.addEnvironment("THRESHOLD_TABLE_NAME", thresholdTable.tableName);
 checkFn.addEnvironment("PERSON_TABLE_NAME", personTable.tableName);
 checkFn.addEnvironment("SEND_NOTIFICATION_ARN", sendFn.functionArn);
-
-// sendNotification also reads notificationPerson for the testNotification mutation
-personTable.grantReadData(sendFn);
-sendFn.addEnvironment("PERSON_TABLE_NAME", personTable.tableName);
 
 // Allow checkAmmoThresholds to invoke sendNotification
 sendFn.grantInvoke(checkFn);
