@@ -93,14 +93,15 @@ const schema = a
     // ── Ammo detail ─────────────────────────────────────────────────────────
     inventoryAmmo: a
       .model({
-        itemId:       a.id().required(),     // FK → inventoryItem.id
-        caliber:      a.string().required(),
-        quantity:      a.integer().required(), // number of units purchased
-        unit:          a.enum(["ROUNDS", "BOX", "CASE"]),
-        roundsPerUnit: a.integer(),           // rounds per box/case (1 if unit=ROUNDS)
-        grain:         a.integer(),           // bullet weight in grains
-        bulletType:    a.string(),            // FMJ, HP, SP, etc.
-        velocityFps:   a.integer(),
+        itemId:          a.id().required(),     // FK → inventoryItem.id
+        caliber:         a.string().required(),
+        quantity:        a.integer().required(), // number of units purchased
+        unit:            a.enum(["ROUNDS", "BOX", "CASE"]),
+        roundsPerUnit:   a.integer(),           // rounds per box/case (1 if unit=ROUNDS)
+        grain:           a.integer(),           // bullet weight in grains
+        bulletType:      a.string(),            // FMJ, HP, SP, etc.
+        velocityFps:     a.integer(),
+        roundsAvailable: a.integer(),           // current on-hand count (FIFO decremented)
       })
       .authorization((allow) => [allow.group("admins")]),
 
@@ -127,6 +128,42 @@ const schema = a
         finish:       a.string(),
       })
       .authorization((allow) => [allow.group("admins")]),
+
+    // ── Notification Person ────────────────────────────────────────────────
+    // A person who can receive notifications via one or more channels.
+    notificationPerson: a
+      .model({
+        name:             a.string().required(),
+        email:            a.string(),
+        phone:            a.string(),           // E.164 format, e.g. +15125928640
+        preferredChannel: a.enum(["SMS", "WHATSAPP", "EMAIL"]),
+        active:           a.boolean().default(true),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── Ammo Threshold ────────────────────────────────────────────────────────
+    // Alert when a caliber's total roundsAvailable drops below minRounds.
+    ammoThreshold: a
+      .model({
+        caliber:    a.string().required(),
+        minRounds:  a.integer().required(),
+        personId:   a.id().required(),          // FK → notificationPerson.id
+        enabled:    a.boolean().default(true),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── testNotification mutation ──────────────────────────────────────────
+    // Invokes sendNotification directly so the UI can test delivery without
+    // needing to trigger the ammo threshold flow.
+    testNotification: a
+      .mutation()
+      .arguments({
+        personId: a.id().required(),
+        message:  a.string(),            // optional override; defaults to a canned test message
+      })
+      .returns(a.customType({ ok: a.boolean(), error: a.string() }))
+      .authorization((allow) => [allow.group("admins")])
+      .handler(a.handler.function("sendNotification")),
 
     // ── Custom types ─────────────────────────────────────────────────────────
     FirearmPart: a.customType({

@@ -7,10 +7,12 @@ import { useRouter } from "next/router";
 import {
   ItemRecord, InstrumentRecord,
   INSTRUMENT_TYPES,
-  inputCls, labelCls, thCls, tdCls,
+  inputCls, labelCls,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle, useSuggestions,
+  InventoryTable, ColDef, useThumbnails,
+  useTableControls, TableControls,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -20,7 +22,6 @@ type PanelState =
   | { kind: "edit"; item: ItemRecord; instrument: InstrumentRecord }
   | null;
 
-// Instrument type icons (emoji fallback, clean enough for a personal tool)
 const INSTRUMENT_ICONS: Record<string, string> = {
   GUITAR: "🎸", BASS: "🎸", AMPLIFIER: "🔊",
   PEDAL: "🎛️", KEYBOARD: "🎹", OTHER: "🎵",
@@ -39,6 +40,7 @@ export default function InstrumentsPage() {
   const [instrumentDraft, setInstrumentDraft] = useState<Partial<InstrumentRecord>>({});
   const imgRef = useRef<ImageUploaderHandle>(null);
   const suggestions = useSuggestions(items);
+  const thumbnails  = useThumbnails(items);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -61,7 +63,6 @@ export default function InstrumentsPage() {
     fetchData();
   }, [authState, fetchData]);
 
-  // Open new panel if ?new=1 param present
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
     openNew();
@@ -172,6 +173,23 @@ export default function InstrumentsPage() {
     }
   }
 
+  const columns: ColDef<ItemRecord>[] = [
+    { key: "name",    label: "Name",    render: (r) => <span className="font-medium">{r.name}</span>,                                                        sortValue: (r) => r.name ?? "" },
+    { key: "type",    label: "Type",    render: (r) => { const t = details.get(r.id)?.type; return t ? <span>{INSTRUMENT_ICONS[t]} {t}</span> : <span>—</span>; }, sortValue: (r) => details.get(r.id)?.type ?? "" },
+    { key: "color",   label: "Color",   render: (r) => details.get(r.id)?.color ?? "—",                                                                      sortValue: (r) => details.get(r.id)?.color ?? "" },
+    { key: "strings", label: "Strings", render: (r) => details.get(r.id)?.strings?.toString() ?? "—",                          mobileHidden: true,           sortValue: (r) => details.get(r.id)?.strings ?? 0 },
+    { key: "tuning",  label: "Tuning",  render: (r) => details.get(r.id)?.tuning ?? "—",                                       mobileHidden: true,           sortValue: (r) => details.get(r.id)?.tuning ?? "" },
+    { key: "brand",   label: "Brand",   render: (r) => r.brand ?? "—",                                                         mobileHidden: true,           sortValue: (r) => r.brand ?? "" },
+    { key: "body",    label: "Body",    render: (r) => details.get(r.id)?.bodyMaterial ?? "—",                                  mobileHidden: true,           sortValue: (r) => details.get(r.id)?.bodyMaterial ?? "" },
+    { key: "price",   label: "Price",   render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD"),                           mobileHidden: true,           sortValue: (r) => r.pricePaid ?? 0 },
+    { key: "date",    label: "Date",    render: (r) => fmtDate(r.datePurchased),                                                mobileHidden: true,           sortValue: (r) => r.datePurchased ?? "" },
+  ];
+
+  const tableControls = useTableControls(items, (item, key) => {
+    const col = columns.find((c) => c.key === key);
+    return col?.sortValue?.(item);
+  });
+
   // ── Count by type ─────────────────────────────────────────────────────────
   const typeCounts = Array.from(details.values()).reduce((acc, inst) => {
     const key = inst.type ?? "OTHER";
@@ -179,7 +197,6 @@ export default function InstrumentsPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  // Show strings field only for stringed instruments
   const showStrings = ["GUITAR", "BASS"].includes(instrumentDraft.type ?? "");
 
   if (authState !== "authenticated") return null;
@@ -216,46 +233,25 @@ export default function InstrumentsPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Instrument" onAdd={openNew} />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-              <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
-                  <tr>
-                    <th className={thCls}>Name</th>
-                    <th className={thCls}>Type</th>
-                    <th className={thCls}>Color</th>
-                    <th className={`${thCls} hidden sm:table-cell`}>Strings</th>
-                    <th className={`${thCls} hidden sm:table-cell`}>Tuning</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Brand</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Body</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Price</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {items.map((it) => {
-                    const inst = details.get(it.id);
-                    return (
-                      <tr key={it.id}
-                        className="hover:bg-gray-50 dark:hover:bg-purple/30 transition-colors cursor-pointer"
-                        onClick={() => inst && openEdit(it, inst)}>
-                        <td className={`${tdCls} font-medium`}>{it.name}</td>
-                        <td className={tdCls}>
-                          {inst?.type
-                            ? <span>{INSTRUMENT_ICONS[inst.type]} {inst.type}</span>
-                            : "—"}
-                        </td>
-                        <td className={tdCls}>{inst?.color ?? "—"}</td>
-                        <td className={`${tdCls} hidden sm:table-cell`}>{inst?.strings ?? "—"}</td>
-                        <td className={`${tdCls} hidden sm:table-cell`}>{inst?.tuning ?? "—"}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{it.brand ?? "—"}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{inst?.bodyMaterial ?? "—"}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{fmtDate(it.datePurchased)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <InventoryTable
+                items={tableControls.paged}
+                columns={columns}
+                thumbnails={thumbnails}
+                onEdit={(item) => { const inst = details.get(item.id); if (inst) openEdit(item, inst); }}
+                onDelete={handleDelete}
+                sortKey={tableControls.sortKey}
+                sortDir={tableControls.sortDir}
+                onSort={tableControls.handleSort}
+              />
+              <TableControls
+                page={tableControls.page}
+                totalPages={tableControls.totalPages}
+                totalItems={tableControls.totalItems}
+                pageSize={tableControls.pageSize}
+                setPage={tableControls.setPage}
+                setPageSize={tableControls.setPageSize}
+              />
             </div>
           )}
         </div>

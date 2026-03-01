@@ -2,13 +2,23 @@ import { defineBackend } from "@aws-amplify/backend";
 import { Effect, Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { CfnUserPool } from "aws-cdk-lib/aws-cognito";
 import { Bucket } from "aws-cdk-lib/aws-s3";
+import {
+  StartingPosition,
+  Function as LambdaFunction,
+} from "aws-cdk-lib/aws-lambda";
+import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 
 import { auth } from "./auth/resource";
 import { data } from "./data/resource";
+import { sendNotification } from "./functions/sendNotification/resource";
+import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 
 const backend = defineBackend({
   auth,
   data,
+  sendNotification,
+  checkAmmoThresholds,
   //storage,
 });
 
@@ -121,6 +131,78 @@ backend.auth.resources.groups["admins"].role.attachInlinePolicy(
         actions: ["s3:ListBucket"],
         resources: [`${customBucket.bucketArn}`],
       }),
+    ],
+  }),
+);
+
+// ── Notification infrastructure ────────────────────────────────────────────────────
+
+// 1. Pull Twilio credentials from Secrets Manager.
+//    Create this secret manually once:
+const twilioSecret = Secret.fromSecretNameV2(
+  backend.stack,
+  "TwilioSecret",
+  "gennaroanesi/twilio",
+);
+
+// 2. Inject credentials into sendNotification Lambda
+const sendFn = backend.sendNotification.resources.lambda as LambdaFunction;
+twilioSecret.grantRead(sendFn);
+const cfnSendFn = sendFn.node.defaultChild as any;
+Object.assign(cfnSendFn, {
+  environment: {
+    variables: {
+      TWILIO_ACCOUNT_SID: twilioSecret
+        .secretValueFromJson("accountSid")
+        .unsafeUnwrap(),
+      TWILIO_AUTH_TOKEN: twilioSecret
+        .secretValueFromJson("authToken")
+        .unsafeUnwrap(),
+      TWILIO_FROM_SMS: twilioSecret
+        .secretValueFromJson("fromSms")
+        .unsafeUnwrap(),
+      TWILIO_FROM_WHATSAPP: twilioSecret
+        .secretValueFromJson("fromWhatsapp")
+        .unsafeUnwrap(),
+    },
+  },
+});
+
+// 3. Wire checkAmmoThresholds Lambda
+const checkFn = backend.checkAmmoThresholds.resources.lambda as LambdaFunction;
+const tables = backend.data.resources.tables;
+const ammoTable = tables["inventoryAmmo"];
+const thresholdTable = tables["ammoThreshold"];
+const personTable = tables["notificationPerson"];
+
+// Give it read access to the three tables it needs
+[ammoTable, thresholdTable, personTable].forEach((t) =>
+  t.grantReadData(checkFn),
+);
+
+// Inject table names + sendNotification ARN
+checkFn.addEnvironment("AMMO_TABLE_NAME", ammoTable.tableName);
+checkFn.addEnvironment("THRESHOLD_TABLE_NAME", thresholdTable.tableName);
+checkFn.addEnvironment("PERSON_TABLE_NAME", personTable.tableName);
+checkFn.addEnvironment("SEND_NOTIFICATION_ARN", sendFn.functionArn);
+
+// sendNotification also reads notificationPerson for the testNotification mutation
+personTable.grantReadData(sendFn);
+sendFn.addEnvironment("PERSON_TABLE_NAME", personTable.tableName);
+
+// Allow checkAmmoThresholds to invoke sendNotification
+sendFn.grantInvoke(checkFn);
+
+// 4. Trigger checkAmmoThresholds from inventoryAmmo DynamoDB stream
+ammoTable.grantStreamRead(checkFn);
+checkFn.addEventSource(
+  new DynamoEventSource(ammoTable, {
+    startingPosition: StartingPosition.LATEST,
+    batchSize: 10,
+    retryAttempts: 2,
+    filters: [
+      // Only fire on item modifications (not inserts/deletes)
+      { pattern: JSON.stringify({ eventName: ["MODIFY"] }) },
     ],
   }),
 );

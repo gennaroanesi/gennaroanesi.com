@@ -20,4 +20,7 @@ amplifyconfiguration*
 # others
 .local
 
-.temp
+*.temp
+
+.xls
+.xlsx

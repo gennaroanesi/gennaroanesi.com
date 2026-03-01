@@ -10,7 +10,7 @@ import {
   CATEGORY_CONFIG,
   thCls, tdCls,
   fmtCurrency, fmtDate,
-  CategoryBadge, EmptyState,
+  CategoryBadge, EmptyState, TableControls,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -31,6 +31,8 @@ export default function InventoryPage() {
   const [catFilter, setCatFilter] = useState<Category | "ALL">("ALL");
   const [sortKey,   setSortKey]   = useState<SortKey>("datePurchased");
   const [sortDir,   setSortDir]   = useState<SortDir>("desc");
+  const [page,      setPage]      = useState(1);
+  const [pageSize,  setPageSize]  = useState(100);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -82,7 +84,15 @@ export default function InventoryPage() {
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(key); setSortDir("asc"); }
+    setPage(1);
   }
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [search, catFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage   = Math.min(page, totalPages);
+  const paged      = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   function SortIcon({ k }: { k: SortKey }) {
     if (sortKey !== k) return <span className="ml-1 opacity-20">↕</span>;
@@ -206,7 +216,8 @@ export default function InventoryPage() {
         ) : filtered.length === 0 ? (
           <EmptyState label="items" onAdd={() => {}} showCategoryLinks />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
                 <tr>
@@ -229,7 +240,7 @@ export default function InventoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {filtered.map((it) => {
+                {paged.map((it) => {
                   const cfg = CATEGORY_CONFIG[it.category as Category] ?? CATEGORY_CONFIG.OTHER;
                   return (
                     <tr key={it.id}
@@ -254,6 +265,15 @@ export default function InventoryPage() {
                 })}
               </tbody>
             </table>
+            </div>
+            <TableControls
+              page={safePage}
+              totalPages={totalPages}
+              totalItems={filtered.length}
+              pageSize={pageSize}
+              setPage={setPage}
+              setPageSize={(n) => { setPageSize(n); setPage(1); }}
+            />
           </div>
         )}
       </div>

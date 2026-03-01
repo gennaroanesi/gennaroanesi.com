@@ -11,12 +11,9 @@ import React, {
 import type { Schema } from "@/amplify/data/resource";
 import { uploadData, getUrl, remove } from "aws-amplify/storage";
 import { v4 as uuidv4 } from "uuid";
-// HeroUI Table removed — its Collection API forbids dynamic children (mapped arrays).
-// Plain HTML table gives identical styling with full flexibility.
 import { Tooltip } from "@heroui/tooltip";
 import NextLink from "next/link";
 
-// bucket goes inside options.bucket (type StorageBucket = string | BucketInfo)
 const BUCKET_NAME = "gennaroanesi.com";
 
 // ── Re-exported record types ──────────────────────────────────────────────────
@@ -35,60 +32,20 @@ export const CATEGORY_CONFIG: Record<
   Category,
   { label: string; color: string; href: string }
 > = {
-  FIREARM: { label: "Firearm", color: "#587D71", href: "/inventory/firearms" },
-  AMMO: { label: "Ammo", color: "#DEBA02", href: "/inventory/ammo" },
-  FILAMENT: {
-    label: "Filament",
-    color: "#8B5CF6",
-    href: "/inventory/filaments",
-  },
-  INSTRUMENT: {
-    label: "Instrument",
-    color: "#EC4899",
-    href: "/inventory/instruments",
-  },
-  OTHER: { label: "Other", color: "#BCABAE", href: "/inventory" },
+  FIREARM:    { label: "Firearm",    color: "#587D71", href: "/inventory/firearms" },
+  AMMO:       { label: "Ammo",       color: "#B8940A", href: "/inventory/ammo" },
+  FILAMENT:   { label: "Filament",   color: "#8B5CF6", href: "/inventory/filaments" },
+  INSTRUMENT: { label: "Instrument", color: "#EC4899", href: "/inventory/instruments" },
+  OTHER:      { label: "Other",      color: "#BCABAE", href: "/inventory" },
 };
 
-export const FIREARM_TYPES = [
-  "HANDGUN",
-  "RIFLE",
-  "SHOTGUN",
-  "SBR",
-  "SUPPRESSOR",
-  "OTHER",
-] as const;
-export const AMMO_UNITS = ["ROUNDS", "BOX", "CASE"] as const;
-export const FILAMENT_MATS = [
-  "PLA",
-  "ABS",
-  "PETG",
-  "TPU",
-  "ASA",
-  "NYLON",
-  "OTHER",
-] as const;
-export const FILAMENT_DIAMS = ["d175", "d285"] as const;
+export const FIREARM_TYPES = ["HANDGUN","RIFLE","SHOTGUN","SBR","SUPPRESSOR","OTHER"] as const;
+export const AMMO_UNITS    = ["ROUNDS","BOX","CASE"] as const;
+export const FILAMENT_MATS = ["PLA","ABS","PETG","TPU","ASA","NYLON","OTHER"] as const;
+export const FILAMENT_DIAMS = ["d175","d285"] as const;
 export const FILAMENT_DIAM_LABELS: Record<string, string> = { d175: "1.75 mm", d285: "2.85 mm" };
-export const INSTRUMENT_TYPES = [
-  "GUITAR",
-  "BASS",
-  "AMPLIFIER",
-  "PEDAL",
-  "KEYBOARD",
-  "OTHER",
-] as const;
-export const CURRENCIES = [
-  "USD",
-  "EUR",
-  "GBP",
-  "CAD",
-  "AUD",
-  "JPY",
-  "CHF",
-  "MXN",
-  "BRL",
-] as const;
+export const INSTRUMENT_TYPES = ["GUITAR","BASS","AMPLIFIER","PEDAL","KEYBOARD","OTHER"] as const;
+export const CURRENCIES = ["USD","EUR","GBP","CAD","AUD","JPY","CHF","MXN","BRL"] as const;
 
 export const CALIBER_GROUPS: { label: string; calibers: string[] }[] = [
   {
@@ -114,17 +71,12 @@ export const CALIBER_GROUPS: { label: string; calibers: string[] }[] = [
     label: "Shotgun",
     calibers: ["12 Gauge", "16 Gauge", "20 Gauge", "28 Gauge", ".410 Bore"],
   },
-  {
-    label: "Other",
-    calibers: ["Other"],
-  },
+  { label: "Other", calibers: ["Other"] },
 ];
 
-// Flat list for datalist/typeahead use
 export const CALIBERS = CALIBER_GROUPS.flatMap((g) => g.calibers);
 
-// ── CaliberInput ─────────────────────────────────────────────────────────────
-// Text input with grouped datalist — typeahead that filters as you type.
+// ── CaliberInput ──────────────────────────────────────────────────────────────
 
 export function CaliberInput({
   value,
@@ -135,27 +87,96 @@ export function CaliberInput({
   onChange: (v: string) => void;
   required?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef  = useRef<HTMLUListElement>(null);
+  const [open,  setOpen]  = useState(false);
+  const [hiIdx, setHiIdx] = useState(0);
+
+  // All calibers flattened with group info for rendering
+  const allOptions = CALIBER_GROUPS.flatMap((g) =>
+    g.calibers.map((c) => ({ caliber: c, group: g.label }))
+  );
+
+  const filtered = value.trim() === ""
+    ? allOptions
+    : allOptions.filter((o) =>
+        o.caliber.toLowerCase().includes(value.toLowerCase())
+      );
+
+  // Group filtered results for display
+  const grouped = CALIBER_GROUPS
+    .map((g) => ({ label: g.label, calibers: filtered.filter((o) => o.group === g.label).map((o) => o.caliber) }))
+    .filter((g) => g.calibers.length > 0);
+
+  // Flat list for keyboard nav index
+  const flatFiltered = grouped.flatMap((g) => g.calibers);
+
+  function select(cal: string) {
+    onChange(cal);
+    setOpen(false);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) { setOpen(true); return; }
+    if (e.key === "ArrowDown") { setHiIdx((i) => Math.min(i + 1, flatFiltered.length - 1)); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { setHiIdx((i) => Math.max(i - 1, 0)); e.preventDefault(); }
+    else if (e.key === "Enter") { if (flatFiltered[hiIdx]) select(flatFiltered[hiIdx]); e.preventDefault(); }
+    else if (e.key === "Escape") { setOpen(false); }
+  }
+
   return (
-    <>
+    <div className="relative">
       <input
+        ref={inputRef}
         type="text"
-        list="caliber-list"
+        autoComplete="off"
         className={inputCls}
         placeholder="Start typing…"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
         required={required}
+        onFocus={() => { setOpen(true); setHiIdx(0); }}
+        onBlur={() => {
+          setTimeout(() => {
+            if (!listRef.current?.contains(document.activeElement)) setOpen(false);
+          }, 150);
+        }}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setHiIdx(0); }}
+        onKeyDown={handleKeyDown}
       />
-      <datalist id="caliber-list">
-        {CALIBER_GROUPS.map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {group.calibers.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </optgroup>
-        ))}
-      </datalist>
-    </>
+      {open && flatFiltered.length > 0 && (
+        <ul
+          ref={listRef}
+          className="absolute z-50 left-0 right-0 mt-0.5 max-h-56 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-darkPurple shadow-lg text-sm"
+        >
+          {grouped.map((group) => (
+            <li key={group.label}>
+              <div className="px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500 font-semibold select-none">
+                {group.label}
+              </div>
+              <ul>
+                {group.calibers.map((cal) => {
+                  const flatIdx = flatFiltered.indexOf(cal);
+                  const isHi   = flatIdx === hiIdx;
+                  return (
+                    <li
+                      key={cal}
+                      onMouseDown={() => select(cal)}
+                      onMouseEnter={() => setHiIdx(flatIdx)}
+                      className={[
+                        "px-4 py-1.5 cursor-pointer transition-colors text-gray-800 dark:text-gray-200",
+                        isHi ? "bg-gray-100 dark:bg-white/10" : "hover:bg-gray-50 dark:hover:bg-white/5",
+                      ].join(" ")}
+                    >
+                      {cal}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -165,7 +186,6 @@ export const inputCls =
   "w-full border rounded px-2 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300";
 export const labelCls =
   "text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1 block";
-// Keep these for index.tsx plain-table usage
 export const thCls =
   "text-left text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 px-3 py-2 font-medium whitespace-nowrap";
 export const tdCls =
@@ -173,22 +193,15 @@ export const tdCls =
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-export function fmtCurrency(
-  amount: number | null | undefined,
-  currency = "USD",
-) {
+export function fmtCurrency(amount: number | null | undefined, currency = "USD") {
   if (amount == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
-    amount,
-  );
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
 }
 
 export function fmtDate(date: string | null | undefined) {
   if (!date) return "—";
   return new Date(date + "T12:00:00").toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+    year: "numeric", month: "short", day: "numeric",
   });
 }
 
@@ -213,13 +226,9 @@ export function CategoryBadge({ category }: { category: string }) {
 // ── SaveButton ────────────────────────────────────────────────────────────────
 
 export function SaveButton({
-  saving,
-  onSave,
-  label = "Save",
+  saving, onSave, label = "Save",
 }: {
-  saving: boolean;
-  onSave: () => void;
-  label?: string;
+  saving: boolean; onSave: () => void; label?: string;
 }) {
   return (
     <button
@@ -234,13 +243,7 @@ export function SaveButton({
 
 // ── DeleteButton ──────────────────────────────────────────────────────────────
 
-export function DeleteButton({
-  saving,
-  onDelete,
-}: {
-  saving: boolean;
-  onDelete: () => void;
-}) {
+export function DeleteButton({ saving, onDelete }: { saving: boolean; onDelete: () => void }) {
   return (
     <button
       onClick={onDelete}
@@ -268,24 +271,15 @@ export function BaseItemFields({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className={labelCls}>Name *</label>
-          <input
-            type="text"
-            className={inputCls}
-            placeholder="Glock 19"
+          <input type="text" className={inputCls} placeholder="Glock 19"
             value={item.name ?? ""}
-            onChange={(e) => onChange({ name: e.target.value })}
-          />
+            onChange={(e) => onChange({ name: e.target.value })} />
         </div>
         <div>
           <label className={labelCls}>Brand</label>
-          <input
-            type="text"
-            list="suggest-brands"
-            className={inputCls}
-            placeholder="Glock"
+          <input type="text" list="suggest-brands" className={inputCls} placeholder="Glock"
             value={item.brand ?? ""}
-            onChange={(e) => onChange({ brand: e.target.value })}
-          />
+            onChange={(e) => onChange({ brand: e.target.value })} />
           {(suggestions.brands?.length ?? 0) > 0 && (
             <datalist id="suggest-brands">
               {suggestions.brands!.map((b) => <option key={b} value={b} />)}
@@ -295,33 +289,22 @@ export function BaseItemFields({
       </div>
       <div>
         <label className={labelCls}>Description</label>
-        <textarea
-          rows={2}
-          className={`${inputCls} resize-none`}
+        <textarea rows={2} className={`${inputCls} resize-none`}
           value={item.description ?? ""}
-          onChange={(e) => onChange({ description: e.target.value })}
-        />
+          onChange={(e) => onChange({ description: e.target.value })} />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className={labelCls}>Date Purchased</label>
-          <input
-            type="date"
-            className={inputCls}
+          <input type="date" className={inputCls}
             value={item.datePurchased ?? ""}
-            onChange={(e) => onChange({ datePurchased: e.target.value })}
-          />
+            onChange={(e) => onChange({ datePurchased: e.target.value })} />
         </div>
         <div>
           <label className={labelCls}>Vendor</label>
-          <input
-            type="text"
-            list="suggest-vendors"
-            className={inputCls}
-            placeholder="Brownells"
+          <input type="text" list="suggest-vendors" className={inputCls} placeholder="Brownells"
             value={item.vendor ?? ""}
-            onChange={(e) => onChange({ vendor: e.target.value })}
-          />
+            onChange={(e) => onChange({ vendor: e.target.value })} />
           {(suggestions.vendors?.length ?? 0) > 0 && (
             <datalist id="suggest-vendors">
               {suggestions.vendors!.map((v) => <option key={v} value={v} />)}
@@ -332,51 +315,29 @@ export function BaseItemFields({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className={labelCls}>Total Paid</label>
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            className={inputCls}
-            placeholder="0.00"
+          <input type="number" min={0} step={0.01} className={inputCls} placeholder="0.00"
             value={item.pricePaid ?? ""}
-            onChange={(e) =>
-              onChange({ pricePaid: parseFloat(e.target.value) || null })
-            }
-          />
+            onChange={(e) => onChange({ pricePaid: parseFloat(e.target.value) || null })} />
         </div>
         <div>
           <label className={labelCls}>Currency</label>
-          <select
-            className={inputCls}
-            value={item.currency ?? "USD"}
-            onChange={(e) => onChange({ currency: e.target.value })}
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
+          <select className={inputCls} value={item.currency ?? "USD"}
+            onChange={(e) => onChange({ currency: e.target.value })}>
+            {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
       </div>
       <div>
         <label className={labelCls}>URL</label>
-        <input
-          type="url"
-          className={inputCls}
-          placeholder="https://…"
+        <input type="url" className={inputCls} placeholder="https://…"
           value={item.url ?? ""}
-          onChange={(e) => onChange({ url: e.target.value })}
-        />
+          onChange={(e) => onChange({ url: e.target.value })} />
       </div>
       <div>
         <label className={labelCls}>Notes</label>
-        <textarea
-          rows={2}
-          className={`${inputCls} resize-none`}
+        <textarea rows={2} className={`${inputCls} resize-none`}
           value={item.notes ?? ""}
-          onChange={(e) => onChange({ notes: e.target.value })}
-        />
+          onChange={(e) => onChange({ notes: e.target.value })} />
       </div>
     </>
   );
@@ -385,44 +346,26 @@ export function BaseItemFields({
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 export function EmptyState({
-  label,
-  onAdd,
-  showCategoryLinks,
+  label, onAdd, showCategoryLinks,
 }: {
-  label: string;
-  onAdd: () => void;
-  showCategoryLinks?: boolean;
+  label: string; onAdd: () => void; showCategoryLinks?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 gap-4 text-gray-400">
       <p className="text-sm">No {label} yet.</p>
       {showCategoryLinks ? (
         <div className="flex flex-wrap gap-2 justify-center">
-          {(
-            Object.entries(CATEGORY_CONFIG) as [
-              Category,
-              (typeof CATEGORY_CONFIG)[Category],
-            ][]
-          ).map(([cat, cfg]) => (
-            <a
-              key={cat}
-              href={`${cfg.href}?new=1`}
+          {(Object.entries(CATEGORY_CONFIG) as [Category, (typeof CATEGORY_CONFIG)[Category]][]).map(([cat, cfg]) => (
+            <a key={cat} href={`${cfg.href}?new=1`}
               className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-              style={{
-                borderColor: cfg.color + "88",
-                color: cfg.color,
-                backgroundColor: cfg.color + "18",
-              }}
-            >
+              style={{ borderColor: cfg.color + "88", color: cfg.color, backgroundColor: cfg.color + "18" }}>
               + {cfg.label}
             </a>
           ))}
         </div>
       ) : (
-        <button
-          onClick={onAdd}
-          className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-        >
+        <button onClick={onAdd}
+          className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
           + Add {label}
         </button>
       )}
@@ -430,21 +373,17 @@ export function EmptyState({
   );
 }
 
-// ── useSuggestions ──────────────────────────────────────────────────────────────
-// Derives unique sorted brand/vendor lists from existing items.
+// ── useSuggestions ────────────────────────────────────────────────────────────
 
 export function useSuggestions(items: ItemRecord[]) {
-  const brands  = [...new Set(items.map((i) => i.brand).filter(Boolean) as string[])].sort();
+  const brands  = [...new Set(items.map((i) => i.brand).filter(Boolean)  as string[])].sort();
   const vendors = [...new Set(items.map((i) => i.vendor).filter(Boolean) as string[])].sort();
   return { brands, vendors };
 }
 
 // ── useThumbnails ─────────────────────────────────────────────────────────────
-// Resolves the first imageKey for each item into a signed URL map.
 
-export function useThumbnails(
-  items: { id: string; imageKeys?: (string | null)[] | null }[],
-) {
+export function useThumbnails(items: { id: string; imageKeys?: (string | null)[] | null }[]) {
   const [urls, setUrls] = useState<Map<string, string>>(new Map());
   const cacheKey = items.map((i) => i.id + (i.imageKeys?.[0] ?? "")).join(",");
 
@@ -456,30 +395,23 @@ export function useThumbnails(
           .map(async (it) => {
             const key = it.imageKeys![0]!;
             try {
-              const { url } = await getUrl({
-                path: key,
-                options: { bucket: BUCKET_NAME, expiresIn: 3600 },
-              });
+              const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
               return [it.id, url.toString()] as [string, string];
-            } catch (_e) {
-              return null;
-            }
+            } catch { return null; }
           }),
       );
       if (!cancelled.current) {
         setUrls(new Map(entries.filter(Boolean) as [string, string][]));
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [cacheKey],
   );
 
   useEffect(() => {
     const cancelled = { current: false };
     resolveUrls(cancelled);
-    return () => {
-      cancelled.current = true;
-    };
+    return () => { cancelled.current = true; };
   }, [resolveUrls]);
 
   return urls;
@@ -487,32 +419,20 @@ export function useThumbnails(
 
 // ── Thumbnail cell ────────────────────────────────────────────────────────────
 
-export function Thumbnail({
-  url,
-  name,
-}: {
-  url?: string;
-  name?: string | null;
-}) {
+export function Thumbnail({ url, name }: { url?: string; name?: string | null }) {
   if (!url) {
     return (
       <div className="w-10 h-10 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-        <span className="text-gray-300 dark:text-gray-600 text-lg select-none">
-          📷
-        </span>
+        <span className="text-gray-300 dark:text-gray-600 text-lg select-none">📷</span>
       </div>
     );
   }
   return (
-    <img
-      src={url}
-      alt={name ?? ""}
-      className="w-10 h-10 rounded-md object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
-    />
+    <img src={url} alt={name ?? ""} className="w-10 h-10 rounded-md object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700" />
   );
 }
 
-// ── Tiny inline SVG icons ─────────────────────────────────────────────────────
+// ── Icons ─────────────────────────────────────────────────────────────────────
 
 function EyeIcon() {
   return (
@@ -537,22 +457,196 @@ function TrashIcon() {
   );
 }
 
-// ── InventoryTable ────────────────────────────────────────────────────────────
+function SortIcon({ dir }: { dir: "asc" | "desc" | null }) {
+  if (dir === "asc") return (
+    <svg className="w-3 h-3 inline-block ml-1 text-purple dark:text-rose" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+    </svg>
+  );
+  if (dir === "desc") return (
+    <svg className="w-3 h-3 inline-block ml-1 text-purple dark:text-rose" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+  return (
+    <svg className="w-3 h-3 inline-block ml-1 opacity-25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
+    </svg>
+  );
+}
+
+// ── useTableControls ──────────────────────────────────────────────────────────
+// Sort + pagination state in one hook.
+
+export type SortDir = "asc" | "desc";
+
+export function useTableControls<T>(
+  items: T[],
+  getSortValue: (item: T, key: string) => string | number | null | undefined,
+) {
+  const [sortKey, setSortKey]   = useState<string | null>(null);
+  const [sortDir, setSortDir]   = useState<SortDir>("asc");
+  const [pageSize, setPageSize] = useState(100);
+  const [page, setPage]         = useState(1);
+
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+    setPage(1);
+  }
+
+  const sorted = sortKey
+    ? [...items].sort((a, b) => {
+        const av = getSortValue(a, sortKey) ?? "";
+        const bv = getSortValue(b, sortKey) ?? "";
+        const cmp =
+          typeof av === "number" && typeof bv === "number"
+            ? av - bv
+            : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+        return sortDir === "asc" ? cmp : -cmp;
+      })
+    : items;
+
+  const totalPages  = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage    = Math.min(page, totalPages);
+  const start       = (safePage - 1) * pageSize;
+  const paged       = sorted.slice(start, start + pageSize);
+
+  // reset to page 1 when items change
+  useEffect(() => { setPage(1); }, [items]);
+
+  return {
+    sorted,
+    paged,
+    sortKey,
+    sortDir,
+    handleSort,
+    page: safePage,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalPages,
+    totalItems: items.length,
+  };
+}
+
+// ── TableControls (pagination bar) ───────────────────────────────────────────
+
+const PAGE_SIZES = [25, 50, 100, 250, 500];
+
+export function TableControls({
+  page, totalPages, totalItems, pageSize,
+  setPage, setPageSize,
+}: {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  setPage: (p: number) => void;
+  setPageSize: (n: number) => void;
+}) {
+  const start = Math.min((page - 1) * pageSize + 1, totalItems);
+  const end   = Math.min(page * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+
+      {/* Left: row count info */}
+      <span className="whitespace-nowrap">
+        {totalItems === 0 ? "No items" : `${start}–${end} of ${totalItems}`}
+      </span>
+
+      {/* Center: page buttons */}
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setPage(1)}
+            disabled={page === 1}
+            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
+            title="First page"
+          >«</button>
+          <button
+            onClick={() => setPage(page - 1)}
+            disabled={page === 1}
+            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
+          >‹</button>
+
+          {/* page number pills — show up to 7 around current */}
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+            .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+              if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push("…");
+              acc.push(p);
+              return acc;
+            }, [])
+            .map((p, i) =>
+              p === "…" ? (
+                <span key={`ellipsis-${i}`} className="px-1">…</span>
+              ) : (
+                <button
+                  key={p}
+                  onClick={() => setPage(p as number)}
+                  className={[
+                    "w-6 h-6 rounded text-center transition-colors",
+                    p === page
+                      ? "bg-purple text-rose dark:bg-rose dark:text-purple font-semibold"
+                      : "hover:bg-gray-100 dark:hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  {p}
+                </button>
+              )
+            )}
+
+          <button
+            onClick={() => setPage(page + 1)}
+            disabled={page === totalPages}
+            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
+          >›</button>
+          <button
+            onClick={() => setPage(totalPages)}
+            disabled={page === totalPages}
+            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
+            title="Last page"
+          >»</button>
+        </div>
+      )}
+
+      {/* Right: page size selector */}
+      <div className="flex items-center gap-1.5 whitespace-nowrap">
+        <span>Rows:</span>
+        <select
+          value={pageSize}
+          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+          className="border rounded px-1 py-0.5 text-xs dark:bg-purple dark:border-gray-600 bg-white border-gray-300 cursor-pointer"
+        >
+          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// ── ColDef ────────────────────────────────────────────────────────────────────
 
 export type ColDef<T> = {
   key: string;
   label: string;
   render: (row: T) => React.ReactNode;
+  /** Return a primitive for sorting. If omitted, column is not sortable. */
+  sortValue?: (row: T) => string | number | null | undefined;
   className?: string;
   mobileHidden?: boolean;
 };
 
+// ── InventoryTable ────────────────────────────────────────────────────────────
+
 export function InventoryTable<
-  T extends {
-    id: string;
-    imageKeys?: (string | null)[] | null;
-    name?: string | null;
-  },
+  T extends { id: string; imageKeys?: (string | null)[] | null; name?: string | null }
 >({
   items,
   columns,
@@ -560,6 +654,9 @@ export function InventoryTable<
   onEdit,
   onDelete,
   isLoading,
+  sortKey,
+  sortDir,
+  onSort,
 }: {
   items: T[];
   columns: ColDef<T>[];
@@ -567,6 +664,9 @@ export function InventoryTable<
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
   isLoading?: boolean;
+  sortKey?: string | null;
+  sortDir?: SortDir;
+  onSort?: (key: string) => void;
 }) {
   const DUMMY_ID = "__dummy__";
   const dummyRow = { id: DUMMY_ID, name: null } as unknown as T;
@@ -578,11 +678,25 @@ export function InventoryTable<
         <thead>
           <tr>
             <th className={`${thCls} w-12`}> </th>
-            {columns.map((col) => (
-              <th key={col.key} className={`${thCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}>
-                {col.label}
-              </th>
-            ))}
+            {columns.map((col) => {
+              const isSortable = !!col.sortValue && !!onSort;
+              const dir = sortKey === col.key ? (sortDir ?? null) : null;
+              return (
+                <th
+                  key={col.key}
+                  className={[
+                    thCls,
+                    col.mobileHidden ? "hidden md:table-cell" : "",
+                    col.className ?? "",
+                    isSortable ? "cursor-pointer select-none hover:text-gray-600 dark:hover:text-gray-300 transition-colors" : "",
+                  ].join(" ")}
+                  onClick={isSortable ? () => onSort!(col.key) : undefined}
+                >
+                  {col.label}
+                  {isSortable && <SortIcon dir={dir} />}
+                </th>
+              );
+            })}
             <th className={`${thCls} w-32 text-right`}>Actions</th>
           </tr>
         </thead>
@@ -682,14 +796,9 @@ export async function resolveAllUrls(keys: string[]): Promise<string[]> {
   return Promise.all(
     keys.map(async (key) => {
       try {
-        const { url } = await getUrl({
-          path: key,
-          options: { bucket: BUCKET_NAME, expiresIn: 3600 },
-        });
+        const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
         return url.toString();
-      } catch {
-        return "";
-      }
+      } catch { return ""; }
     }),
   );
 }
@@ -707,16 +816,13 @@ type SlotState =
 
 export const ImageUploader = forwardRef<
   ImageUploaderHandle,
-  {
-    itemId?: string;
-    existingKeys?: (string | null)[];
-  }
+  { itemId?: string; existingKeys?: (string | null)[] }
 >(function ImageUploader({ existingKeys = [] }, ref) {
-  const [slots, setSlots] = useState<SlotState[]>([]);
+  const [slots,     setSlots]     = useState<SlotState[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [dragOver,  setDragOver]  = useState(false);
+  const [dragIdx,      setDragIdx]      = useState<number | null>(null);
+  const [dragOverIdx,  setDragOverIdx]  = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -728,14 +834,9 @@ export const ImageUploader = forwardRef<
       const resolved: SlotState[] = await Promise.all(
         (existingKeys.filter(Boolean) as string[]).map(async (key) => {
           try {
-            const { url } = await getUrl({
-              path: key,
-              options: { bucket: BUCKET_NAME, expiresIn: 3600 },
-            });
+            const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
             return { kind: "existing" as const, key, url: url.toString() };
-          } catch (_e) {
-            return { kind: "existing" as const, key };
-          }
+          } catch { return { kind: "existing" as const, key }; }
         }),
       );
       if (!cancelled) setSlots(resolved);
@@ -745,42 +846,29 @@ export const ImageUploader = forwardRef<
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingKeysKey]);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      hasPending: slots.some((s) => s.kind === "pending"),
-      commit: async (id: string) => {
-        setUploading(true);
-        try {
-          const finalSlots: { kind: "existing"; key: string; url?: string }[] = [];
-          for (const slot of slots) {
-            if (slot.kind === "existing") {
-              finalSlots.push(slot);
-            } else {
-              const ext = slot.file.name.split(".").pop() ?? "jpg";
-              const key = `inventory/${id}/${uuidv4()}.${ext}`;
-              await uploadData({
-                path: key,
-                data: slot.file,
-                options: { bucket: BUCKET_NAME, contentType: slot.file.type },
-              }).result;
-              const { url } = await getUrl({
-                path: key,
-                options: { bucket: BUCKET_NAME, expiresIn: 3600 },
-              });
-              finalSlots.push({ kind: "existing", key, url: url.toString() });
-              URL.revokeObjectURL(slot.preview);
-            }
+  useImperativeHandle(ref, () => ({
+    hasPending: slots.some((s) => s.kind === "pending"),
+    commit: async (id: string) => {
+      setUploading(true);
+      try {
+        const finalSlots: { kind: "existing"; key: string; url?: string }[] = [];
+        for (const slot of slots) {
+          if (slot.kind === "existing") {
+            finalSlots.push(slot);
+          } else {
+            const ext = slot.file.name.split(".").pop() ?? "jpg";
+            const key = `inventory/${id}/${uuidv4()}.${ext}`;
+            await uploadData({ path: key, data: slot.file, options: { bucket: BUCKET_NAME, contentType: slot.file.type } }).result;
+            const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
+            finalSlots.push({ kind: "existing", key, url: url.toString() });
+            URL.revokeObjectURL(slot.preview);
           }
-          setSlots(finalSlots);
-          return finalSlots.map((s) => s.key);
-        } finally {
-          setUploading(false);
         }
-      },
-    }),
-    [slots],
-  );
+        setSlots(finalSlots);
+        return finalSlots.map((s) => s.key);
+      } finally { setUploading(false); }
+    },
+  }), [slots]);
 
   function addFiles(files: FileList | null) {
     if (!files) return;
@@ -794,9 +882,7 @@ export const ImageUploader = forwardRef<
     const slot = slots[idx];
     if (slot.kind === "existing") {
       if (!confirm("Remove this image? This cannot be undone.")) return;
-      try {
-        await remove({ path: slot.key, options: { bucket: BUCKET_NAME } });
-      } catch (_e) { /* best effort */ }
+      try { await remove({ path: slot.key, options: { bucket: BUCKET_NAME } }); } catch { /* best effort */ }
     } else {
       URL.revokeObjectURL(slot.preview);
     }
@@ -823,17 +909,12 @@ export const ImageUploader = forwardRef<
   return (
     <div>
       <label className={labelCls}>Photos</label>
-
       {slots.length > 0 && (
         <div className="grid grid-cols-3 gap-2 mb-2">
           {slots.map((slot, idx) => (
-            <div
-              key={idx}
-              draggable
-              onDragStart={() => onDragStart(idx)}
-              onDragEnter={() => onDragEnter(idx)}
-              onDragEnd={onDragEnd}
-              onDragOver={(e) => e.preventDefault()}
+            <div key={idx} draggable
+              onDragStart={() => onDragStart(idx)} onDragEnter={() => onDragEnter(idx)}
+              onDragEnd={onDragEnd} onDragOver={(e) => e.preventDefault()}
               className={[
                 "relative group rounded overflow-hidden border-2 cursor-grab active:cursor-grabbing transition-all",
                 dragOverIdx === idx && dragIdx !== idx ? "border-purple dark:border-rose scale-95" : "border-transparent",
@@ -845,16 +926,13 @@ export const ImageUploader = forwardRef<
                 <span className="absolute top-1 left-1 text-[10px] bg-gold text-darkPurple font-bold px-1.5 py-0.5 rounded">Pending</span>
               )}
               <span className="absolute top-1 right-6 text-[10px] bg-black/50 text-white px-1.5 py-0.5 rounded">{idx + 1}</span>
-              <button
-                onClick={() => removeSlot(idx)}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              >×</button>
+              <button onClick={() => removeSlot(idx)}
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">×</button>
               <div className="absolute bottom-1 left-1 opacity-0 group-hover:opacity-60 transition-opacity text-white text-xs select-none">⠿</div>
             </div>
           ))}
         </div>
       )}
-
       <div
         className={[
           "border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer",
@@ -868,7 +946,6 @@ export const ImageUploader = forwardRef<
         <p className="text-xs text-gray-400">{uploading ? "Uploading…" : "Drop images here or click to browse"}</p>
         <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-0.5">Drag thumbnails above to reorder · First image is the cover</p>
       </div>
-
       <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
     </div>
   );

@@ -36,7 +36,7 @@
     "@react-aria/visually-hidden": "3.8.12",
     "@types/uuid": "^10.0.0",
     "@vis.gl/react-google-maps": "^1.7.1",
-    "aws-amplify": "^6.14.1",
+    "aws-amplify": "^6.16.2",
     "aws-cdk-lib": "^2.188.0",
     "cldr-data": "^36.0.4",
     "clsx": "2.1.1",
@@ -66,7 +66,8 @@
     "react-svg": "^16.3.0",
     "sharp": "^0.34.0",
     "slugify": "^1.6.6",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.14.3",

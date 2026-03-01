@@ -12,6 +12,7 @@ import {
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle,
   InventoryTable, ColDef, useThumbnails, useSuggestions,
+  useTableControls, TableControls,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -176,15 +177,20 @@ export default function FirearmsPage() {
   const suggestions = useSuggestions(items);
 
   const columns: ColDef<ItemRecord>[] = [
-    { key: "name",    label: "Name",       render: (r) => <span className="font-medium">{r.name}</span> },
-    { key: "type",    label: "Type",       render: (r) => details.get(r.id)?.type ?? "—" },
-    { key: "caliber", label: "Caliber",    render: (r) => details.get(r.id)?.caliber ?? "—" },
-    { key: "brand",   label: "Brand",      render: (r) => r.brand ?? "—",                                      mobileHidden: true },
-    { key: "serial",  label: "Serial #",   render: (r) => details.get(r.id)?.serialNumber ?? "—",             mobileHidden: true },
-    { key: "action",  label: "Action",     render: (r) => details.get(r.id)?.action ?? "—",                   mobileHidden: true },
-    { key: "price",   label: "Total Paid", render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD"),      mobileHidden: true },
-    { key: "date",    label: "Date",       render: (r) => fmtDate(r.datePurchased),                           mobileHidden: true },
+    { key: "name",    label: "Name",       render: (r) => <span className="font-medium">{r.name}</span>,                          sortValue: (r) => r.name ?? "" },
+    { key: "type",    label: "Type",       render: (r) => details.get(r.id)?.type ?? "—",                                       sortValue: (r) => details.get(r.id)?.type ?? "" },
+    { key: "caliber", label: "Caliber",    render: (r) => details.get(r.id)?.caliber ?? "—",                                    sortValue: (r) => details.get(r.id)?.caliber ?? "" },
+    { key: "brand",   label: "Brand",      render: (r) => r.brand ?? "—",                                      mobileHidden: true, sortValue: (r) => r.brand ?? "" },
+    { key: "serial",  label: "Serial #",   render: (r) => details.get(r.id)?.serialNumber ?? "—",             mobileHidden: true, sortValue: (r) => details.get(r.id)?.serialNumber ?? "" },
+    { key: "action",  label: "Action",     render: (r) => details.get(r.id)?.action ?? "—",                   mobileHidden: true, sortValue: (r) => details.get(r.id)?.action ?? "" },
+    { key: "price",   label: "Total Paid", render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD"),      mobileHidden: true, sortValue: (r) => r.pricePaid ?? 0 },
+    { key: "date",    label: "Date",       render: (r) => fmtDate(r.datePurchased),                           mobileHidden: true, sortValue: (r) => r.datePurchased ?? "" },
   ];
+
+  const tableControls = useTableControls(items, (item, key) => {
+    const col = columns.find((c) => c.key === key);
+    return col?.sortValue?.(item);
+  });
 
   if (authState !== "authenticated") return null;
 
@@ -209,7 +215,7 @@ export default function FirearmsPage() {
           ) : (
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
               <InventoryTable
-                items={items}
+                items={tableControls.paged}
                 columns={columns}
                 thumbnails={thumbnails}
                 onEdit={(item) => {
@@ -217,6 +223,17 @@ export default function FirearmsPage() {
                   if (fw) openEdit(item, fw);
                 }}
                 onDelete={handleDeleteItem}
+                sortKey={tableControls.sortKey}
+                sortDir={tableControls.sortDir}
+                onSort={tableControls.handleSort}
+              />
+              <TableControls
+                page={tableControls.page}
+                totalPages={tableControls.totalPages}
+                totalItems={tableControls.totalItems}
+                pageSize={tableControls.pageSize}
+                setPage={tableControls.setPage}
+                setPageSize={tableControls.setPageSize}
               />
             </div>
           )}

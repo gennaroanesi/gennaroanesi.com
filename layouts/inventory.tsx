@@ -14,12 +14,19 @@ const NAV_ITEMS: { key: string; label: string; href: string; color: string }[] =
   { key: "instruments", label: "Instruments", href: "/inventory/instruments", color: CATEGORY_CONFIG.INSTRUMENT.color },
 ];
 
+const SETTINGS_ITEMS: { key: string; label: string; href: string; color: string }[] = [
+  { key: "people",     label: "People",      href: "/inventory/people",      color: "#64748b" },
+  { key: "thresholds", label: "Thresholds",  href: "/inventory/thresholds",  color: "#64748b" },
+];
+
 function activeKey(pathname: string): string {
   if (pathname === "/inventory") return "all";
   if (pathname.includes("firearms"))    return "firearms";
   if (pathname.includes("ammo"))        return "ammo";
   if (pathname.includes("filaments"))   return "filaments";
   if (pathname.includes("instruments")) return "instruments";
+  if (pathname.includes("people"))      return "people";
+  if (pathname.includes("thresholds"))  return "thresholds";
   return "all";
 }
 
@@ -116,6 +123,48 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
               </NextLink>
             ))}
           </div>
+
+          <Divider className="my-3 mx-4 w-auto" />
+
+          <p className="px-4 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 font-medium">
+            Notifications
+          </p>
+          <Listbox
+            aria-label="Notification settings navigation"
+            variant="flat"
+            selectionMode="single"
+            selectedKeys={new Set([active])}
+            disallowEmptySelection
+            classNames={{ base: "px-2", list: "gap-1" }}
+          >
+            {SETTINGS_ITEMS.map((item) => {
+              const isActive = item.key === active;
+              return (
+                <ListboxItem
+                  key={item.key}
+                  as={NextLink}
+                  href={item.href}
+                  textValue={item.label}
+                  classNames={{
+                    base: [
+                      "rounded-lg px-3 py-2 transition-colors",
+                      isActive ? "bg-opacity-10" : "hover:bg-gray-100 dark:hover:bg-white/5",
+                    ].join(" "),
+                    title: "text-sm font-medium",
+                  }}
+                  style={isActive ? { backgroundColor: item.color + "22", color: item.color } : undefined}
+                  startContent={
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: isActive ? item.color : item.color + "66" }}
+                    />
+                  }
+                >
+                  {item.label}
+                </ListboxItem>
+              );
+            })}
+          </Listbox>
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────────── */}

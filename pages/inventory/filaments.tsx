@@ -7,10 +7,12 @@ import { useRouter } from "next/router";
 import {
   ItemRecord, FilamentRecord,
   FILAMENT_MATS, FILAMENT_DIAMS, FILAMENT_DIAM_LABELS,
-  inputCls, labelCls, thCls, tdCls,
+  inputCls, labelCls,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle, useSuggestions,
+  InventoryTable, ColDef, useThumbnails,
+  useTableControls, TableControls,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -56,6 +58,7 @@ export default function FilamentsPage() {
   const [filamentDraft,  setFilamentDraft]  = useState<Partial<FilamentRecord>>({});
   const imgRef = useRef<ImageUploaderHandle>(null);
   const suggestions = useSuggestions(items);
+  const thumbnails  = useThumbnails(items);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -185,6 +188,27 @@ export default function FilamentsPage() {
     }
   }
 
+  const columns: ColDef<ItemRecord>[] = [
+    { key: "name",     label: "Name",     render: (r) => <span className="font-medium">{r.name}</span>,                                                 sortValue: (r) => r.name ?? "" },
+    { key: "material", label: "Material", render: (r) => {
+      const mat = details.get(r.id)?.material;
+      return mat
+        ? <span className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#8B5CF622", color: "#8B5CF6" }}>{mat}</span>
+        : <span>—</span>;
+    },                                                                                                                                                   sortValue: (r) => details.get(r.id)?.material ?? "" },
+    { key: "color",    label: "Color",    render: (r) => colorSwatch(details.get(r.id)?.color) ?? <span>—</span>,                                     sortValue: (r) => details.get(r.id)?.color ?? "" },
+    { key: "weight",   label: "Weight",   render: (r) => { const w = details.get(r.id)?.weightG; return w ? `${w} g` : "—"; }, mobileHidden: true, sortValue: (r) => details.get(r.id)?.weightG ?? 0 },
+    { key: "diam",     label: "Diameter", render: (r) => { const d = details.get(r.id)?.diameter; return d ? FILAMENT_DIAM_LABELS[d] ?? d : "—"; }, mobileHidden: true, sortValue: (r) => details.get(r.id)?.diameter ?? "" },
+    { key: "brand",    label: "Brand",    render: (r) => r.brand ?? "—",                                               mobileHidden: true, sortValue: (r) => r.brand ?? "" },
+    { key: "price",    label: "Price",    render: (r) => fmtCurrency(r.pricePaid, r.currency ?? "USD"),          mobileHidden: true, sortValue: (r) => r.pricePaid ?? 0 },
+    { key: "date",     label: "Date",     render: (r) => fmtDate(r.datePurchased),                                mobileHidden: true, sortValue: (r) => r.datePurchased ?? "" },
+  ];
+
+  const tableControls = useTableControls(items, (item, key) => {
+    const col = columns.find((c) => c.key === key);
+    return col?.sortValue?.(item);
+  });
+
   // ── Totals by material ────────────────────────────────────────────────────
   const materialTotals = Array.from(details.values()).reduce((acc, f) => {
     const key = f.material ?? "OTHER";
@@ -226,45 +250,25 @@ export default function FilamentsPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Filament" onAdd={openNew} />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-              <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
-                  <tr>
-                    <th className={thCls}>Name</th>
-                    <th className={thCls}>Material</th>
-                    <th className={thCls}>Color</th>
-                    <th className={`${thCls} hidden sm:table-cell`}>Weight</th>
-                    <th className={`${thCls} hidden sm:table-cell`}>Diameter</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Brand</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Price</th>
-                    <th className={`${thCls} hidden md:table-cell`}>Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {items.map((it) => {
-                    const fl = details.get(it.id);
-                    return (
-                      <tr key={it.id}
-                        className="hover:bg-gray-50 dark:hover:bg-purple/30 transition-colors cursor-pointer"
-                        onClick={() => fl && openEdit(it, fl)}>
-                        <td className={`${tdCls} font-medium`}>{it.name}</td>
-                        <td className={tdCls}>
-                          <span className="font-mono text-xs px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: "#8B5CF622", color: "#8B5CF6" }}>
-                            {fl?.material ?? "—"}
-                          </span>
-                        </td>
-                        <td className={tdCls}>{colorSwatch(fl?.color) ?? "—"}</td>
-                        <td className={`${tdCls} hidden sm:table-cell`}>{fl?.weightG ? `${fl.weightG} g` : "—"}</td>
-                        <td className={`${tdCls} hidden sm:table-cell`}>{fl?.diameter ? FILAMENT_DIAM_LABELS[fl.diameter] ?? fl.diameter : "—"}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{it.brand ?? "—"}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{fmtCurrency(it.pricePaid, it.currency ?? "USD")}</td>
-                        <td className={`${tdCls} hidden md:table-cell`}>{fmtDate(it.datePurchased)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <InventoryTable
+                items={tableControls.paged}
+                columns={columns}
+                thumbnails={thumbnails}
+                onEdit={(item) => { const fl = details.get(item.id); if (fl) openEdit(item, fl); }}
+                onDelete={handleDelete}
+                sortKey={tableControls.sortKey}
+                sortDir={tableControls.sortDir}
+                onSort={tableControls.handleSort}
+              />
+              <TableControls
+                page={tableControls.page}
+                totalPages={tableControls.totalPages}
+                totalItems={tableControls.totalItems}
+                pageSize={tableControls.pageSize}
+                setPage={tableControls.setPage}
+                setPageSize={tableControls.setPageSize}
+              />
             </div>
           )}
         </div>
