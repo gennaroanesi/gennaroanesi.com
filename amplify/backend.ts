@@ -1,5 +1,6 @@
 import { defineBackend } from "@aws-amplify/backend";
 import { Effect, Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { CfnUserPool } from "aws-cdk-lib/aws-cognito";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 
 import { auth } from "./auth/resource";
@@ -10,6 +11,12 @@ const backend = defineBackend({
   data,
   //storage,
 });
+
+// Disable self-registration — only admin-created users can sign in
+const { cfnUserPool } = backend.auth.resources.cfnResources;
+(cfnUserPool as CfnUserPool).adminCreateUserConfig = {
+  allowAdminCreateUserOnly: true,
+};
 
 // Use existing gennaroanesi.com bucket
 

@@ -57,6 +57,83 @@ const schema = a
         tripId: a.id(),                      // FK → trip.id (optional)
       })
       .authorization((allow) => [allow.group("admins")]),
+
+    // ── Inventory ────────────────────────────────────────────────────────────
+    // Base item record — all inventory items share these fields.
+    inventoryItem: a
+      .model({
+        name:          a.string().required(),
+        brand:         a.string(),
+        description:   a.string(),
+        category:      a.enum(["FIREARM", "AMMO", "FILAMENT", "INSTRUMENT", "OTHER"]),
+        datePurchased: a.date(),
+        vendor:        a.string(),
+        url:           a.url(),
+        pricePaid:     a.float(),            // price per unit
+        currency:      a.string().default("USD"),
+        notes:         a.string(),
+        imageKeys:     a.string().array(),   // S3 keys under inventory/{id}/
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── Firearm detail ───────────────────────────────────────────────────────
+    inventoryFirearm: a
+      .model({
+        itemId:       a.id().required(),     // FK → inventoryItem.id
+        type:         a.enum(["HANDGUN", "RIFLE", "SHOTGUN", "SBR", "SUPPRESSOR", "OTHER"]),
+        serialNumber: a.string(),
+        caliber:      a.string(),
+        action:       a.string(),            // semi-auto, bolt, revolver, etc.
+        finish:       a.string(),
+        barrelLength: a.string(),
+        parts:        a.ref("FirearmPart").array(),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── Ammo detail ─────────────────────────────────────────────────────────
+    inventoryAmmo: a
+      .model({
+        itemId:       a.id().required(),     // FK → inventoryItem.id
+        caliber:      a.string().required(),
+        quantity:     a.integer().required(), // number of units purchased
+        unit:         a.enum(["ROUNDS", "BOX", "CASE"]),
+        grain:        a.integer(),           // bullet weight in grains
+        bulletType:   a.string(),            // FMJ, HP, SP, etc.
+        velocityFps:  a.integer(),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── Filament detail ──────────────────────────────────────────────────────
+    inventoryFilament: a
+      .model({
+        itemId:    a.id().required(),        // FK → inventoryItem.id
+        material:  a.enum(["PLA", "ABS", "PETG", "TPU", "ASA", "NYLON", "OTHER"]),
+        color:     a.string(),
+        weightG:   a.integer(),              // spool weight in grams
+        diameter:  a.enum(["d175", "d285"]),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── Instrument detail ────────────────────────────────────────────────────
+    inventoryInstrument: a
+      .model({
+        itemId:       a.id().required(),     // FK → inventoryItem.id
+        type:         a.enum(["GUITAR", "BASS", "AMPLIFIER", "PEDAL", "KEYBOARD", "OTHER"]),
+        color:        a.string(),
+        strings:      a.integer(),           // number of strings (guitars/basses)
+        tuning:       a.string(),            // standard, drop D, etc.
+        bodyMaterial: a.string(),
+        finish:       a.string(),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── Custom types ─────────────────────────────────────────────────────────
+    FirearmPart: a.customType({
+      name:          a.string().required(),
+      brand:         a.string(),
+      installedDate: a.date(),
+      notes:         a.string(),
+    }),
   });
 
 export type Schema = ClientSchema<typeof schema>;

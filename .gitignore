@@ -3,6 +3,7 @@ node_modules
 
 # local env files
 .env*.local
+.env.sandbox
 
 # misc
 .DS_Store
@@ -18,3 +19,5 @@ amplifyconfiguration*
 
 # others
 .local
+
+.temp

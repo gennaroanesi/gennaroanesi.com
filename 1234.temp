@@ -1,0 +1,11 @@
+aws cognito-idp admin-set-user-password \
+  --user-pool-id us-east-1_UmEXJ3zEJ \
+  --username test@sandbox.local \
+  --password SandboxTest1! \
+  --permanent
+
+
+aws cognito-idp admin-add-user-to-group \
+  --user-pool-id us-east-1_UmEXJ3zEJ \
+  --username test@sandbox.local \
+  --group-name admins

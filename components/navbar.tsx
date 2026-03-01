@@ -43,6 +43,10 @@ const adminMenu = [
     name: "Calendar",
     href: "/calendar",
   },
+  {
+    name: "Inventory",
+    href: "/inventory",
+  },
 ];
 
 const AdminDropdown = () => {
