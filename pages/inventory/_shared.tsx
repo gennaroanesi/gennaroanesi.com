@@ -89,54 +89,74 @@ export const CURRENCIES = [
   "BRL",
 ] as const;
 
-export const CALIBERS = [
-  // Pistol
-  ".22 LR",
-  ".22 WMR",
-  ".380 ACP",
-  "9mm Luger",
-  "9mm Makarov",
-  ".38 Special",
-  ".357 Magnum",
-  ".357 SIG",
-  ".40 S&W",
-  "10mm Auto",
-  ".44 Magnum",
-  ".44 Special",
-  ".45 ACP",
-  ".45 Colt",
-  "5.7x28mm",
-  // Rifle
-  ".17 HMR",
-  ".223 Remington",
-  "5.56x45mm NATO",
-  ".224 Valkyrie",
-  "6mm ARC",
-  "6.5 Creedmoor",
-  "6.5 Grendel",
-  "6.5 PRC",
-  ".270 Winchester",
-  "7mm-08 Remington",
-  "7mm Remington Magnum",
-  "7.62x39mm",
-  "7.62x51mm NATO",
-  ".308 Winchester",
-  ".30-06 Springfield",
-  ".300 Blackout",
-  ".300 Win Mag",
-  ".338 Lapua Magnum",
-  ".30 Carbine",
-  "5.45x39mm",
-  ".50 BMG",
-  // Shotgun
-  "12 Gauge",
-  "16 Gauge",
-  "20 Gauge",
-  "28 Gauge",
-  ".410 Bore",
-  // Other
-  "Other",
-] as const;
+export const CALIBER_GROUPS: { label: string; calibers: string[] }[] = [
+  {
+    label: "Handgun",
+    calibers: [
+      ".22 LR", ".22 WMR", ".380 ACP", "9mm Luger", "9mm Makarov",
+      ".38 Special", ".357 Magnum", ".357 SIG", ".40 S&W", "10mm Auto",
+      ".44 Magnum", ".44 Special", ".45 ACP", ".45 Colt", "5.7x28mm",
+    ],
+  },
+  {
+    label: "Rifle",
+    calibers: [
+      ".17 HMR", ".223 Remington", "5.56x45mm NATO", ".224 Valkyrie",
+      "6mm ARC", "6.5 Creedmoor", "6.5 Grendel", "6.5 PRC",
+      ".270 Winchester", "7mm-08 Remington", "7mm Remington Magnum",
+      "7.62x39mm", "7.62x51mm NATO", ".308 Winchester", ".30-06 Springfield",
+      ".300 Blackout", ".300 Win Mag", ".338 Lapua Magnum",
+      ".30 Carbine", "5.45x39mm", ".50 BMG",
+    ],
+  },
+  {
+    label: "Shotgun",
+    calibers: ["12 Gauge", "16 Gauge", "20 Gauge", "28 Gauge", ".410 Bore"],
+  },
+  {
+    label: "Other",
+    calibers: ["Other"],
+  },
+];
+
+// Flat list for datalist/typeahead use
+export const CALIBERS = CALIBER_GROUPS.flatMap((g) => g.calibers);
+
+// ── CaliberInput ─────────────────────────────────────────────────────────────
+// Text input with grouped datalist — typeahead that filters as you type.
+
+export function CaliberInput({
+  value,
+  onChange,
+  required,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <>
+      <input
+        type="text"
+        list="caliber-list"
+        className={inputCls}
+        placeholder="Start typing…"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+      />
+      <datalist id="caliber-list">
+        {CALIBER_GROUPS.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.calibers.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </optgroup>
+        ))}
+      </datalist>
+    </>
+  );
+}
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 

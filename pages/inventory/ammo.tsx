@@ -7,7 +7,7 @@ import { useRouter } from "next/router";
 import {
   ItemRecord, AmmoRecord,
   AMMO_UNITS, CALIBERS,
-  inputCls, labelCls,
+  inputCls, labelCls, CaliberInput,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle,
@@ -264,12 +264,11 @@ export default function AmmoPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={labelCls}>Caliber *</label>
-                  <select className={inputCls}
+                  <CaliberInput
                     value={ammoDraft.caliber ?? ""}
-                    onChange={(e) => setAmmoDraft((d) => ({ ...d, caliber: e.target.value }))}>
-                    <option value="">— Select —</option>
-                    {CALIBERS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                    onChange={(v) => setAmmoDraft((d) => ({ ...d, caliber: v }))}
+                    required
+                  />
                 </div>
                 <div>
                   <label className={labelCls}>Unit</label>

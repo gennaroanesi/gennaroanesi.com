@@ -7,7 +7,7 @@ import { useRouter } from "next/router";
 import {
   ItemRecord, FirearmRecord,
   FIREARM_TYPES, CALIBERS,
-  inputCls, labelCls,
+  inputCls, labelCls, CaliberInput,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle,
@@ -249,12 +249,10 @@ export default function FirearmsPage() {
                 </div>
                 <div>
                   <label className={labelCls}>Caliber</label>
-                  <select className={inputCls}
+                  <CaliberInput
                     value={firearmDraft.caliber ?? ""}
-                    onChange={(e) => setFirearmDraft((d) => ({ ...d, caliber: e.target.value }))}>
-                    <option value="">— Select —</option>
-                    {CALIBERS.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                    onChange={(v) => setFirearmDraft((d) => ({ ...d, caliber: v }))}
+                  />
                 </div>
               </div>
 
