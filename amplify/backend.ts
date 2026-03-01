@@ -106,3 +106,21 @@ const authPolicy = new Policy(backend.stack, "customBucketAuthPolicy", {
 });
 
 backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(authPolicy);
+
+// Admins group gets its own IAM role — attach the same S3 policy to it
+backend.auth.resources.groups["admins"].role.attachInlinePolicy(
+  new Policy(backend.stack, "customBucketAdminsGroupPolicy", {
+    statements: [
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+        resources: [`${customBucket.bucketArn}/*`],
+      }),
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["s3:ListBucket"],
+        resources: [`${customBucket.bucketArn}`],
+      }),
+    ],
+  }),
+);
