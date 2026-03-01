@@ -95,11 +95,12 @@ const schema = a
       .model({
         itemId:       a.id().required(),     // FK → inventoryItem.id
         caliber:      a.string().required(),
-        quantity:     a.integer().required(), // number of units purchased
-        unit:         a.enum(["ROUNDS", "BOX", "CASE"]),
-        grain:        a.integer(),           // bullet weight in grains
-        bulletType:   a.string(),            // FMJ, HP, SP, etc.
-        velocityFps:  a.integer(),
+        quantity:      a.integer().required(), // number of units purchased
+        unit:          a.enum(["ROUNDS", "BOX", "CASE"]),
+        roundsPerUnit: a.integer(),           // rounds per box/case (1 if unit=ROUNDS)
+        grain:         a.integer(),           // bullet weight in grains
+        bulletType:    a.string(),            // FMJ, HP, SP, etc.
+        velocityFps:   a.integer(),
       })
       .authorization((allow) => [allow.group("admins")]),
 

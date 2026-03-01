@@ -10,7 +10,7 @@ import {
   inputCls, labelCls, thCls, tdCls,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
-  ImageUploader, ImageUploaderHandle,
+  ImageUploader, ImageUploaderHandle, useSuggestions,
 } from "./_shared";
 
 const client = generateClient<Schema>();
@@ -38,6 +38,7 @@ export default function InstrumentsPage() {
   const [itemDraft,       setItemDraft]       = useState<Partial<ItemRecord>>({});
   const [instrumentDraft, setInstrumentDraft] = useState<Partial<InstrumentRecord>>({});
   const imgRef = useRef<ImageUploaderHandle>(null);
+  const suggestions = useSuggestions(items);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -264,7 +265,7 @@ export default function InstrumentsPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-              <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} />
+              <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
               <hr className="border-gray-200 dark:border-gray-700" />
               <p className={labelCls}>Instrument Details</p>

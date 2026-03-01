@@ -11,7 +11,7 @@ import {
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle,
-  InventoryTable, ColDef, useThumbnails,
+  InventoryTable, ColDef, useThumbnails, useSuggestions,
 } from "./_shared";
 
 const client = generateClient<Schema>();
@@ -101,13 +101,14 @@ export default function AmmoPage() {
         });
         if (errors || !newItem) return;
         const { data: newAmmo } = await client.models.inventoryAmmo.create({
-          itemId:      newItem.id,
-          caliber:     ammoDraft.caliber!,
-          quantity:    ammoDraft.quantity ?? 0,
-          unit:        (ammoDraft.unit ?? "ROUNDS") as any,
-          grain:       ammoDraft.grain       ?? null,
-          bulletType:  ammoDraft.bulletType  ?? null,
-          velocityFps: ammoDraft.velocityFps ?? null,
+          itemId:        newItem.id,
+          caliber:       ammoDraft.caliber!,
+          quantity:      ammoDraft.quantity ?? 0,
+          unit:          (ammoDraft.unit ?? "ROUNDS") as any,
+          roundsPerUnit: ammoDraft.roundsPerUnit ?? null,
+          grain:         ammoDraft.grain       ?? null,
+          bulletType:    ammoDraft.bulletType  ?? null,
+          velocityFps:   ammoDraft.velocityFps ?? null,
         });
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
@@ -131,13 +132,14 @@ export default function AmmoPage() {
           notes:         itemDraft.notes         ?? null,
         });
         await client.models.inventoryAmmo.update({
-          id:          panel.ammo.id,
-          caliber:     ammoDraft.caliber!,
-          quantity:    ammoDraft.quantity ?? 0,
-          unit:        (ammoDraft.unit ?? "ROUNDS") as any,
-          grain:       ammoDraft.grain       ?? null,
-          bulletType:  ammoDraft.bulletType  ?? null,
-          velocityFps: ammoDraft.velocityFps ?? null,
+          id:            panel.ammo.id,
+          caliber:       ammoDraft.caliber!,
+          quantity:      ammoDraft.quantity ?? 0,
+          unit:          (ammoDraft.unit ?? "ROUNDS") as any,
+          roundsPerUnit: ammoDraft.roundsPerUnit ?? null,
+          grain:         ammoDraft.grain       ?? null,
+          bulletType:    ammoDraft.bulletType  ?? null,
+          velocityFps:   ammoDraft.velocityFps ?? null,
         });
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
         await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
@@ -168,12 +170,19 @@ export default function AmmoPage() {
   }
 
   const thumbnails = useThumbnails(items);
+  const suggestions = useSuggestions(items);
 
   const columns: ColDef<ItemRecord>[] = [
     { key: "name",     label: "Name",       render: (r) => <span className="font-medium">{r.name}</span> },
     { key: "brand",    label: "Brand",      render: (r) => r.brand ?? "—" },
     { key: "caliber",  label: "Caliber",    render: (r) => details.get(r.id)?.caliber ?? "—" },
-    { key: "qty",      label: "Qty",        render: (r) => details.get(r.id)?.quantity?.toLocaleString() ?? "—" },
+    { key: "qty",      label: "Qty",        render: (r) => {
+      const am = details.get(r.id);
+      if (!am) return "—";
+      const totalRounds = (am.quantity ?? 0) * (am.roundsPerUnit ?? 1);
+      const unitLabel = am.unit === "ROUNDS" ? "rds" : `× ${am.roundsPerUnit ?? 1} rds/${am.unit?.toLowerCase()}`;
+      return `${totalRounds.toLocaleString()} ${unitLabel}`;
+    }},
     { key: "unit",     label: "Unit",       render: (r) => details.get(r.id)?.unit ?? "—" },
     { key: "grain",    label: "Grain",      render: (r) => { const g = details.get(r.id)?.grain; return g ? `${g} gr` : "—"; } },
     { key: "type",     label: "Bullet Type",render: (r) => details.get(r.id)?.bulletType ?? "—" },
@@ -185,7 +194,8 @@ export default function AmmoPage() {
   // ── Totals by caliber ─────────────────────────────────────────────────────
   const caliberTotals = Array.from(details.values()).reduce((acc, a) => {
     const key = a.caliber ?? "Unknown";
-    acc[key] = (acc[key] ?? 0) + (a.quantity ?? 0);
+    const totalRounds = (a.quantity ?? 0) * (a.roundsPerUnit ?? 1);
+    acc[key] = (acc[key] ?? 0) + totalRounds;
     return acc;
   }, {} as Record<string, number>);
 
@@ -230,7 +240,6 @@ export default function AmmoPage() {
                 thumbnails={thumbnails}
                 onEdit={(item) => { const am = details.get(item.id); if (am) openEdit(item, am); }}
                 onDelete={handleDeleteItem}
-                category="AMMO"
               />
             </div>
           )}
@@ -247,7 +256,7 @@ export default function AmmoPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-              <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} />
+              <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
               <hr className="border-gray-200 dark:border-gray-700" />
               <p className={labelCls}>Ammo Details</p>
@@ -272,17 +281,40 @@ export default function AmmoPage() {
                 </div>
               </div>
 
-              <div>
-                <label className={labelCls}>Quantity</label>
-                <input type="number" min={0} className={inputCls} placeholder="50"
-                  value={ammoDraft.quantity ?? ""}
-                  onChange={(e) => setAmmoDraft((d) => ({ ...d, quantity: parseInt(e.target.value) || 0 }))} />
-                {(itemDraft.pricePaid ?? 0) > 0 && (ammoDraft.quantity ?? 0) > 0 && (
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Total: {fmtCurrency((itemDraft.pricePaid ?? 0) * (ammoDraft.quantity ?? 0), itemDraft.currency ?? "USD")}
-                  </p>
-                )}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls}>Quantity</label>
+                  <input type="number" min={0} className={inputCls} placeholder="2"
+                    value={ammoDraft.quantity ?? ""}
+                    onChange={(e) => setAmmoDraft((d) => ({ ...d, quantity: parseInt(e.target.value) || 0 }))} />
+                </div>
+                <div>
+                  <label className={labelCls}>Rounds / Unit</label>
+                  <input type="number" min={1} className={inputCls}
+                    placeholder={ammoDraft.unit === "ROUNDS" ? "1" : "20"}
+                    value={ammoDraft.roundsPerUnit ?? ""}
+                    onChange={(e) => setAmmoDraft((d) => ({ ...d, roundsPerUnit: parseInt(e.target.value) || null }))} />
+                </div>
               </div>
+              {(() => {
+                const qty = ammoDraft.quantity ?? 0;
+                const rpu = ammoDraft.roundsPerUnit ?? 1;
+                const totalRounds = qty * rpu;
+                const totalCost = itemDraft.pricePaid ?? 0;
+                const costPerUnit = qty > 0 ? totalCost / qty : 0;
+                if (qty === 0) return null;
+                return (
+                  <div className="text-xs text-gray-400 -mt-2 flex flex-col gap-0.5">
+                    <span>Total rounds: <strong className="text-gray-600 dark:text-gray-300">{totalRounds.toLocaleString()}</strong></span>
+                    {costPerUnit > 0 && (
+                      <span>Cost / unit: <strong className="text-gray-600 dark:text-gray-300">{fmtCurrency(costPerUnit, itemDraft.currency ?? "USD")}</strong></span>
+                    )}
+                    {totalRounds > 0 && totalCost > 0 && (
+                      <span>Cost / round: <strong className="text-gray-600 dark:text-gray-300">{fmtCurrency(totalCost / totalRounds, itemDraft.currency ?? "USD")}</strong></span>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>

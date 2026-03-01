@@ -1,12 +1,18 @@
 // Shared types, config and components for all inventory pages
 
-import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import type { Schema } from "@/amplify/data/resource";
 import { uploadData, getUrl, remove } from "aws-amplify/storage";
 import { v4 as uuidv4 } from "uuid";
-import {
-  Table, TableHeader, TableColumn, TableBody, TableRow, TableCell,
-} from "@heroui/table";
+// HeroUI Table removed — its Collection API forbids dynamic children (mapped arrays).
+// Plain HTML table gives identical styling with full flexibility.
 import { Tooltip } from "@heroui/tooltip";
 import NextLink from "next/link";
 
@@ -15,45 +21,119 @@ const BUCKET_NAME = "gennaroanesi.com";
 
 // ── Re-exported record types ──────────────────────────────────────────────────
 
-export type ItemRecord       = Schema["inventoryItem"]["type"];
-export type FirearmRecord    = Schema["inventoryFirearm"]["type"];
-export type AmmoRecord       = Schema["inventoryAmmo"]["type"];
-export type FilamentRecord   = Schema["inventoryFilament"]["type"];
+export type ItemRecord = Schema["inventoryItem"]["type"];
+export type FirearmRecord = Schema["inventoryFirearm"]["type"];
+export type AmmoRecord = Schema["inventoryAmmo"]["type"];
+export type FilamentRecord = Schema["inventoryFilament"]["type"];
 export type InstrumentRecord = Schema["inventoryInstrument"]["type"];
 
 export type Category = "FIREARM" | "AMMO" | "FILAMENT" | "INSTRUMENT" | "OTHER";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-export const CATEGORY_CONFIG: Record<Category, { label: string; color: string; href: string }> = {
-  FIREARM:    { label: "Firearm",    color: "#587D71", href: "/inventory/firearms" },
-  AMMO:       { label: "Ammo",       color: "#DEBA02", href: "/inventory/ammo" },
-  FILAMENT:   { label: "Filament",   color: "#8B5CF6", href: "/inventory/filaments" },
-  INSTRUMENT: { label: "Instrument", color: "#EC4899", href: "/inventory/instruments" },
-  OTHER:      { label: "Other",      color: "#BCABAE", href: "/inventory" },
+export const CATEGORY_CONFIG: Record<
+  Category,
+  { label: string; color: string; href: string }
+> = {
+  FIREARM: { label: "Firearm", color: "#587D71", href: "/inventory/firearms" },
+  AMMO: { label: "Ammo", color: "#DEBA02", href: "/inventory/ammo" },
+  FILAMENT: {
+    label: "Filament",
+    color: "#8B5CF6",
+    href: "/inventory/filaments",
+  },
+  INSTRUMENT: {
+    label: "Instrument",
+    color: "#EC4899",
+    href: "/inventory/instruments",
+  },
+  OTHER: { label: "Other", color: "#BCABAE", href: "/inventory" },
 };
 
-export const FIREARM_TYPES    = ["HANDGUN", "RIFLE", "SHOTGUN", "SBR", "SUPPRESSOR", "OTHER"] as const;
-export const AMMO_UNITS       = ["ROUNDS", "BOX", "CASE"] as const;
-export const FILAMENT_MATS    = ["PLA", "ABS", "PETG", "TPU", "ASA", "NYLON", "OTHER"] as const;
-export const FILAMENT_DIAMS   = ["1.75", "2.85"] as const;
-export const INSTRUMENT_TYPES = ["GUITAR", "BASS", "AMPLIFIER", "PEDAL", "KEYBOARD", "OTHER"] as const;
-export const CURRENCIES       = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "MXN", "BRL"] as const;
+export const FIREARM_TYPES = [
+  "HANDGUN",
+  "RIFLE",
+  "SHOTGUN",
+  "SBR",
+  "SUPPRESSOR",
+  "OTHER",
+] as const;
+export const AMMO_UNITS = ["ROUNDS", "BOX", "CASE"] as const;
+export const FILAMENT_MATS = [
+  "PLA",
+  "ABS",
+  "PETG",
+  "TPU",
+  "ASA",
+  "NYLON",
+  "OTHER",
+] as const;
+export const FILAMENT_DIAMS = ["1.75", "2.85"] as const;
+export const INSTRUMENT_TYPES = [
+  "GUITAR",
+  "BASS",
+  "AMPLIFIER",
+  "PEDAL",
+  "KEYBOARD",
+  "OTHER",
+] as const;
+export const CURRENCIES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "CAD",
+  "AUD",
+  "JPY",
+  "CHF",
+  "MXN",
+  "BRL",
+] as const;
 
 export const CALIBERS = [
   // Pistol
-  ".22 LR", ".22 WMR", ".380 ACP", "9mm Luger", "9mm Makarov",
-  ".38 Special", ".357 Magnum", ".357 SIG", ".40 S&W", "10mm Auto",
-  ".44 Magnum", ".44 Special", ".45 ACP", ".45 Colt", "5.7x28mm",
+  ".22 LR",
+  ".22 WMR",
+  ".380 ACP",
+  "9mm Luger",
+  "9mm Makarov",
+  ".38 Special",
+  ".357 Magnum",
+  ".357 SIG",
+  ".40 S&W",
+  "10mm Auto",
+  ".44 Magnum",
+  ".44 Special",
+  ".45 ACP",
+  ".45 Colt",
+  "5.7x28mm",
   // Rifle
-  ".17 HMR", ".223 Remington", "5.56x45mm NATO", ".224 Valkyrie",
-  "6mm ARC", "6.5 Creedmoor", "6.5 Grendel", "6.5 PRC",
-  ".270 Winchester", "7mm-08 Remington", "7mm Remington Magnum",
-  "7.62x39mm", "7.62x51mm NATO", ".308 Winchester", ".30-06 Springfield",
-  ".300 Blackout", ".300 Win Mag", ".338 Lapua Magnum", ".30 Carbine",
-  "5.45x39mm", ".50 BMG",
+  ".17 HMR",
+  ".223 Remington",
+  "5.56x45mm NATO",
+  ".224 Valkyrie",
+  "6mm ARC",
+  "6.5 Creedmoor",
+  "6.5 Grendel",
+  "6.5 PRC",
+  ".270 Winchester",
+  "7mm-08 Remington",
+  "7mm Remington Magnum",
+  "7.62x39mm",
+  "7.62x51mm NATO",
+  ".308 Winchester",
+  ".30-06 Springfield",
+  ".300 Blackout",
+  ".300 Win Mag",
+  ".338 Lapua Magnum",
+  ".30 Carbine",
+  "5.45x39mm",
+  ".50 BMG",
   // Shotgun
-  "12 Gauge", "16 Gauge", "20 Gauge", "28 Gauge", ".410 Bore",
+  "12 Gauge",
+  "16 Gauge",
+  "20 Gauge",
+  "28 Gauge",
+  ".410 Bore",
   // Other
   "Other",
 ] as const;
@@ -72,15 +152,22 @@ export const tdCls =
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-export function fmtCurrency(amount: number | null | undefined, currency = "USD") {
+export function fmtCurrency(
+  amount: number | null | undefined,
+  currency = "USD",
+) {
   if (amount == null) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
+    amount,
+  );
 }
 
 export function fmtDate(date: string | null | undefined) {
   if (!date) return "—";
   return new Date(date + "T12:00:00").toLocaleDateString("en-US", {
-    year: "numeric", month: "short", day: "numeric",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -91,7 +178,11 @@ export function CategoryBadge({ category }: { category: string }) {
   return (
     <span
       className="inline-block px-2 py-0.5 rounded text-xs font-semibold"
-      style={{ backgroundColor: cfg.color + "33", color: cfg.color, border: `1px solid ${cfg.color}55` }}
+      style={{
+        backgroundColor: cfg.color + "33",
+        color: cfg.color,
+        border: `1px solid ${cfg.color}55`,
+      }}
     >
       {cfg.label}
     </span>
@@ -100,8 +191,14 @@ export function CategoryBadge({ category }: { category: string }) {
 
 // ── SaveButton ────────────────────────────────────────────────────────────────
 
-export function SaveButton({ saving, onSave, label = "Save" }: {
-  saving: boolean; onSave: () => void; label?: string;
+export function SaveButton({
+  saving,
+  onSave,
+  label = "Save",
+}: {
+  saving: boolean;
+  onSave: () => void;
+  label?: string;
 }) {
   return (
     <button
@@ -116,7 +213,13 @@ export function SaveButton({ saving, onSave, label = "Save" }: {
 
 // ── DeleteButton ──────────────────────────────────────────────────────────────
 
-export function DeleteButton({ saving, onDelete }: { saving: boolean; onDelete: () => void }) {
+export function DeleteButton({
+  saving,
+  onDelete,
+}: {
+  saving: boolean;
+  onDelete: () => void;
+}) {
   return (
     <button
       onClick={onDelete}
@@ -131,65 +234,128 @@ export function DeleteButton({ saving, onDelete }: { saving: boolean; onDelete: 
 // ── Base item form fields ─────────────────────────────────────────────────────
 
 export function BaseItemFields({
-  item, onChange,
+  item,
+  onChange,
+  suggestions = {},
 }: {
   item: Partial<ItemRecord>;
   onChange: (patch: Partial<ItemRecord>) => void;
+  suggestions?: { brands?: string[]; vendors?: string[] };
 }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className={labelCls}>Name *</label>
-          <input type="text" className={inputCls} placeholder="Glock 19"
-            value={item.name ?? ""} onChange={(e) => onChange({ name: e.target.value })} />
+          <input
+            type="text"
+            className={inputCls}
+            placeholder="Glock 19"
+            value={item.name ?? ""}
+            onChange={(e) => onChange({ name: e.target.value })}
+          />
         </div>
         <div>
           <label className={labelCls}>Brand</label>
-          <input type="text" className={inputCls} placeholder="Glock"
-            value={item.brand ?? ""} onChange={(e) => onChange({ brand: e.target.value })} />
+          <input
+            type="text"
+            list="suggest-brands"
+            className={inputCls}
+            placeholder="Glock"
+            value={item.brand ?? ""}
+            onChange={(e) => onChange({ brand: e.target.value })}
+          />
+          {(suggestions.brands?.length ?? 0) > 0 && (
+            <datalist id="suggest-brands">
+              {suggestions.brands!.map((b) => <option key={b} value={b} />)}
+            </datalist>
+          )}
         </div>
       </div>
       <div>
         <label className={labelCls}>Description</label>
-        <textarea rows={2} className={`${inputCls} resize-none`}
-          value={item.description ?? ""} onChange={(e) => onChange({ description: e.target.value })} />
+        <textarea
+          rows={2}
+          className={`${inputCls} resize-none`}
+          value={item.description ?? ""}
+          onChange={(e) => onChange({ description: e.target.value })}
+        />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className={labelCls}>Date Purchased</label>
-          <input type="date" className={inputCls}
-            value={item.datePurchased ?? ""} onChange={(e) => onChange({ datePurchased: e.target.value })} />
+          <input
+            type="date"
+            className={inputCls}
+            value={item.datePurchased ?? ""}
+            onChange={(e) => onChange({ datePurchased: e.target.value })}
+          />
         </div>
         <div>
           <label className={labelCls}>Vendor</label>
-          <input type="text" className={inputCls} placeholder="Brownells"
-            value={item.vendor ?? ""} onChange={(e) => onChange({ vendor: e.target.value })} />
+          <input
+            type="text"
+            list="suggest-vendors"
+            className={inputCls}
+            placeholder="Brownells"
+            value={item.vendor ?? ""}
+            onChange={(e) => onChange({ vendor: e.target.value })}
+          />
+          {(suggestions.vendors?.length ?? 0) > 0 && (
+            <datalist id="suggest-vendors">
+              {suggestions.vendors!.map((v) => <option key={v} value={v} />)}
+            </datalist>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className={labelCls}>Price Paid</label>
-          <input type="number" min={0} step={0.01} className={inputCls} placeholder="0.00"
-            value={item.pricePaid ?? ""} onChange={(e) => onChange({ pricePaid: parseFloat(e.target.value) || null })} />
+          <label className={labelCls}>Total Paid</label>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            className={inputCls}
+            placeholder="0.00"
+            value={item.pricePaid ?? ""}
+            onChange={(e) =>
+              onChange({ pricePaid: parseFloat(e.target.value) || null })
+            }
+          />
         </div>
         <div>
           <label className={labelCls}>Currency</label>
-          <select className={inputCls}
-            value={item.currency ?? "USD"} onChange={(e) => onChange({ currency: e.target.value })}>
-            {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          <select
+            className={inputCls}
+            value={item.currency ?? "USD"}
+            onChange={(e) => onChange({ currency: e.target.value })}
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
           </select>
         </div>
       </div>
       <div>
         <label className={labelCls}>URL</label>
-        <input type="url" className={inputCls} placeholder="https://…"
-          value={item.url ?? ""} onChange={(e) => onChange({ url: e.target.value })} />
+        <input
+          type="url"
+          className={inputCls}
+          placeholder="https://…"
+          value={item.url ?? ""}
+          onChange={(e) => onChange({ url: e.target.value })}
+        />
       </div>
       <div>
         <label className={labelCls}>Notes</label>
-        <textarea rows={2} className={`${inputCls} resize-none`}
-          value={item.notes ?? ""} onChange={(e) => onChange({ notes: e.target.value })} />
+        <textarea
+          rows={2}
+          className={`${inputCls} resize-none`}
+          value={item.notes ?? ""}
+          onChange={(e) => onChange({ notes: e.target.value })}
+        />
       </div>
     </>
   );
@@ -197,7 +363,11 @@ export function BaseItemFields({
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
-export function EmptyState({ label, onAdd, showCategoryLinks }: {
+export function EmptyState({
+  label,
+  onAdd,
+  showCategoryLinks,
+}: {
   label: string;
   onAdd: () => void;
   showCategoryLinks?: boolean;
@@ -207,12 +377,21 @@ export function EmptyState({ label, onAdd, showCategoryLinks }: {
       <p className="text-sm">No {label} yet.</p>
       {showCategoryLinks ? (
         <div className="flex flex-wrap gap-2 justify-center">
-          {(Object.entries(CATEGORY_CONFIG) as [Category, typeof CATEGORY_CONFIG[Category]][]).map(([cat, cfg]) => (
+          {(
+            Object.entries(CATEGORY_CONFIG) as [
+              Category,
+              (typeof CATEGORY_CONFIG)[Category],
+            ][]
+          ).map(([cat, cfg]) => (
             <a
               key={cat}
               href={`${cfg.href}?new=1`}
               className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-              style={{ borderColor: cfg.color + "88", color: cfg.color, backgroundColor: cfg.color + "18" }}
+              style={{
+                borderColor: cfg.color + "88",
+                color: cfg.color,
+                backgroundColor: cfg.color + "18",
+              }}
             >
               + {cfg.label}
             </a>
@@ -230,39 +409,58 @@ export function EmptyState({ label, onAdd, showCategoryLinks }: {
   );
 }
 
+// ── useSuggestions ──────────────────────────────────────────────────────────────
+// Derives unique sorted brand/vendor lists from existing items.
+
+export function useSuggestions(items: ItemRecord[]) {
+  const brands  = [...new Set(items.map((i) => i.brand).filter(Boolean) as string[])].sort();
+  const vendors = [...new Set(items.map((i) => i.vendor).filter(Boolean) as string[])].sort();
+  return { brands, vendors };
+}
+
 // ── useThumbnails ─────────────────────────────────────────────────────────────
 // Resolves the first imageKey for each item into a signed URL map.
 
-export function useThumbnails(items: { id: string; imageKeys?: (string | null)[] | null }[]) {
+export function useThumbnails(
+  items: { id: string; imageKeys?: (string | null)[] | null }[],
+) {
   const [urls, setUrls] = useState<Map<string, string>>(new Map());
   // Stable string key so the effect only re-runs when items/keys actually change
   const cacheKey = items.map((i) => i.id + (i.imageKeys?.[0] ?? "")).join(",");
 
-  const resolveUrls = useCallback(async (cancelled: { current: boolean }) => {
-    const entries = await Promise.all(
-      items
-        .filter((it) => it.imageKeys && it.imageKeys.length > 0)
-        .map(async (it) => {
-          const key = it.imageKeys![0]!;
-          try {
-            const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
-            return [it.id, url.toString()] as [string, string];
-          } catch (_e) {
-            return null;
-          }
-        })
-    );
-    if (!cancelled.current) {
-      setUrls(new Map(entries.filter(Boolean) as [string, string][]));
-    }
-  // cacheKey encodes all item ids + first keys — safe to use as dep
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheKey]);
+  const resolveUrls = useCallback(
+    async (cancelled: { current: boolean }) => {
+      const entries = await Promise.all(
+        items
+          .filter((it) => it.imageKeys && it.imageKeys.length > 0)
+          .map(async (it) => {
+            const key = it.imageKeys![0]!;
+            try {
+              const { url } = await getUrl({
+                path: key,
+                options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+              });
+              return [it.id, url.toString()] as [string, string];
+            } catch (_e) {
+              return null;
+            }
+          }),
+      );
+      if (!cancelled.current) {
+        setUrls(new Map(entries.filter(Boolean) as [string, string][]));
+      }
+      // cacheKey encodes all item ids + first keys — safe to use as dep
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [cacheKey],
+  );
 
   useEffect(() => {
     const cancelled = { current: false };
     resolveUrls(cancelled);
-    return () => { cancelled.current = true; };
+    return () => {
+      cancelled.current = true;
+    };
   }, [resolveUrls]);
 
   return urls;
@@ -270,11 +468,19 @@ export function useThumbnails(items: { id: string; imageKeys?: (string | null)[]
 
 // ── Thumbnail cell ────────────────────────────────────────────────────────────
 
-export function Thumbnail({ url, name }: { url?: string; name?: string | null }) {
+export function Thumbnail({
+  url,
+  name,
+}: {
+  url?: string;
+  name?: string | null;
+}) {
   if (!url) {
     return (
       <div className="w-10 h-10 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
-        <span className="text-gray-300 dark:text-gray-600 text-lg select-none">📷</span>
+        <span className="text-gray-300 dark:text-gray-600 text-lg select-none">
+          📷
+        </span>
       </div>
     );
   }
@@ -291,23 +497,61 @@ export function Thumbnail({ url, name }: { url?: string; name?: string | null })
 
 function EyeIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+      />
     </svg>
   );
 }
 function PencilIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+      />
     </svg>
   );
 }
 function TrashIcon() {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="w-4 h-4"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+      />
     </svg>
   );
 }
@@ -323,17 +567,18 @@ export type ColDef<T> = {
   className?: string;
 };
 
-export function InventoryTable<T extends {
-  id: string;
-  imageKeys?: (string | null)[] | null;
-  name?: string | null;
-}>({
+export function InventoryTable<
+  T extends {
+    id: string;
+    imageKeys?: (string | null)[] | null;
+    name?: string | null;
+  },
+>({
   items,
   columns,
   thumbnails,
   onEdit,
   onDelete,
-  category,
   isLoading,
 }: {
   items: T[];
@@ -341,7 +586,6 @@ export function InventoryTable<T extends {
   thumbnails: Map<string, string>;
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
-  category: Category;
   isLoading?: boolean;
 }) {
   // Ghost/dummy first row — always shown so action column is visible
@@ -350,108 +594,125 @@ export function InventoryTable<T extends {
   const rows = [dummyRow, ...items];
 
   return (
-    <Table
-      aria-label="Inventory table"
-      isStriped
-      isCompact
-      removeWrapper
-      classNames={{
-        base: "overflow-x-auto",
-        table: "min-w-full",
-        th: "bg-gray-50 dark:bg-darkPurple text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 font-medium",
-        td: "text-sm text-gray-700 dark:text-gray-300 py-2",
-        tr: "border-b border-gray-100 dark:border-gray-700 transition-colors",
-      }}
-    >
-      <TableHeader>
-        <TableColumn key="thumb" className="w-12"> </TableColumn>
-        {columns.map((col) => (
-          <TableColumn key={col.key} className={col.className ?? ""}>{col.label}</TableColumn>
-        ))}
-        <TableColumn key="actions" className="w-32 text-right">Actions</TableColumn>
-      </TableHeader>
+    <div className="overflow-x-auto">
+      <table className="min-w-full">
+        <thead>
+          <tr>
+            <th className={`${thCls} w-12`}> </th>
+            {columns.map((col) => (
+              <th key={col.key} className={`${thCls} ${col.className ?? ""}`}>
+                {col.label}
+              </th>
+            ))}
+            <th className={`${thCls} w-32 text-right`}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {isLoading ? (
+            <tr>
+              <td
+                colSpan={columns.length + 2}
+                className="text-center py-8 text-sm text-gray-400"
+              >
+                Loading…
+              </td>
+            </tr>
+          ) : (
+            rows.map((item, rowIdx) => {
+              const isDummy = item.id === DUMMY_ID;
+              return (
+                <tr
+                  key={item.id}
+                  className={[
+                    "border-b border-gray-100 dark:border-gray-700 transition-colors",
+                    rowIdx % 2 === 1
+                      ? "bg-gray-50/50 dark:bg-white/[0.02]"
+                      : "",
+                    isDummy
+                      ? "opacity-30 pointer-events-none select-none"
+                      : "hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer",
+                  ].join(" ")}
+                >
+                  {/* Thumbnail */}
+                  <td className={tdCls}>
+                    {isDummy ? (
+                      <div className="w-10 h-10 rounded-md bg-gray-200 dark:bg-gray-600" />
+                    ) : (
+                      <button
+                        onClick={() => onEdit(item)}
+                        className="block focus:outline-none"
+                        tabIndex={-1}
+                      >
+                        <Thumbnail
+                          url={thumbnails.get(item.id)}
+                          name={item.name}
+                        />
+                      </button>
+                    )}
+                  </td>
 
-      <TableBody
-        isLoading={isLoading}
-        loadingContent={<span className="text-gray-400 text-sm">Loading…</span>}
-        emptyContent={<span className="text-gray-400 text-sm">No items yet.</span>}
-      >
-        {rows.map((item) => {
-          const isDummy = item.id === DUMMY_ID;
-          return (
-            <TableRow
-              key={item.id}
-              className={isDummy
-                ? "opacity-30 pointer-events-none select-none"
-                : "hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer"}
-            >
-              {/* Thumbnail */}
-              <TableCell>
-                {isDummy
-                  ? <div className="w-10 h-10 rounded-md bg-gray-200 dark:bg-gray-600" />
-                  : (
-                    <button onClick={() => onEdit(item)} className="block focus:outline-none" tabIndex={-1}>
-                      <Thumbnail url={thumbnails.get(item.id)} name={item.name} />
-                    </button>
-                  )
-                }
-              </TableCell>
-
-              {/* Data columns */}
-              {columns.map((col) => (
-                <TableCell key={col.key} className={col.className ?? ""}>
-                  {isDummy
-                    ? <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-gray-600" />
-                    : col.render(item)
-                  }
-                </TableCell>
-              ))}
-
-              {/* Actions */}
-              <TableCell>
-                <div className="flex items-center justify-end gap-1">
-                  <Tooltip content="View detail" size="sm">
-                    <span>
-                      {isDummy
-                        ? <span className="p-1.5 inline-flex text-gray-200 dark:text-gray-700"><EyeIcon /></span>
-                        : (
-                          <NextLink
-                            href={`/inventory/item/${item.id}`}
-                            className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex"
-                          >
-                            <EyeIcon />
-                          </NextLink>
-                        )
-                      }
-                    </span>
-                  </Tooltip>
-
-                  <Tooltip content="Edit" size="sm">
-                    <button
-                      onClick={() => onEdit(item)}
-                      disabled={isDummy}
-                      className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:pointer-events-none"
+                  {/* Data columns */}
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={`${tdCls} ${col.className ?? ""}`}
                     >
-                      <PencilIcon />
-                    </button>
-                  </Tooltip>
+                      {isDummy ? (
+                        <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-gray-600" />
+                      ) : (
+                        col.render(item)
+                      )}
+                    </td>
+                  ))}
 
-                  <Tooltip content="Delete" size="sm" color="danger">
-                    <button
-                      onClick={() => onDelete(item)}
-                      disabled={isDummy}
-                      className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-gray-400 hover:text-red-500 disabled:pointer-events-none"
-                    >
-                      <TrashIcon />
-                    </button>
-                  </Tooltip>
-                </div>
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+                  {/* Actions */}
+                  <td className={tdCls}>
+                    <div className="flex items-center justify-end gap-1">
+                      <Tooltip content="View detail" size="sm">
+                        <span>
+                          {isDummy ? (
+                            <span className="p-1.5 inline-flex text-gray-200 dark:text-gray-700">
+                              <EyeIcon />
+                            </span>
+                          ) : (
+                            <NextLink
+                              href={`/inventory/item/${item.id}`}
+                              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex"
+                            >
+                              <EyeIcon />
+                            </NextLink>
+                          )}
+                        </span>
+                      </Tooltip>
+
+                      <Tooltip content="Edit" size="sm">
+                        <button
+                          onClick={() => onEdit(item)}
+                          disabled={isDummy}
+                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:pointer-events-none"
+                        >
+                          <PencilIcon />
+                        </button>
+                      </Tooltip>
+
+                      <Tooltip content="Delete" size="sm" color="danger">
+                        <button
+                          onClick={() => onDelete(item)}
+                          disabled={isDummy}
+                          className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-gray-400 hover:text-red-500 disabled:pointer-events-none"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -462,12 +723,15 @@ export async function resolveAllUrls(keys: string[]): Promise<string[]> {
   return Promise.all(
     keys.map(async (key) => {
       try {
-        const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
+        const { url } = await getUrl({
+          path: key,
+          options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+        });
         return url.toString();
       } catch {
         return "";
-    }
-  })
+      }
+    }),
   );
 }
 
@@ -480,17 +744,20 @@ export type ImageUploaderHandle = {
 
 type SlotState =
   | { kind: "existing"; key: string; url?: string }
-  | { kind: "pending";  file: File; preview: string };
+  | { kind: "pending"; file: File; preview: string };
 
-export const ImageUploader = forwardRef<ImageUploaderHandle, {
-  itemId?: string;
-  existingKeys?: string[];
-}>(function ImageUploader({ existingKeys = [] }, ref) {
-  const [slots,      setSlots]      = useState<SlotState[]>([]);
-  const [uploading,  setUploading]  = useState(false);
-  const [dragOver,   setDragOver]   = useState(false);
-  const [dragIdx,    setDragIdx]    = useState<number | null>(null);
-  const [dragOverIdx,setDragOverIdx]= useState<number | null>(null);
+export const ImageUploader = forwardRef<
+  ImageUploaderHandle,
+  {
+    itemId?: string;
+    existingKeys?: (string | null)[];
+  }
+>(function ImageUploader({ existingKeys = [] }, ref) {
+  const [slots, setSlots] = useState<SlotState[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Stable key so we only re-resolve when the actual keys change
@@ -501,54 +768,74 @@ export const ImageUploader = forwardRef<ImageUploaderHandle, {
     let cancelled = false;
     async function resolveUrls() {
       const resolved: SlotState[] = await Promise.all(
-        existingKeys.map(async (key) => {
+        (existingKeys.filter(Boolean) as string[]).map(async (key) => {
           try {
-            const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
+            const { url } = await getUrl({
+              path: key,
+              options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+            });
             return { kind: "existing" as const, key, url: url.toString() };
           } catch (_e) {
             return { kind: "existing" as const, key };
           }
-        })
+        }),
       );
       if (!cancelled) setSlots(resolved);
     }
     resolveUrls();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingKeysKey]);
 
-  useImperativeHandle(ref, () => ({
-    hasPending: slots.some((s) => s.kind === "pending"),
-    commit: async (id: string) => {
-      setUploading(true);
-      try {
-        const finalSlots: SlotState[] = [];
-        for (const slot of slots) {
-          if (slot.kind === "existing") {
-            finalSlots.push(slot);
-          } else {
-            const ext = slot.file.name.split(".").pop() ?? "jpg";
-            const key = `inventory/${id}/${uuidv4()}.${ext}`;
-            await uploadData({ path: key, data: slot.file,
-              options: { bucket: BUCKET_NAME, contentType: slot.file.type } }).result;
-            const { url } = await getUrl({ path: key, options: { bucket: BUCKET_NAME, expiresIn: 3600 } });
-            finalSlots.push({ kind: "existing", key, url: url.toString() });
-            URL.revokeObjectURL(slot.preview);
+  useImperativeHandle(
+    ref,
+    () => ({
+      hasPending: slots.some((s) => s.kind === "pending"),
+      commit: async (id: string) => {
+        setUploading(true);
+        try {
+          const finalSlots: { kind: "existing"; key: string; url?: string }[] =
+            [];
+          for (const slot of slots) {
+            if (slot.kind === "existing") {
+              finalSlots.push(slot);
+            } else {
+              const ext = slot.file.name.split(".").pop() ?? "jpg";
+              const key = `inventory/${id}/${uuidv4()}.${ext}`;
+              await uploadData({
+                path: key,
+                data: slot.file,
+                options: { bucket: BUCKET_NAME, contentType: slot.file.type },
+              }).result;
+              const { url } = await getUrl({
+                path: key,
+                options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+              });
+              finalSlots.push({ kind: "existing", key, url: url.toString() });
+              URL.revokeObjectURL(slot.preview);
+            }
           }
+          setSlots(finalSlots);
+          return finalSlots.map((s) => s.key);
+        } finally {
+          setUploading(false);
         }
-        setSlots(finalSlots);
-        return finalSlots.map((s) => s.key);
-      } finally {
-        setUploading(false);
-      }
-    },
-  }));
+      },
+    }),
+    [slots],
+  );
 
   function addFiles(files: FileList | null) {
     if (!files) return;
     const newSlots: SlotState[] = Array.from(files)
       .filter((f) => f.type.startsWith("image/"))
-      .map((file) => ({ kind: "pending", file, preview: URL.createObjectURL(file) }));
+      .map((file) => ({
+        kind: "pending",
+        file,
+        preview: URL.createObjectURL(file),
+      }));
     setSlots((prev) => [...prev, ...newSlots]);
   }
 
@@ -556,15 +843,23 @@ export const ImageUploader = forwardRef<ImageUploaderHandle, {
     const slot = slots[idx];
     if (slot.kind === "existing") {
       if (!confirm("Remove this image? This cannot be undone.")) return;
-      try { await remove({ path: slot.key, options: { bucket: BUCKET_NAME } }); } catch (_e) { /* best effort */ }
+      try {
+        await remove({ path: slot.key, options: { bucket: BUCKET_NAME } });
+      } catch (_e) {
+        /* best effort */
+      }
     } else {
       URL.revokeObjectURL(slot.preview);
     }
     setSlots((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  function onDragStart(idx: number) { setDragIdx(idx); }
-  function onDragEnter(idx: number) { setDragOverIdx(idx); }
+  function onDragStart(idx: number) {
+    setDragIdx(idx);
+  }
+  function onDragEnter(idx: number) {
+    setDragOverIdx(idx);
+  }
   function onDragEnd() {
     if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
       setSlots((prev) => {
@@ -578,7 +873,8 @@ export const ImageUploader = forwardRef<ImageUploaderHandle, {
     setDragOverIdx(null);
   }
 
-  const imageUrl = (slot: SlotState) => slot.kind === "existing" ? slot.url : slot.preview;
+  const imageUrl = (slot: SlotState) =>
+    slot.kind === "existing" ? slot.url : slot.preview;
 
   return (
     <div>
@@ -602,7 +898,11 @@ export const ImageUploader = forwardRef<ImageUploaderHandle, {
                 idx === 0 ? "col-span-3 aspect-video" : "aspect-square",
               ].join(" ")}
             >
-              <img src={imageUrl(slot) ?? ""} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+              <img
+                src={imageUrl(slot) ?? ""}
+                alt={`Photo ${idx + 1}`}
+                className="w-full h-full object-cover"
+              />
               {slot.kind === "pending" && (
                 <span className="absolute top-1 left-1 text-[10px] bg-gold text-darkPurple font-bold px-1.5 py-0.5 rounded">
                   Pending
@@ -633,9 +933,16 @@ export const ImageUploader = forwardRef<ImageUploaderHandle, {
             : "border-gray-300 dark:border-gray-600 hover:border-purple dark:hover:border-rose",
         ].join(" ")}
         onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          addFiles(e.dataTransfer.files);
+        }}
       >
         <p className="text-xs text-gray-400">
           {uploading ? "Uploading…" : "Drop images here or click to browse"}

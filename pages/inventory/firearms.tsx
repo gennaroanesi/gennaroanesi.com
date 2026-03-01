@@ -11,7 +11,7 @@ import {
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle,
-  InventoryTable, ColDef, useThumbnails,
+  InventoryTable, ColDef, useThumbnails, useSuggestions,
 } from "./_shared";
 
 const client = generateClient<Schema>();
@@ -173,6 +173,7 @@ export default function FirearmsPage() {
   }
 
   const thumbnails = useThumbnails(items);
+  const suggestions = useSuggestions(items);
 
   const columns: ColDef<ItemRecord>[] = [
     { key: "name",   label: "Name",     render: (r) => <span className="font-medium">{r.name}</span> },
@@ -216,7 +217,6 @@ export default function FirearmsPage() {
                   if (fw) openEdit(item, fw);
                 }}
                 onDelete={handleDeleteItem}
-                category="FIREARM"
               />
             </div>
           )}
@@ -233,7 +233,7 @@ export default function FirearmsPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-              <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} />
+              <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
               <hr className="border-gray-200 dark:border-gray-700" />
               <p className={labelCls}>Firearm Details</p>
