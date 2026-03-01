@@ -11,7 +11,7 @@ import {
   thCls, tdCls,
   fmtCurrency, fmtDate,
   CategoryBadge, EmptyState,
-} from "./_shared";
+} from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
 

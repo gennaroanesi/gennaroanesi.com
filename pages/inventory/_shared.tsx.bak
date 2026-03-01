@@ -1,4 +1,6 @@
 // Shared types, config and components for all inventory pages
+// Next.js requires a default export from files in pages/ — this satisfies that.
+export default function InventoryShared() { return null; }
 
 import React, {
   useState,

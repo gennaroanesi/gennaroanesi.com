@@ -11,7 +11,7 @@ import {
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle, useSuggestions,
-} from "./_shared";
+} from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
 

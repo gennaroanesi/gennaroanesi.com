@@ -1,0 +1,875 @@
+// Shared types, config and components for all inventory pages
+
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import type { Schema } from "@/amplify/data/resource";
+import { uploadData, getUrl, remove } from "aws-amplify/storage";
+import { v4 as uuidv4 } from "uuid";
+// HeroUI Table removed — its Collection API forbids dynamic children (mapped arrays).
+// Plain HTML table gives identical styling with full flexibility.
+import { Tooltip } from "@heroui/tooltip";
+import NextLink from "next/link";
+
+// bucket goes inside options.bucket (type StorageBucket = string | BucketInfo)
+const BUCKET_NAME = "gennaroanesi.com";
+
+// ── Re-exported record types ──────────────────────────────────────────────────
+
+export type ItemRecord = Schema["inventoryItem"]["type"];
+export type FirearmRecord = Schema["inventoryFirearm"]["type"];
+export type AmmoRecord = Schema["inventoryAmmo"]["type"];
+export type FilamentRecord = Schema["inventoryFilament"]["type"];
+export type InstrumentRecord = Schema["inventoryInstrument"]["type"];
+
+export type Category = "FIREARM" | "AMMO" | "FILAMENT" | "INSTRUMENT" | "OTHER";
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+export const CATEGORY_CONFIG: Record<
+  Category,
+  { label: string; color: string; href: string }
+> = {
+  FIREARM: { label: "Firearm", color: "#587D71", href: "/inventory/firearms" },
+  AMMO: { label: "Ammo", color: "#DEBA02", href: "/inventory/ammo" },
+  FILAMENT: {
+    label: "Filament",
+    color: "#8B5CF6",
+    href: "/inventory/filaments",
+  },
+  INSTRUMENT: {
+    label: "Instrument",
+    color: "#EC4899",
+    href: "/inventory/instruments",
+  },
+  OTHER: { label: "Other", color: "#BCABAE", href: "/inventory" },
+};
+
+export const FIREARM_TYPES = [
+  "HANDGUN",
+  "RIFLE",
+  "SHOTGUN",
+  "SBR",
+  "SUPPRESSOR",
+  "OTHER",
+] as const;
+export const AMMO_UNITS = ["ROUNDS", "BOX", "CASE"] as const;
+export const FILAMENT_MATS = [
+  "PLA",
+  "ABS",
+  "PETG",
+  "TPU",
+  "ASA",
+  "NYLON",
+  "OTHER",
+] as const;
+export const FILAMENT_DIAMS = ["d175", "d285"] as const;
+export const FILAMENT_DIAM_LABELS: Record<string, string> = { d175: "1.75 mm", d285: "2.85 mm" };
+export const INSTRUMENT_TYPES = [
+  "GUITAR",
+  "BASS",
+  "AMPLIFIER",
+  "PEDAL",
+  "KEYBOARD",
+  "OTHER",
+] as const;
+export const CURRENCIES = [
+  "USD",
+  "EUR",
+  "GBP",
+  "CAD",
+  "AUD",
+  "JPY",
+  "CHF",
+  "MXN",
+  "BRL",
+] as const;
+
+export const CALIBER_GROUPS: { label: string; calibers: string[] }[] = [
+  {
+    label: "Handgun",
+    calibers: [
+      ".22 LR", ".22 WMR", ".380 ACP", "9mm Luger", "9mm Makarov",
+      ".38 Special", ".357 Magnum", ".357 SIG", ".40 S&W", "10mm Auto",
+      ".44 Magnum", ".44 Special", ".45 ACP", ".45 Colt", "5.7x28mm",
+    ],
+  },
+  {
+    label: "Rifle",
+    calibers: [
+      ".17 HMR", ".223 Remington", "5.56x45mm NATO", ".224 Valkyrie",
+      "6mm ARC", "6.5 Creedmoor", "6.5 Grendel", "6.5 PRC",
+      ".270 Winchester", "7mm-08 Remington", "7mm Remington Magnum",
+      "7.62x39mm", "7.62x51mm NATO", ".308 Winchester", ".30-06 Springfield",
+      ".300 Blackout", ".300 Win Mag", ".338 Lapua Magnum",
+      ".30 Carbine", "5.45x39mm", ".50 BMG",
+    ],
+  },
+  {
+    label: "Shotgun",
+    calibers: ["12 Gauge", "16 Gauge", "20 Gauge", "28 Gauge", ".410 Bore"],
+  },
+  {
+    label: "Other",
+    calibers: ["Other"],
+  },
+];
+
+// Flat list for datalist/typeahead use
+export const CALIBERS = CALIBER_GROUPS.flatMap((g) => g.calibers);
+
+// ── CaliberInput ─────────────────────────────────────────────────────────────
+// Text input with grouped datalist — typeahead that filters as you type.
+
+export function CaliberInput({
+  value,
+  onChange,
+  required,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <>
+      <input
+        type="text"
+        list="caliber-list"
+        className={inputCls}
+        placeholder="Start typing…"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+      />
+      <datalist id="caliber-list">
+        {CALIBER_GROUPS.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.calibers.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </optgroup>
+        ))}
+      </datalist>
+    </>
+  );
+}
+
+// ── Shared styles ─────────────────────────────────────────────────────────────
+
+export const inputCls =
+  "w-full border rounded px-2 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300";
+export const labelCls =
+  "text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1 block";
+// Keep these for index.tsx plain-table usage
+export const thCls =
+  "text-left text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 px-3 py-2 font-medium whitespace-nowrap";
+export const tdCls =
+  "px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+export function fmtCurrency(
+  amount: number | null | undefined,
+  currency = "USD",
+) {
+  if (amount == null) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
+    amount,
+  );
+}
+
+export function fmtDate(date: string | null | undefined) {
+  if (!date) return "—";
+  return new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+// ── Category badge ────────────────────────────────────────────────────────────
+
+export function CategoryBadge({ category }: { category: string }) {
+  const cfg = CATEGORY_CONFIG[category as Category] ?? CATEGORY_CONFIG.OTHER;
+  return (
+    <span
+      className="inline-block px-2 py-0.5 rounded text-xs font-semibold"
+      style={{
+        backgroundColor: cfg.color + "33",
+        color: cfg.color,
+        border: `1px solid ${cfg.color}55`,
+      }}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+// ── SaveButton ────────────────────────────────────────────────────────────────
+
+export function SaveButton({
+  saving,
+  onSave,
+  label = "Save",
+}: {
+  saving: boolean;
+  onSave: () => void;
+  label?: string;
+}) {
+  return (
+    <button
+      onClick={onSave}
+      disabled={saving}
+      className="w-full py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 disabled:opacity-50 transition-opacity"
+    >
+      {saving ? "Saving…" : label}
+    </button>
+  );
+}
+
+// ── DeleteButton ──────────────────────────────────────────────────────────────
+
+export function DeleteButton({
+  saving,
+  onDelete,
+}: {
+  saving: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <button
+      onClick={onDelete}
+      disabled={saving}
+      className="w-full py-2 rounded text-sm font-semibold border border-red-400 text-red-400 hover:bg-red-400 hover:text-white disabled:opacity-50 transition-colors"
+    >
+      Delete
+    </button>
+  );
+}
+
+// ── Base item form fields ─────────────────────────────────────────────────────
+
+export function BaseItemFields({
+  item,
+  onChange,
+  suggestions = {},
+}: {
+  item: Partial<ItemRecord>;
+  onChange: (patch: Partial<ItemRecord>) => void;
+  suggestions?: { brands?: string[]; vendors?: string[] };
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Name *</label>
+          <input
+            type="text"
+            className={inputCls}
+            placeholder="Glock 19"
+            value={item.name ?? ""}
+            onChange={(e) => onChange({ name: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Brand</label>
+          <input
+            type="text"
+            list="suggest-brands"
+            className={inputCls}
+            placeholder="Glock"
+            value={item.brand ?? ""}
+            onChange={(e) => onChange({ brand: e.target.value })}
+          />
+          {(suggestions.brands?.length ?? 0) > 0 && (
+            <datalist id="suggest-brands">
+              {suggestions.brands!.map((b) => <option key={b} value={b} />)}
+            </datalist>
+          )}
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Description</label>
+        <textarea
+          rows={2}
+          className={`${inputCls} resize-none`}
+          value={item.description ?? ""}
+          onChange={(e) => onChange({ description: e.target.value })}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Date Purchased</label>
+          <input
+            type="date"
+            className={inputCls}
+            value={item.datePurchased ?? ""}
+            onChange={(e) => onChange({ datePurchased: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Vendor</label>
+          <input
+            type="text"
+            list="suggest-vendors"
+            className={inputCls}
+            placeholder="Brownells"
+            value={item.vendor ?? ""}
+            onChange={(e) => onChange({ vendor: e.target.value })}
+          />
+          {(suggestions.vendors?.length ?? 0) > 0 && (
+            <datalist id="suggest-vendors">
+              {suggestions.vendors!.map((v) => <option key={v} value={v} />)}
+            </datalist>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Total Paid</label>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            className={inputCls}
+            placeholder="0.00"
+            value={item.pricePaid ?? ""}
+            onChange={(e) =>
+              onChange({ pricePaid: parseFloat(e.target.value) || null })
+            }
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Currency</label>
+          <select
+            className={inputCls}
+            value={item.currency ?? "USD"}
+            onChange={(e) => onChange({ currency: e.target.value })}
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>URL</label>
+        <input
+          type="url"
+          className={inputCls}
+          placeholder="https://…"
+          value={item.url ?? ""}
+          onChange={(e) => onChange({ url: e.target.value })}
+        />
+      </div>
+      <div>
+        <label className={labelCls}>Notes</label>
+        <textarea
+          rows={2}
+          className={`${inputCls} resize-none`}
+          value={item.notes ?? ""}
+          onChange={(e) => onChange({ notes: e.target.value })}
+        />
+      </div>
+    </>
+  );
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+
+export function EmptyState({
+  label,
+  onAdd,
+  showCategoryLinks,
+}: {
+  label: string;
+  onAdd: () => void;
+  showCategoryLinks?: boolean;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 gap-4 text-gray-400">
+      <p className="text-sm">No {label} yet.</p>
+      {showCategoryLinks ? (
+        <div className="flex flex-wrap gap-2 justify-center">
+          {(
+            Object.entries(CATEGORY_CONFIG) as [
+              Category,
+              (typeof CATEGORY_CONFIG)[Category],
+            ][]
+          ).map(([cat, cfg]) => (
+            <a
+              key={cat}
+              href={`${cfg.href}?new=1`}
+              className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
+              style={{
+                borderColor: cfg.color + "88",
+                color: cfg.color,
+                backgroundColor: cfg.color + "18",
+              }}
+            >
+              + {cfg.label}
+            </a>
+          ))}
+        </div>
+      ) : (
+        <button
+          onClick={onAdd}
+          className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
+        >
+          + Add {label}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── useSuggestions ──────────────────────────────────────────────────────────────
+// Derives unique sorted brand/vendor lists from existing items.
+
+export function useSuggestions(items: ItemRecord[]) {
+  const brands  = [...new Set(items.map((i) => i.brand).filter(Boolean) as string[])].sort();
+  const vendors = [...new Set(items.map((i) => i.vendor).filter(Boolean) as string[])].sort();
+  return { brands, vendors };
+}
+
+// ── useThumbnails ─────────────────────────────────────────────────────────────
+// Resolves the first imageKey for each item into a signed URL map.
+
+export function useThumbnails(
+  items: { id: string; imageKeys?: (string | null)[] | null }[],
+) {
+  const [urls, setUrls] = useState<Map<string, string>>(new Map());
+  const cacheKey = items.map((i) => i.id + (i.imageKeys?.[0] ?? "")).join(",");
+
+  const resolveUrls = useCallback(
+    async (cancelled: { current: boolean }) => {
+      const entries = await Promise.all(
+        items
+          .filter((it) => it.imageKeys && it.imageKeys.length > 0)
+          .map(async (it) => {
+            const key = it.imageKeys![0]!;
+            try {
+              const { url } = await getUrl({
+                path: key,
+                options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+              });
+              return [it.id, url.toString()] as [string, string];
+            } catch (_e) {
+              return null;
+            }
+          }),
+      );
+      if (!cancelled.current) {
+        setUrls(new Map(entries.filter(Boolean) as [string, string][]));
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [cacheKey],
+  );
+
+  useEffect(() => {
+    const cancelled = { current: false };
+    resolveUrls(cancelled);
+    return () => {
+      cancelled.current = true;
+    };
+  }, [resolveUrls]);
+
+  return urls;
+}
+
+// ── Thumbnail cell ────────────────────────────────────────────────────────────
+
+export function Thumbnail({
+  url,
+  name,
+}: {
+  url?: string;
+  name?: string | null;
+}) {
+  if (!url) {
+    return (
+      <div className="w-10 h-10 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
+        <span className="text-gray-300 dark:text-gray-600 text-lg select-none">
+          📷
+        </span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={name ?? ""}
+      className="w-10 h-10 rounded-md object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700"
+    />
+  );
+}
+
+// ── Tiny inline SVG icons ─────────────────────────────────────────────────────
+
+function EyeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+    </svg>
+  );
+}
+function PencilIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+
+// ── InventoryTable ────────────────────────────────────────────────────────────
+
+export type ColDef<T> = {
+  key: string;
+  label: string;
+  render: (row: T) => React.ReactNode;
+  className?: string;
+  mobileHidden?: boolean;
+};
+
+export function InventoryTable<
+  T extends {
+    id: string;
+    imageKeys?: (string | null)[] | null;
+    name?: string | null;
+  },
+>({
+  items,
+  columns,
+  thumbnails,
+  onEdit,
+  onDelete,
+  isLoading,
+}: {
+  items: T[];
+  columns: ColDef<T>[];
+  thumbnails: Map<string, string>;
+  onEdit: (item: T) => void;
+  onDelete: (item: T) => void;
+  isLoading?: boolean;
+}) {
+  const DUMMY_ID = "__dummy__";
+  const dummyRow = { id: DUMMY_ID, name: null } as unknown as T;
+  const rows = [dummyRow, ...items];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full">
+        <thead>
+          <tr>
+            <th className={`${thCls} w-12`}> </th>
+            {columns.map((col) => (
+              <th key={col.key} className={`${thCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}>
+                {col.label}
+              </th>
+            ))}
+            <th className={`${thCls} w-32 text-right`}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {isLoading ? (
+            <tr>
+              <td colSpan={columns.length + 2} className="text-center py-8 text-sm text-gray-400">
+                Loading…
+              </td>
+            </tr>
+          ) : (
+            rows.map((item, rowIdx) => {
+              const isDummy = item.id === DUMMY_ID;
+              return (
+                <tr
+                  key={item.id}
+                  className={[
+                    "border-b border-gray-100 dark:border-gray-700 transition-colors",
+                    rowIdx % 2 === 1 ? "bg-gray-50/50 dark:bg-white/[0.02]" : "",
+                    isDummy
+                      ? "opacity-30 pointer-events-none select-none"
+                      : "hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer",
+                  ].join(" ")}
+                >
+                  <td className={tdCls}>
+                    {isDummy ? (
+                      <div className="w-10 h-10 rounded-md bg-gray-200 dark:bg-gray-600" />
+                    ) : (
+                      <button onClick={() => onEdit(item)} className="block focus:outline-none" tabIndex={-1}>
+                        <Thumbnail url={thumbnails.get(item.id)} name={item.name} />
+                      </button>
+                    )}
+                  </td>
+
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={`${tdCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}
+                    >
+                      {isDummy ? (
+                        <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-gray-600" />
+                      ) : (
+                        col.render(item)
+                      )}
+                    </td>
+                  ))}
+
+                  <td className={tdCls}>
+                    <div className="flex items-center justify-end gap-1">
+                      <Tooltip content="View detail" size="sm">
+                        <span>
+                          {isDummy ? (
+                            <span className="p-1.5 inline-flex text-gray-200 dark:text-gray-700"><EyeIcon /></span>
+                          ) : (
+                            <NextLink
+                              href={`/inventory/item/${item.id}`}
+                              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex"
+                            >
+                              <EyeIcon />
+                            </NextLink>
+                          )}
+                        </span>
+                      </Tooltip>
+                      <Tooltip content="Edit" size="sm">
+                        <button
+                          onClick={() => onEdit(item)}
+                          disabled={isDummy}
+                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:pointer-events-none"
+                        >
+                          <PencilIcon />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Delete" size="sm" color="danger">
+                        <button
+                          onClick={() => onDelete(item)}
+                          disabled={isDummy}
+                          className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-gray-400 hover:text-red-500 disabled:pointer-events-none"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── resolveAllUrls ────────────────────────────────────────────────────────────
+
+export async function resolveAllUrls(keys: string[]): Promise<string[]> {
+  return Promise.all(
+    keys.map(async (key) => {
+      try {
+        const { url } = await getUrl({
+          path: key,
+          options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+        });
+        return url.toString();
+      } catch {
+        return "";
+      }
+    }),
+  );
+}
+
+// ── ImageUploader ─────────────────────────────────────────────────────────────
+
+export type ImageUploaderHandle = {
+  commit: (itemId: string) => Promise<string[]>;
+  hasPending: boolean;
+};
+
+type SlotState =
+  | { kind: "existing"; key: string; url?: string }
+  | { kind: "pending"; file: File; preview: string };
+
+export const ImageUploader = forwardRef<
+  ImageUploaderHandle,
+  {
+    itemId?: string;
+    existingKeys?: (string | null)[];
+  }
+>(function ImageUploader({ existingKeys = [] }, ref) {
+  const [slots, setSlots] = useState<SlotState[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const existingKeysKey = existingKeys.join(",");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveUrls() {
+      const resolved: SlotState[] = await Promise.all(
+        (existingKeys.filter(Boolean) as string[]).map(async (key) => {
+          try {
+            const { url } = await getUrl({
+              path: key,
+              options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+            });
+            return { kind: "existing" as const, key, url: url.toString() };
+          } catch (_e) {
+            return { kind: "existing" as const, key };
+          }
+        }),
+      );
+      if (!cancelled) setSlots(resolved);
+    }
+    resolveUrls();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingKeysKey]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      hasPending: slots.some((s) => s.kind === "pending"),
+      commit: async (id: string) => {
+        setUploading(true);
+        try {
+          const finalSlots: { kind: "existing"; key: string; url?: string }[] = [];
+          for (const slot of slots) {
+            if (slot.kind === "existing") {
+              finalSlots.push(slot);
+            } else {
+              const ext = slot.file.name.split(".").pop() ?? "jpg";
+              const key = `inventory/${id}/${uuidv4()}.${ext}`;
+              await uploadData({
+                path: key,
+                data: slot.file,
+                options: { bucket: BUCKET_NAME, contentType: slot.file.type },
+              }).result;
+              const { url } = await getUrl({
+                path: key,
+                options: { bucket: BUCKET_NAME, expiresIn: 3600 },
+              });
+              finalSlots.push({ kind: "existing", key, url: url.toString() });
+              URL.revokeObjectURL(slot.preview);
+            }
+          }
+          setSlots(finalSlots);
+          return finalSlots.map((s) => s.key);
+        } finally {
+          setUploading(false);
+        }
+      },
+    }),
+    [slots],
+  );
+
+  function addFiles(files: FileList | null) {
+    if (!files) return;
+    const newSlots: SlotState[] = Array.from(files)
+      .filter((f) => f.type.startsWith("image/"))
+      .map((file) => ({ kind: "pending", file, preview: URL.createObjectURL(file) }));
+    setSlots((prev) => [...prev, ...newSlots]);
+  }
+
+  async function removeSlot(idx: number) {
+    const slot = slots[idx];
+    if (slot.kind === "existing") {
+      if (!confirm("Remove this image? This cannot be undone.")) return;
+      try {
+        await remove({ path: slot.key, options: { bucket: BUCKET_NAME } });
+      } catch (_e) { /* best effort */ }
+    } else {
+      URL.revokeObjectURL(slot.preview);
+    }
+    setSlots((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function onDragStart(idx: number) { setDragIdx(idx); }
+  function onDragEnter(idx: number) { setDragOverIdx(idx); }
+  function onDragEnd() {
+    if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+      setSlots((prev) => {
+        const next = [...prev];
+        const [moved] = next.splice(dragIdx, 1);
+        next.splice(dragOverIdx, 0, moved);
+        return next;
+      });
+    }
+    setDragIdx(null);
+    setDragOverIdx(null);
+  }
+
+  const imageUrl = (slot: SlotState) => slot.kind === "existing" ? slot.url : slot.preview;
+
+  return (
+    <div>
+      <label className={labelCls}>Photos</label>
+
+      {slots.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          {slots.map((slot, idx) => (
+            <div
+              key={idx}
+              draggable
+              onDragStart={() => onDragStart(idx)}
+              onDragEnter={() => onDragEnter(idx)}
+              onDragEnd={onDragEnd}
+              onDragOver={(e) => e.preventDefault()}
+              className={[
+                "relative group rounded overflow-hidden border-2 cursor-grab active:cursor-grabbing transition-all",
+                dragOverIdx === idx && dragIdx !== idx ? "border-purple dark:border-rose scale-95" : "border-transparent",
+                idx === 0 ? "col-span-3 aspect-video" : "aspect-square",
+              ].join(" ")}
+            >
+              <img src={imageUrl(slot) ?? ""} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+              {slot.kind === "pending" && (
+                <span className="absolute top-1 left-1 text-[10px] bg-gold text-darkPurple font-bold px-1.5 py-0.5 rounded">Pending</span>
+              )}
+              <span className="absolute top-1 right-6 text-[10px] bg-black/50 text-white px-1.5 py-0.5 rounded">{idx + 1}</span>
+              <button
+                onClick={() => removeSlot(idx)}
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white text-xs leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              >×</button>
+              <div className="absolute bottom-1 left-1 opacity-0 group-hover:opacity-60 transition-opacity text-white text-xs select-none">⠿</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        className={[
+          "border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer",
+          dragOver ? "border-purple dark:border-rose bg-purple/10" : "border-gray-300 dark:border-gray-600 hover:border-purple dark:hover:border-rose",
+        ].join(" ")}
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+      >
+        <p className="text-xs text-gray-400">{uploading ? "Uploading…" : "Drop images here or click to browse"}</p>
+        <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-0.5">Drag thumbnails above to reorder · First image is the cover</p>
+      </div>
+
+      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
+    </div>
+  );
+});

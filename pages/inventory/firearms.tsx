@@ -12,7 +12,7 @@ import {
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
   ImageUploader, ImageUploaderHandle,
   InventoryTable, ColDef, useThumbnails, useSuggestions,
-} from "./_shared";
+} from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
 

@@ -4,7 +4,7 @@ import NextLink from "next/link";
 import { Listbox, ListboxItem } from "@heroui/listbox";
 import { Divider } from "@heroui/divider";
 import DefaultLayout from "@/layouts/default";
-import { CATEGORY_CONFIG, Category } from "@/pages/inventory/_shared";
+import { CATEGORY_CONFIG, Category } from "@/components/inventory/_shared";
 
 const NAV_ITEMS: { key: string; label: string; href: string; color: string }[] = [
   { key: "all",         label: "All Items",   href: "/inventory",             color: "#BCABAE" },

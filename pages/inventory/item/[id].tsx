@@ -12,7 +12,7 @@ import {
   labelCls, tdCls,
   CategoryBadge,
   resolveAllUrls,
-} from "../_shared";
+} from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
 
