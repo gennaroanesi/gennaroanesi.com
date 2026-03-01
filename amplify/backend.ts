@@ -85,3 +85,24 @@ const unauthPolicy = new Policy(backend.stack, "customBucketUnauthPolicy", {
 backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(
   unauthPolicy,
 );
+
+/*
+  Define an inline policy for authenticated users so they can
+  read, write and delete objects anywhere in the bucket (inventory uploads, etc.)
+*/
+const authPolicy = new Policy(backend.stack, "customBucketAuthPolicy", {
+  statements: [
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      resources: [`${customBucket.bucketArn}/*`],
+    }),
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ["s3:ListBucket"],
+      resources: [`${customBucket.bucketArn}`],
+    }),
+  ],
+});
+
+backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(authPolicy);
