@@ -74,6 +74,8 @@ const schema = a
         currency:      a.string().default("USD"),
         notes:         a.string(),
         imageKeys:     a.string().array(),   // S3 keys under inventory/{id}/
+        active:        a.boolean().default(true),
+        priceSold:     a.float(),
       })
       .authorization((allow) => [allow.group("admins")]),
 

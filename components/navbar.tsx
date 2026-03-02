@@ -65,8 +65,10 @@ const AdminDropdown = () => {
         </NavbarItem>
         <DropdownMenu
           aria-label="Admin Menu"
+          className="bg-darkSurface border border-darkBorder"
           itemClasses={{
-            base: "gap-4",
+            base: "gap-4 data-[hover=true]:bg-white/10 rounded-none",
+            title: "text-gray-200",
           }}
         >
           {adminMenu.map((opt, idx) => (

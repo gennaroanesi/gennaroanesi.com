@@ -41,7 +41,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
       <div className="flex flex-col md:flex-row h-[calc(100vh-4rem)]">
 
         {/* ── Mobile top tab bar ──────────────────────────────────────────── */}
-        <nav className="md:hidden flex items-center overflow-x-auto border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-darkPurple flex-shrink-0 px-1">
+        <nav className="md:hidden flex items-center overflow-x-auto border-b border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface flex-shrink-0 px-1">
           {NAV_ITEMS.map((item) => {
             const isActive = item.key === active;
             return (
@@ -65,7 +65,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
         </nav>
 
         {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
-        <aside className="hidden md:flex w-48 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 flex-col py-4 bg-white dark:bg-darkPurple">
+        <aside className="hidden md:flex w-48 flex-shrink-0 border-r border-gray-200 dark:border-darkBorder flex-col py-4 bg-white dark:bg-darkSurface">
           <p className="px-4 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 font-medium">
             Inventory
           </p>
@@ -170,7 +170,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex-1 min-w-0 overflow-hidden bg-white dark:bg-darkBg">
           {children}
         </div>
 

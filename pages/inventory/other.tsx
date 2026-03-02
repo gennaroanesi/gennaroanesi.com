@@ -37,7 +37,7 @@ export default function OtherPage() {
     setLoading(true);
     try {
       const { data } = await client.models.inventoryItem.list({
-        filter: { category: { eq: "OTHER" } },
+        filter: { category: { eq: "OTHER" }, active: { ne: false } },
         limit: 500,
       });
       setItems(data ?? []);
@@ -64,7 +64,7 @@ export default function OtherPage() {
   }, [router.isReady, router.query.id, items]);
 
   function openNew() {
-    setItemDraft({ category: "OTHER", currency: "USD" });
+    setItemDraft({ category: "OTHER", currency: "USD", active: true });
     setPanel({ kind: "new" });
   }
 
@@ -89,6 +89,8 @@ export default function OtherPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         if (errors || !newItem) return;
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
@@ -108,6 +110,8 @@ export default function OtherPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
         await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
@@ -168,7 +172,7 @@ export default function OtherPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Other" onAdd={openNew} />
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <InventoryTable
                 items={tableControls.paged}
                 columns={columns}
@@ -193,8 +197,8 @@ export default function OtherPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Item" : itemDraft.name}
               </h2>
@@ -208,7 +212,7 @@ export default function OtherPage() {
                 suggestions={suggestions}
               />
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <ImageUploader
                 ref={imgRef}
                 itemId={panel.kind === "edit" ? panel.item.id : undefined}

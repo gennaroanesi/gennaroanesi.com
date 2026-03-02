@@ -52,7 +52,7 @@ export default function FilamentsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "FILAMENT" } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "FILAMENT" }, active: { ne: false } }, limit: 500 }),
         client.models.inventoryFilament.list({ limit: 500 }),
       ]);
       setItems(itemData ?? []);
@@ -84,7 +84,7 @@ export default function FilamentsPage() {
   }, [router.isReady, router.query.id, items, details]);
 
   function openNew() {
-    setItemDraft({ category: "FILAMENT", currency: "USD" });
+    setItemDraft({ category: "FILAMENT", currency: "USD", active: true });
     setFilamentDraft({ material: "PLA", diameter: "d175", weightG: 1000, quantity: 1 });
     setPanel({ kind: "new" });
   }
@@ -111,6 +111,8 @@ export default function FilamentsPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         if (errors || !newItem) return;
         const { data: newFilament } = await client.models.inventoryFilament.create({
@@ -142,6 +144,8 @@ export default function FilamentsPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         await client.models.inventoryFilament.update({
           id:       panel.filament.id,
@@ -266,7 +270,7 @@ export default function FilamentsPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Filament" onAdd={openNew} />
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <InventoryTable
                 items={tableControls.paged}
                 columns={columns}
@@ -291,8 +295,8 @@ export default function FilamentsPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Filament" : itemDraft.name}
               </h2>
@@ -302,7 +306,7 @@ export default function FilamentsPage() {
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
               <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <p className={labelCls}>Filament Details</p>
 
               <div className="grid grid-cols-2 gap-2">
@@ -358,7 +362,7 @@ export default function FilamentsPage() {
                 </div>
               </div>
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <ImageUploader
                 ref={imgRef}
                 itemId={panel.kind === "edit" ? panel.item.id : undefined}

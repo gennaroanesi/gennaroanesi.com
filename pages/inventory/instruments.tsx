@@ -54,7 +54,7 @@ export default function InstrumentsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "INSTRUMENT" } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "INSTRUMENT" }, active: { ne: false } }, limit: 500 }),
         client.models.inventoryInstrument.list({ limit: 500 }),
       ]);
       setItems(itemData ?? []);
@@ -85,7 +85,7 @@ export default function InstrumentsPage() {
   }, [router.isReady, router.query.id, items, details]);
 
   function openNew() {
-    setItemDraft({ category: "INSTRUMENT", currency: "USD" });
+    setItemDraft({ category: "INSTRUMENT", currency: "USD", active: true });
     setInstrumentDraft({ type: "GUITAR" });
     setPartsDraft([]);
     setPanel({ kind: "new" });
@@ -119,6 +119,8 @@ export default function InstrumentsPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         if (errors || !newItem) return;
         const { data: newInstrument } = await client.models.inventoryInstrument.create({
@@ -151,6 +153,8 @@ export default function InstrumentsPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         await client.models.inventoryInstrument.update({
           id:           panel.instrument.id,
@@ -250,7 +254,7 @@ export default function InstrumentsPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Instrument" onAdd={openNew} />
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <InventoryTable
                 items={tableControls.paged}
                 columns={columns}
@@ -275,8 +279,8 @@ export default function InstrumentsPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Instrument" : itemDraft.name}
               </h2>
@@ -286,7 +290,7 @@ export default function InstrumentsPage() {
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
               <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <p className={labelCls}>Instrument Details</p>
 
               <div className="grid grid-cols-2 gap-2">
@@ -340,7 +344,7 @@ export default function InstrumentsPage() {
                 </div>
               </div>
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
 
               {/* Parts */}
               <div className="flex items-center justify-between">
@@ -399,7 +403,7 @@ export default function InstrumentsPage() {
                 </div>
               )}
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <ImageUploader
                 ref={imgRef}
                 itemId={panel.kind === "edit" ? panel.item.id : undefined}

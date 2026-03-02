@@ -53,13 +53,13 @@ interface RbcEvent {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<StatusKey, { label: string; bg: string; text: string }> = {
-  WORKING_HOME:    { label: "Working (home)",   bg: "#3D3D52", text: "#ffffff" },
-  WORKING_OFFICE:  { label: "Working (office)", bg: "#587D71", text: "#ffffff" },
-  TRAVEL:          { label: "Travel",            bg: "#DEBA02", text: "#323243" },
-  VACATION:        { label: "Vacation",          bg: "#BCABAE", text: "#323243" },
-  WEEKEND_HOLIDAY: { label: "Weekend/Holiday",   bg: "#2a2a3a", text: "#888899" },
-  PTO:             { label: "PTO",               bg: "#8B5CF6", text: "#ffffff" },
-  CHOICE_DAY:      { label: "Choice Day",        bg: "#EC4899", text: "#ffffff" },
+  WORKING_HOME:    { label: "Working (home)",   bg: "#3a5068", text: "#b8d8f0" },  // muted steel blue
+  WORKING_OFFICE:  { label: "Working (office)", bg: "#2a5a45", text: "#90d4b0" },  // deep forest green
+  TRAVEL:          { label: "Travel",            bg: "#5a4800", text: "#DEBA02" },  // dark gold bg, gold text
+  VACATION:        { label: "Vacation",          bg: "#5a4440", text: "#d4bab8" },  // warm dark, rose text
+  WEEKEND_HOLIDAY: { label: "Weekend/Holiday",   bg: "#2a3f2a", text: "#7ab87a" },  // dark sage green
+  PTO:             { label: "PTO",               bg: "#3d2a68", text: "#c4a8f0" },  // deep purple
+  CHOICE_DAY:      { label: "Choice Day",        bg: "#5a2040", text: "#f080b0" },  // deep pink
 };
 
 const TRIP_TYPE_CONFIG: Record<TripType, { label: string; color: string }> = {
@@ -222,7 +222,7 @@ const TIMEZONE_OPTIONS = [
 // ── Input / Label shared styles ───────────────────────────────────────────────
 
 const inputCls =
-  "w-full border rounded px-2 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300";
+  "w-full border rounded px-2 py-1.5 text-sm bg-white text-gray-800 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder";
 const labelCls =
   "text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1 block";
 
@@ -305,8 +305,8 @@ export default function CalendarPage() {
       if (isHoliday) {
         return {
           style: {
-            backgroundColor: config?.bg ?? "#2a2a3a",
-            color: config?.text ?? "#888899",
+            backgroundColor: config?.bg ?? "#27273a",  // neutral dark when no status set
+            color: config?.text ?? "#DEBA02",           // gold text for untagged holidays
             backgroundImage: "linear-gradient(rgba(222,186,2,0.15), rgba(222,186,2,0.05))",
             borderTop: "2px solid #DEBA02",
             boxSizing: "border-box" as const,
@@ -579,7 +579,7 @@ export default function CalendarPage() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400 uppercase tracking-widest">Timezone</span>
               <select
-                className="text-xs border rounded px-2 py-1 dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-700 border-gray-300"
+                className="text-xs border rounded px-2 py-1 bg-white text-gray-700 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder"
                 value={viewTimezone}
                 onChange={(e) => setViewTimezone(e.target.value)}
               >
@@ -610,10 +610,10 @@ export default function CalendarPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────────── */}
         {panel && (
-          <div className="w-80 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
+          <div className="w-80 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
 
             {/* Panel header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "day"      && dayjs(panel.record.date).format("ddd, MMM D YYYY")}
                 {panel.kind === "trip"     && panel.record.name}
@@ -691,7 +691,7 @@ export default function CalendarPage() {
 
             {/* Legend (only shown on day panel) */}
             {panel.kind === "day" && (
-              <div className="px-6 py-4 border-t dark:border-gray-700 flex-shrink-0">
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-darkBorder flex-shrink-0">
                 <p className={labelCls}>Legend</p>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                   {Object.entries(STATUS_CONFIG).map(([, { label, bg }]) => (

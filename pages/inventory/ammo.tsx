@@ -86,7 +86,7 @@ export default function AmmoPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "AMMO" } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "AMMO" }, active: { ne: false } }, limit: 500 }),
         client.models.inventoryAmmo.list({ limit: 500 }),
       ]);
       setItems(itemData ?? []);
@@ -117,7 +117,7 @@ export default function AmmoPage() {
   }, [router.isReady, router.query.id, items, details]);
 
   function openNew() {
-    setItemDraft({ category: "AMMO", currency: "USD" });
+    setItemDraft({ category: "AMMO", currency: "USD", active: true });
     setAmmoDraft({ unit: "ROUNDS", quantity: 0 });
     setPanel({ kind: "new" });
   }
@@ -163,6 +163,8 @@ export default function AmmoPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         if (errors || !newItem) return;
         const { data: newAmmo } = await client.models.inventoryAmmo.create({
@@ -203,6 +205,8 @@ export default function AmmoPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         await client.models.inventoryAmmo.update({
           id:              panel.ammo.id,
@@ -435,7 +439,7 @@ export default function AmmoPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Ammo" onAdd={openNew} />
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <InventoryTable
                 items={tableControls.paged}
                 columns={columns}
@@ -460,12 +464,12 @@ export default function AmmoPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
 
             {/* ── Log Use panel ─────────────────────────────────────── */}
             {panel.kind === "loguse" && (
               <>
-                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
                   <h2 className="text-base font-semibold dark:text-rose text-purple">Log Ammo Use</h2>
                   <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
                 </div>
@@ -537,9 +541,9 @@ export default function AmmoPage() {
 
                   {/* Results table */}
                   {logResults.length > 0 && (
-                    <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                    <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-darkBorder">
                       <table className="w-full text-xs">
-                        <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
+                        <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
                           <tr>
                             <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Ammo</th>
                             <th className="px-3 py-1.5 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Caliber</th>
@@ -580,7 +584,7 @@ export default function AmmoPage() {
             {/* ── New / Edit panel ──────────────────────────────────── */}
             {(panel.kind === "new" || panel.kind === "edit") && (
               <>
-                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
                   <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                     {panel.kind === "new" ? "New Ammo" : itemDraft.name}
                   </h2>
@@ -590,7 +594,7 @@ export default function AmmoPage() {
                 <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
                   <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
-                  <hr className="border-gray-200 dark:border-gray-700" />
+                  <hr className="border-gray-200 dark:border-darkBorder" />
                   <p className={labelCls}>Ammo Details</p>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -806,7 +810,7 @@ function AmmoTypeahead({
       {open && filtered.length > 0 && (
         <ul
           ref={listRef}
-          className="absolute z-50 w-full mt-0.5 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-darkPurple shadow-lg text-sm"
+          className="absolute z-50 w-full mt-0.5 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated shadow-lg text-sm"
         >
           {filtered.map((opt, idx) => {
             const label   = [opt.item.name, opt.item.brand].filter(Boolean).join(" · ");

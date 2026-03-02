@@ -18,7 +18,7 @@ export default function App({ Component, pageProps }: AppProps) {
   const navigate = useCallback((path: string) => router.push(path), [router]);
 
   return (
-    <NextThemesProvider>
+    <NextThemesProvider attribute="class" defaultTheme="dark">
       <div>
         <HeroUIProvider navigate={navigate}>
           <Component {...pageProps} />

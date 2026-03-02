@@ -44,7 +44,7 @@ export default function FirearmsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "FIREARM" } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "FIREARM" }, active: { ne: false } }, limit: 500 }),
         client.models.inventoryFirearm.list({ limit: 500 }),
       ]);
       setItems(itemData ?? []);
@@ -75,7 +75,7 @@ export default function FirearmsPage() {
   }, [router.isReady, router.query.id, items, details]);
 
   function openNew() {
-    setItemDraft({ category: "FIREARM", currency: "USD" });
+    setItemDraft({ category: "FIREARM", currency: "USD", active: true });
     setFirearmDraft({});
     setPanel({ kind: "new" });
   }
@@ -102,6 +102,8 @@ export default function FirearmsPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         if (errors || !newItem) return;
         const { data: newFirearm } = await client.models.inventoryFirearm.create({
@@ -134,6 +136,8 @@ export default function FirearmsPage() {
           pricePaid:     itemDraft.pricePaid     ?? null,
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
+          priceSold:     itemDraft.priceSold     ?? null,
+          active:        itemDraft.active        ?? true,
         });
         await client.models.inventoryFirearm.update({
           id:           panel.firearm.id,
@@ -213,7 +217,7 @@ export default function FirearmsPage() {
           ) : items.length === 0 ? (
             <EmptyState label="Firearm" onAdd={openNew} />
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <InventoryTable
                 items={tableControls.paged}
                 columns={columns}
@@ -241,8 +245,8 @@ export default function FirearmsPage() {
 
         {/* ── Side panel ──────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple truncate">
                 {panel.kind === "new" ? "New Firearm" : itemDraft.name}
               </h2>
@@ -252,7 +256,7 @@ export default function FirearmsPage() {
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
               <BaseItemFields item={itemDraft} onChange={(p) => setItemDraft((d) => ({ ...d, ...p }))} suggestions={suggestions} />
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <p className={labelCls}>Firearm Details</p>
 
               <div className="grid grid-cols-2 gap-2">
@@ -307,7 +311,7 @@ export default function FirearmsPage() {
                 onChange={(parts) => setFirearmDraft((d) => ({ ...d, parts: parts as any }))}
               />
 
-              <hr className="border-gray-200 dark:border-gray-700" />
+              <hr className="border-gray-200 dark:border-darkBorder" />
               <ImageUploader
                 ref={imgRef}
                 itemId={panel.kind === "edit" ? panel.item.id : undefined}
@@ -351,7 +355,7 @@ function PartsEditor({ parts, onChange }: { parts: FirearmPart[]; onChange: (p: 
         <p className="text-xs text-gray-400 italic">No parts added yet.</p>
       )}
       {parts.map((part, i) => (
-        <div key={i} className="border border-gray-200 dark:border-gray-700 rounded p-3 mb-2 flex flex-col gap-2">
+        <div key={i} className="border border-gray-200 dark:border-darkBorder rounded p-3 mb-2 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className={labelCls}>Part Name *</label>

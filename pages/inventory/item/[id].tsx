@@ -115,11 +115,11 @@ export default function ItemDetailPage() {
             {/* ── Header ─────────────────────────────────────────────── */}
             <div className="flex items-start gap-4">
               {photos.length > 0 ? (
-                <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                <div className="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border border-gray-200 dark:border-darkBorder">
                   <img src={photos[photoIdx]} alt={item.name} className="w-full h-full object-cover" />
                 </div>
               ) : (
-                <div className="flex-shrink-0 w-24 h-24 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center border border-gray-200 dark:border-gray-700">
+                <div className="flex-shrink-0 w-24 h-24 rounded-lg bg-gray-100 dark:bg-darkElevated flex items-center justify-center border border-gray-200 dark:border-darkBorder">
                   <span className="text-3xl">📷</span>
                 </div>
               )}
@@ -207,9 +207,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div>
       <p className={`${labelCls} mb-2`}>{title}</p>
-      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
         <table className="w-full">
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+          <tbody className="divide-y divide-gray-100 dark:divide-darkBorder">
             {children}
           </tbody>
         </table>

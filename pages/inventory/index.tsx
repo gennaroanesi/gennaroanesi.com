@@ -40,7 +40,7 @@ export default function InventoryPage() {
     try {
       const [{ data: itemData }, { data: fwData }, { data: amData }, { data: flData }, { data: instData }] =
         await Promise.all([
-          client.models.inventoryItem.list({ limit: 500 }),
+          client.models.inventoryItem.list({ filter: { active: { ne: false } }, limit: 500 }),
           client.models.inventoryFirearm.list({ limit: 500 }),
           client.models.inventoryAmmo.list({ limit: 500 }),
           client.models.inventoryFilament.list({ limit: 500 }),
@@ -113,11 +113,17 @@ export default function InventoryPage() {
     return acc;
   }, {} as Record<string, number>);
 
-  const totalRoundsAvailable = ammos.reduce((acc, am) => acc + (am.roundsAvailable ?? 0), 0);
+  // Mirror the fallback from the ammo page: roundsAvailable ?? (quantity * roundsPerUnit)
+  function ammoRoundsAvail(am: AmmoRecord) {
+    const total = (am.quantity ?? 0) * (am.roundsPerUnit ?? 1);
+    return am.roundsAvailable ?? total;
+  }
+
+  const totalRoundsAvailable = ammos.reduce((acc, am) => acc + ammoRoundsAvail(am), 0);
 
   const ammoByCaliberQty = ammos.reduce((acc, am) => {
     const k = am.caliber ?? "Unknown";
-    acc[k] = (acc[k] ?? 0) + (am.roundsAvailable ?? 0);
+    acc[k] = (acc[k] ?? 0) + ammoRoundsAvail(am);
     return acc;
   }, {} as Record<string, number>);
 
@@ -174,8 +180,8 @@ export default function InventoryPage() {
             <NextLink
               key={cat}
               href={cfg.href}
-              className="rounded-lg border p-3 flex flex-col gap-1 hover:opacity-80 transition-opacity cursor-pointer"
-              style={{ borderColor: cfg.color + "55", backgroundColor: cfg.color + "11" }}
+              className="rounded-lg border p-3 flex flex-col gap-1 hover:opacity-80 transition-opacity cursor-pointer bg-white dark:bg-darkSurface"
+              style={{ borderColor: cfg.color + "66" }}
             >
               <span className="text-xs uppercase tracking-widest font-medium" style={{ color: cfg.color }}>
                 {cfg.label}
@@ -194,6 +200,7 @@ export default function InventoryPage() {
               {breakdowns[cat] && Object.keys(breakdowns[cat]).length > 0 && (
                 <div className="flex flex-col gap-0.5 mt-1 border-t pt-1.5" style={{ borderColor: cfg.color + "33" }}>
                   {Object.entries(breakdowns[cat])
+                    .filter(([, val]) => val > 0)
                     .sort((a, b) => b[1] - a[1])
                     .map(([key, val]) => (
                       <span key={key} className="text-[11px] leading-tight" style={{ color: cfg.color + "cc" }}>
@@ -216,12 +223,12 @@ export default function InventoryPage() {
           <input
             type="text"
             placeholder="Search name, brand, vendor…"
-            className="border rounded px-3 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300 w-full sm:w-64"
+            className="border rounded px-3 py-1.5 text-sm bg-white text-gray-800 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder w-full sm:w-64"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <select
-            className="border rounded px-3 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-700 border-gray-300"
+            className="border rounded px-3 py-1.5 text-sm bg-white text-gray-700 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder"
             value={catFilter}
             onChange={(e) => setCatFilter(e.target.value as Category | "ALL")}
           >
@@ -243,10 +250,10 @@ export default function InventoryPage() {
         ) : filtered.length === 0 ? (
           <EmptyState label="items" onAdd={() => {}} showCategoryLinks />
         ) : (
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
             <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-darkPurple border-b border-gray-200 dark:border-gray-700">
+              <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
                 <tr>
                   {([
                     ["name",         "Name",       ""],
@@ -271,7 +278,7 @@ export default function InventoryPage() {
                   const cfg = CATEGORY_CONFIG[it.category as Category] ?? CATEGORY_CONFIG.OTHER;
                   return (
                     <tr key={it.id}
-                      className="hover:bg-gray-50 dark:hover:bg-purple/30 transition-colors">
+                      className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                       <td className={`${tdCls} font-medium`}>{it.name}</td>
                       <td className={`${tdCls} hidden sm:table-cell`}>{it.brand ?? "—"}</td>
                       <td className={`${tdCls} hidden md:table-cell`}><CategoryBadge category={it.category ?? "OTHER"} /></td>

@@ -168,10 +168,10 @@ export default function PeoplePage() {
               </button>
             </div>
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <tr className="border-b border-gray-200 dark:border-darkBorder">
                     <th className="text-left text-xs uppercase tracking-widest text-gray-400 px-4 py-2 font-medium">Name</th>
                     <th className="text-left text-xs uppercase tracking-widest text-gray-400 px-4 py-2 font-medium hidden md:table-cell">Phone</th>
                     <th className="text-left text-xs uppercase tracking-widest text-gray-400 px-4 py-2 font-medium hidden md:table-cell">Email</th>
@@ -186,7 +186,7 @@ export default function PeoplePage() {
                     return (
                     <tr key={p.id}
                       onClick={() => openEdit(p)}
-                      className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors">
+                      className="border-b border-gray-100 dark:border-darkBorder hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors">
                       <td className="px-4 py-2 font-medium text-gray-800 dark:text-gray-200">{p.name}</td>
                       <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden md:table-cell">{p.phone ?? "—"}</td>
                       <td className="px-4 py-2 text-gray-500 dark:text-gray-400 hidden md:table-cell">{p.email ?? "—"}</td>
@@ -227,8 +227,8 @@ export default function PeoplePage() {
 
         {/* ── Panel ── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple">
                 {panel.kind === "new" ? "New Person" : draft.name}
               </h2>
@@ -270,7 +270,7 @@ export default function PeoplePage() {
                         "flex-1 py-1.5 rounded text-sm font-semibold border transition-colors",
                         draft.preferredChannel === ch
                           ? "bg-purple text-rose dark:bg-rose dark:text-purple border-transparent"
-                          : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-purple dark:hover:border-rose",
+                          : "border-gray-300 dark:border-darkBorder text-gray-600 dark:text-gray-400 hover:border-purple dark:hover:border-rose",
                       ].join(" ")}
                     >
                       {CHANNEL_LABELS[ch]}
@@ -284,7 +284,7 @@ export default function PeoplePage() {
                   onClick={() => setDraft((d) => ({ ...d, active: !d.active }))}
                   className={[
                     "relative inline-flex h-5 w-9 rounded-full transition-colors",
-                    draft.active ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600",
+                    draft.active ? "bg-green-500" : "bg-gray-300 dark:bg-darkElevated",
                   ].join(" ")}
                 >
                   <span className={[
@@ -315,7 +315,7 @@ export default function PeoplePage() {
                       {ts?.state === "sending" ? "Sending…" : ts?.state === "ok" ? "✓ Test sent!" : ts?.state === "error" ? "✗ Failed — see details below" : "🔔 Send Test Notification"}
                     </button>
                     {ts?.state === "error" && ts.error && (
-                      <div className="rounded border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3">
+                      <div className="rounded border border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-950/20 p-3">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-[11px] uppercase tracking-widest text-red-500 font-semibold">Error</span>
                           <button

@@ -157,7 +157,7 @@ export function CaliberInput({
       {open && flatFiltered.length > 0 && (
         <ul
           ref={listRef}
-          className="absolute z-50 left-0 right-0 mt-0.5 max-h-56 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-darkPurple shadow-lg text-sm"
+          className="absolute z-50 left-0 right-0 mt-0.5 max-h-56 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated shadow-lg text-sm"
         >
           {grouped.map((group) => (
             <li key={group.label}>
@@ -194,13 +194,13 @@ export function CaliberInput({
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 export const inputCls =
-  "w-full border rounded px-2 py-1.5 text-sm dark:bg-purple dark:text-rose dark:border-gray-600 bg-white text-gray-800 border-gray-300";
+  "w-full border rounded px-2 py-1.5 text-sm bg-white text-gray-800 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder";
 export const labelCls =
   "text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1 block";
 export const thCls =
-  "text-left text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 px-3 py-2 font-medium whitespace-nowrap";
+  "text-left text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 px-3 py-2 font-medium whitespace-nowrap";
 export const tdCls =
-  "px-3 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap";
+  "px-3 py-2 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -448,6 +448,31 @@ export function BaseItemFields({
           value={item.notes ?? ""}
           onChange={(e) => onChange({ notes: e.target.value })} />
       </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Price Sold</label>
+          <input type="number" min={0} step={0.01} className={inputCls} placeholder="0.00"
+            value={item.priceSold ?? ""}
+            onChange={(e) => onChange({ priceSold: parseFloat(e.target.value) || null })} />
+        </div>
+        <div className="flex flex-col justify-end pb-1">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span className={labelCls}>Active</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={item.active !== false}
+              onClick={() => onChange({ active: !(item.active !== false) })}
+              className="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none"
+              style={{ backgroundColor: item.active !== false ? "#8B5CF6" : "#9ca3af" }}>
+              <span
+                className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform"
+                style={{ transform: item.active !== false ? "translateX(16px)" : "translateX(0)" }}
+              />
+            </button>
+          </label>
+        </div>
+      </div>
     </>
   );
 }
@@ -531,13 +556,13 @@ export function useThumbnails(items: { id: string; imageKeys?: (string | null)[]
 export function Thumbnail({ url, name }: { url?: string; name?: string | null }) {
   if (!url) {
     return (
-      <div className="w-10 h-10 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
+      <div className="w-10 h-10 rounded-md bg-gray-100 dark:bg-darkElevated flex items-center justify-center flex-shrink-0">
         <span className="text-gray-300 dark:text-gray-600 text-lg select-none">📷</span>
       </div>
     );
   }
   return (
-    <img src={url} alt={name ?? ""} className="w-10 h-10 rounded-md object-cover flex-shrink-0 border border-gray-200 dark:border-gray-700" />
+    <img src={url} alt={name ?? ""} className="w-10 h-10 rounded-md object-cover flex-shrink-0 border border-gray-200 dark:border-darkBorder" />
   );
 }
 
@@ -662,7 +687,7 @@ export function TableControls({
   const end   = Math.min(page * pageSize, totalItems);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+    <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-t border-gray-200 dark:border-darkBorder text-xs text-gray-500 dark:text-gray-400">
 
       {/* Left: row count info */}
       <span className="whitespace-nowrap">
@@ -731,7 +756,7 @@ export function TableControls({
         <select
           value={pageSize}
           onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-          className="border rounded px-1 py-0.5 text-xs dark:bg-purple dark:border-gray-600 bg-white border-gray-300 cursor-pointer"
+          className="border rounded px-1 py-0.5 text-xs bg-white border-gray-300 dark:bg-darkElevated dark:border-darkBorder dark:text-gray-200 cursor-pointer"
         >
           {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
@@ -784,7 +809,7 @@ export function InventoryTable<
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full">
-        <thead>
+        <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
           <tr>
             <th className={`${thCls} w-12`}> </th>
             {columns.map((col) => {
@@ -823,7 +848,7 @@ export function InventoryTable<
                 <tr
                   key={item.id}
                   className={[
-                    "border-b border-gray-100 dark:border-gray-700 transition-colors",
+                    "border-b border-gray-100 dark:border-darkBorder transition-colors",
                     rowIdx % 2 === 1 ? "bg-gray-50/50 dark:bg-white/[0.02]" : "",
                     isDummy
                       ? "opacity-30 pointer-events-none select-none"
@@ -832,7 +857,7 @@ export function InventoryTable<
                 >
                   <td className={tdCls}>
                     {isDummy ? (
-                      <div className="w-10 h-10 rounded-md bg-gray-200 dark:bg-gray-600" />
+                      <div className="w-10 h-10 rounded-md bg-gray-200 dark:bg-darkElevated" />
                     ) : (
                       <button onClick={() => onEdit(item)} className="block focus:outline-none" tabIndex={-1}>
                         <Thumbnail url={thumbnails.get(item.id)} name={item.name} />
@@ -846,7 +871,7 @@ export function InventoryTable<
                       className={`${tdCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}
                     >
                       {isDummy ? (
-                        <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-gray-600" />
+                        <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-darkElevated" />
                       ) : (
                         col.render(item)
                       )}

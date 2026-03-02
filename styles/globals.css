@@ -10,6 +10,152 @@
   background-color: transparent !important;
 }
 
+/* ── react-big-calendar dark mode ───────────────────────────────────────────
+   Override ALL library-default light backgrounds, borders, and text colors.
+   Inline styles from dayPropGetter/eventPropGetter still take precedence
+   for individual cells, so this just sets the baseline for everything else. */
+
+.dark .rbc-calendar {
+  background-color: #1e1e2e;
+  color: #d4cfc9;
+}
+
+/* Toolbar: month title + nav buttons */
+.dark .rbc-toolbar {
+  color: #d4cfc9;
+}
+.dark .rbc-toolbar button {
+  color: #d4cfc9;
+  border-color: #3d3d58;
+  background-color: #27273a;
+}
+.dark .rbc-toolbar button:hover,
+.dark .rbc-toolbar button:focus {
+  background-color: #31314a;
+  color: #ffffff;
+}
+.dark .rbc-toolbar button.rbc-active,
+.dark .rbc-toolbar button.rbc-active:hover {
+  background-color: #3d3d58;
+  color: #ffffff;
+  border-color: #5a5a80;
+}
+
+/* Header row (Sun Mon Tue …) */
+.dark .rbc-month-header,
+.dark .rbc-header {
+  background-color: #27273a;
+  border-color: #3d3d58;
+  color: #a09aaa;
+}
+.dark .rbc-header + .rbc-header {
+  border-left-color: #3d3d58;
+}
+
+/* Month grid cells */
+.dark .rbc-month-view {
+  border-color: #3d3d58;
+  background-color: #1e1e2e;
+}
+.dark .rbc-month-row {
+  border-color: #3d3d58;
+}
+.dark .rbc-day-bg {
+  background-color: #27273a;
+}
+.dark .rbc-day-bg + .rbc-day-bg {
+  border-left-color: #3d3d58;
+}
+/* Off-month cells (the ones that were showing light gray) */
+.dark .rbc-off-range-bg {
+  background-color: #1e1e2e !important;
+}
+.dark .rbc-off-range .rbc-button-link {
+  color: #4a4a6a !important;
+}
+
+/* Date numbers */
+.dark .rbc-date-cell {
+  color: #8888aa;
+}
+.dark .rbc-date-cell.rbc-now .rbc-button-link {
+  color: #BCABAE;
+  font-weight: 700;
+}
+.dark .rbc-button-link {
+  color: inherit;
+}
+
+/* Week / day views */
+.dark .rbc-time-view {
+  border-color: #3d3d58;
+  background-color: #1e1e2e;
+}
+.dark .rbc-time-header {
+  background-color: #27273a;
+  border-color: #3d3d58;
+}
+.dark .rbc-time-header-content {
+  border-color: #3d3d58;
+}
+.dark .rbc-time-content {
+  border-color: #3d3d58;
+  background-color: #1e1e2e;
+}
+.dark .rbc-time-slot {
+  color: #4a4a6a;
+  border-color: #2d2d44;
+}
+.dark .rbc-timeslot-group {
+  border-color: #3d3d58;
+}
+.dark .rbc-day-slot .rbc-time-slot {
+  border-top-color: #2d2d44;
+}
+.dark .rbc-day-slot .rbc-events-container {
+  border-color: #3d3d58;
+}
+.dark .rbc-current-time-indicator {
+  background-color: #BCABAE;
+}
+
+/* Agenda view */
+.dark .rbc-agenda-view table {
+  border-color: #3d3d58;
+}
+.dark .rbc-agenda-date-cell,
+.dark .rbc-agenda-time-cell {
+  color: #8888aa;
+  border-color: #3d3d58;
+}
+.dark .rbc-agenda-event-cell {
+  color: #d4cfc9;
+  border-color: #3d3d58;
+}
+.dark .rbc-agenda-empty {
+  color: #4a4a6a;
+}
+
+/* Show more link */
+.dark .rbc-show-more {
+  color: #BCABAE;
+  background-color: transparent;
+}
+.dark .rbc-show-more:hover {
+  color: #ffffff;
+}
+
+/* Popup overlay */
+.dark .rbc-overlay {
+  background-color: #27273a;
+  border-color: #3d3d58;
+  color: #d4cfc9;
+}
+.dark .rbc-overlay-header {
+  border-bottom-color: #3d3d58;
+  color: #a09aaa;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

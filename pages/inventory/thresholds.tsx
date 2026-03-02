@@ -157,10 +157,10 @@ export default function ThresholdsPage() {
               </button>
             </div>
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <tr className="border-b border-gray-200 dark:border-darkBorder">
                     <th className="text-left text-xs uppercase tracking-widest text-gray-400 px-4 py-2 font-medium">Caliber</th>
                     <th className="text-left text-xs uppercase tracking-widest text-gray-400 px-4 py-2 font-medium">Min Rounds</th>
                     <th className="text-left text-xs uppercase tracking-widest text-gray-400 px-4 py-2 font-medium hidden md:table-cell">Notify</th>
@@ -175,7 +175,7 @@ export default function ThresholdsPage() {
                       return (
                         <tr key={t.id}
                           onClick={() => openEdit(t)}
-                          className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors">
+                          className="border-b border-gray-100 dark:border-darkBorder hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors">
                           <td className="px-4 py-2 font-medium text-gray-800 dark:text-gray-200">{t.caliber}</td>
                           <td className="px-4 py-2 tabular-nums text-gray-700 dark:text-gray-300">
                             {(t.minRounds ?? 0).toLocaleString()} rds
@@ -216,8 +216,8 @@ export default function ThresholdsPage() {
 
         {/* ── Panel ── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-darkPurple overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple">
                 {panel.kind === "new" ? "New Threshold" : `Edit — ${draft.caliber}`}
               </h2>
@@ -276,7 +276,7 @@ export default function ThresholdsPage() {
                   onClick={() => setDraft((d) => ({ ...d, enabled: !d.enabled }))}
                   className={[
                     "relative inline-flex h-5 w-9 rounded-full transition-colors",
-                    draft.enabled ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600",
+                    draft.enabled ? "bg-green-500" : "bg-gray-300 dark:bg-darkElevated",
                   ].join(" ")}
                 >
                   <span className={[
