@@ -5,7 +5,7 @@ const userArg = process.argv.find((a) => a.startsWith("--user="))?.split("=")[1]
 const passArg = process.argv.find((a) => a.startsWith("--pass="))?.split("=")[1];
 
 if (!userArg || !passArg) {
-  console.error("Usage: node probe_schema.mjs --env=sandbox|prod --user=you@example.com --pass=yourpassword");
+  console.error("Usage: node probe_fields.mjs --env=sandbox|prod --user=you@example.com --pass=yourpassword");
   process.exit(1);
 }
 
@@ -18,22 +18,18 @@ const res = await cognito.send(new InitiateAuthCommand({
 }));
 const jwt = res.AuthenticationResult.IdToken;
 
-// Introspect the schema to find the exact mutation and input type names
 const result = await fetch(APPSYNC_URL, {
   method: "POST",
   headers: { "Content-Type": "application/json", Authorization: jwt },
   body: JSON.stringify({ query: `{
-    __schema {
-      mutationType {
-        fields {
-          name
-          args { name type { name kind ofType { name } } }
-        }
+    __type(name: "CreateFlightInput") {
+      inputFields {
+        name
+        type { name kind ofType { name } }
       }
     }
   }` }),
 });
 const data = await result.json();
-const mutations = data.data?.__schema?.mutationType?.fields ?? [];
-const flightMutations = mutations.filter(m => m.name.toLowerCase().includes("flight"));
-console.log(JSON.stringify(flightMutations, null, 2));
+const fields = data.data?.__type?.inputFields ?? [];
+console.log(fields.map(f => `${f.name}: ${f.type.name ?? f.type.ofType?.name ?? f.type.kind}`).join("\n"));

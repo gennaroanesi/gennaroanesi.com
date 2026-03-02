@@ -173,8 +173,6 @@ const schema = a
 
         // ── Media ─────────────────────────────────────────────────────
         kmlS3Key:      a.string(),               // S3 key, e.g. "kml/2026-03-01-KDVN-KCID.kml"
-        videoUrl:      a.url(),                  // YouTube / Vimeo embed URL
-        videoOffsetSec: a.integer(),             // seconds into video where wheels-off occurs
 
         // ── Display ───────────────────────────────────────────────────
         title:         a.string(),               // optional override, e.g. "First Solo!"
@@ -185,6 +183,22 @@ const schema = a
       .authorization((allow) => [
         allow.publicApiKey().to(["read"]),       // fully public read
         allow.group("admins"),                   // admins can write
+      ]),
+
+    // ── FlightMedia ──────────────────────────────────────────────────────────
+    // One record per video clip attached to a flight. A flight can have many.
+    flightMedia: a
+      .model({
+        flightId:      a.id().required(),        // FK → flight.id
+        url:           a.url().required(),        // YouTube / Vimeo embed URL
+        offsetSec:     a.integer(),              // seconds into video where wheels-off occurs
+        camera:        a.enum(["RAYBAN", "COCKPIT", "EXTERIOR", "PASSENGER", "OTHER"]),
+        label:         a.string(),               // e.g. "Final approach RWY 18", "Takeoff"
+        sortOrder:     a.integer().default(0),   // controls display order in the UI
+      })
+      .authorization((allow) => [
+        allow.publicApiKey().to(["read"]),
+        allow.group("admins"),
       ]),
 
     // ── Notification Person ────────────────────────────────────────────────

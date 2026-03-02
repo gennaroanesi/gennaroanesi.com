@@ -25,3 +25,9 @@ temp/
 
 .xls
 .xlsx
+
+
+
+another idea, seems a bit hard but feasible:
+
+# we read the FAA approach plates and construct an "ideal" approach path based on the approach waypoints and minimum altitudes depicted. we show this overlay on the 3D KML containing what was actually flown  

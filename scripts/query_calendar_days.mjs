@@ -3,14 +3,15 @@
  * Fetches day records from the database for a given date range.
  *
  * Usage:
- *   node query_calendar_days.mjs --user=you@example.com --pass=yourpassword
- *   node query_calendar_days.mjs --user=you@example.com --pass=yourpassword --start=2026-03-01 --end=2026-03-08
+ *   node query_calendar_days.mjs --env=sandbox --user=you@example.com --pass=yourpassword
+ *   node query_calendar_days.mjs --env=prod    --user=you@example.com --pass=yourpassword --start=2026-03-01 --end=2026-03-08
  */
 
 import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { getConfig } from "./aws-config.mjs";
 
 const userArg = process.argv
   .find((a) => a.startsWith("--user="))
@@ -27,15 +28,12 @@ const endArg =
 
 if (!userArg || !passArg) {
   console.error(
-    "Usage: node query_calendar_days.mjs --user=you@example.com --pass=yourpassword [--start=YYYY-MM-DD] [--end=YYYY-MM-DD]",
+    "Usage: node query_calendar_days.mjs --env=sandbox|prod --user=you@example.com --pass=yourpassword [--start=YYYY-MM-DD] [--end=YYYY-MM-DD]",
   );
   process.exit(1);
 }
 
-const REGION = "us-east-1";
-const CLIENT_ID = "2cra2mdgp22rh7813g3aq26k20";
-const APPSYNC_URL =
-  "https://cdglsrrdm5fhrnu6wge6533jyy.appsync-api.us-east-1.amazonaws.com/graphql";
+const { region: REGION, clientId: CLIENT_ID, appsyncUrl: APPSYNC_URL } = getConfig();
 
 async function getJwt() {
   const cognito = new CognitoIdentityProviderClient({ region: REGION });
@@ -106,7 +104,6 @@ if (items.length === 0) {
   console.log(
     `Found ${items.length} day records between ${startArg} and ${endArg}:\n`,
   );
-  // Sort by date
   items.sort((a, b) => a.date.localeCompare(b.date));
   for (const d of items) {
     const parts = [d.date, d.status ?? "(no status)"];

@@ -4,13 +4,15 @@
  * where roundsAvailable is currently null/unset.
  *
  * Usage:
- *   node backfill_rounds_available.mjs --user=you@example.com --pass=yourpassword [--dry-run]
+ *   node backfill_rounds_available.mjs --env=sandbox --user=you@example.com --pass=yourpassword [--dry-run]
+ *   node backfill_rounds_available.mjs --env=prod    --user=you@example.com --pass=yourpassword [--dry-run]
  */
 
 import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { getConfig } from "./aws-config.mjs";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -25,15 +27,12 @@ const DELAY_MS = 120;
 
 if (!userArg || !passArg) {
   console.error(
-    "Usage: node backfill_rounds_available.mjs --user=you@example.com --pass=yourpassword [--dry-run]",
+    "Usage: node backfill_rounds_available.mjs --env=sandbox|prod --user=you@example.com --pass=yourpassword [--dry-run]",
   );
   process.exit(1);
 }
 
-const REGION = "us-east-1";
-const CLIENT_ID = "2cra2mdgp22rh7813g3aq26k20";
-const APPSYNC_URL =
-  "https://cdglsrrdm5fhrnu6wge6533jyy.appsync-api.us-east-1.amazonaws.com/graphql";
+const { region: REGION, clientId: CLIENT_ID, appsyncUrl: APPSYNC_URL } = getConfig();
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
