@@ -247,7 +247,7 @@ export default function FlyingPage() {
     async function load() {
       try {
         const all: Flight[] = [];
-        let token: string | null | undefined = undefined;
+        let token: string | null | undefined;
         do {
           const { data, nextToken } = await (client.models.flight as any).list({
             authMode:  "apiKey",
