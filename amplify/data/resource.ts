@@ -115,6 +115,7 @@ const schema = a
         color:     a.string(),
         weightG:   a.integer(),              // spool weight in grams
         diameter:  a.enum(["d175", "d285"]),
+        quantity:  a.integer().default(1),   // number of spools
       })
       .authorization((allow) => [allow.group("admins")]),
 
@@ -128,6 +129,7 @@ const schema = a
         tuning:       a.string(),            // standard, drop D, etc.
         bodyMaterial: a.string(),
         finish:       a.string(),
+        parts:        a.ref("InstrumentPart").array(),
       })
       .authorization((allow) => [allow.group("admins")]),
 
@@ -173,6 +175,13 @@ const schema = a
       brand:         a.string(),
       installedDate: a.date(),
       notes:         a.string(),
+    }),
+
+    InstrumentPart: a.customType({
+      name:  a.string().required(),
+      brand: a.string(),
+      type:  a.enum(["TUBES", "BRIDGE", "PICKUPS", "TUNERS", "STRINGS", "NUT", "STRAP", "CASE", "OTHER"]),
+      notes: a.string(),
     }),
   });
 

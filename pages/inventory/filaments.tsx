@@ -85,7 +85,7 @@ export default function FilamentsPage() {
 
   function openNew() {
     setItemDraft({ category: "FILAMENT", currency: "USD" });
-    setFilamentDraft({ material: "PLA", diameter: "d175", weightG: 1000 });
+    setFilamentDraft({ material: "PLA", diameter: "d175", weightG: 1000, quantity: 1 });
     setPanel({ kind: "new" });
   }
 
@@ -120,6 +120,7 @@ export default function FilamentsPage() {
           color:    filamentDraft.color    ?? null,
           weightG:  filamentDraft.weightG  ?? null,
           diameter: (filamentDraft.diameter ?? "d175") as any,
+          quantity: filamentDraft.quantity ?? 1,
         });
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
@@ -149,6 +150,7 @@ export default function FilamentsPage() {
           color:    filamentDraft.color    ?? null,
           weightG:  filamentDraft.weightG  ?? null,
           diameter: (filamentDraft.diameter ?? "d175") as any,
+          quantity: filamentDraft.quantity ?? 1,
         });
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
         await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
@@ -344,6 +346,15 @@ export default function FilamentsPage() {
                   <input type="number" min={0} className={inputCls} placeholder="1000"
                     value={filamentDraft.weightG ?? ""}
                     onChange={(e) => setFilamentDraft((d) => ({ ...d, weightG: parseInt(e.target.value) || null }))} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls}>Quantity (spools)</label>
+                  <input type="number" min={1} className={inputCls} placeholder="1"
+                    value={filamentDraft.quantity ?? 1}
+                    onChange={(e) => setFilamentDraft((d) => ({ ...d, quantity: parseInt(e.target.value) || 1 }))} />
                 </div>
               </div>
 

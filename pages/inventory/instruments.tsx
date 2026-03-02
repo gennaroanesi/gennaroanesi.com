@@ -6,7 +6,7 @@ import InventoryLayout from "@/layouts/inventory";
 import { useRouter } from "next/router";
 import {
   ItemRecord, InstrumentRecord,
-  INSTRUMENT_TYPES,
+  INSTRUMENT_TYPES, INSTRUMENT_PART_TYPES, INSTRUMENT_PART_LABELS,
   inputCls, labelCls,
   fmtCurrency, fmtDate,
   BaseItemFields, SaveButton, DeleteButton, EmptyState,
@@ -21,6 +21,13 @@ type PanelState =
   | { kind: "new" }
   | { kind: "edit"; item: ItemRecord; instrument: InstrumentRecord }
   | null;
+
+type InstrumentPart = {
+  name:  string;
+  brand: string;
+  type:  string;
+  notes: string;
+};
 
 const INSTRUMENT_ICONS: Record<string, string> = {
   GUITAR: "🎸", BASS: "🎸", AMPLIFIER: "🔊",
@@ -38,6 +45,7 @@ export default function InstrumentsPage() {
   const [panel,           setPanel]           = useState<PanelState>(null);
   const [itemDraft,       setItemDraft]       = useState<Partial<ItemRecord>>({});
   const [instrumentDraft, setInstrumentDraft] = useState<Partial<InstrumentRecord>>({});
+  const [partsDraft,      setPartsDraft]      = useState<InstrumentPart[]>([]);
   const imgRef = useRef<ImageUploaderHandle>(null);
   const suggestions = useSuggestions(items);
   const thumbnails  = useThumbnails(items);
@@ -79,12 +87,19 @@ export default function InstrumentsPage() {
   function openNew() {
     setItemDraft({ category: "INSTRUMENT", currency: "USD" });
     setInstrumentDraft({ type: "GUITAR" });
+    setPartsDraft([]);
     setPanel({ kind: "new" });
   }
 
   function openEdit(item: ItemRecord, instrument: InstrumentRecord) {
     setItemDraft({ ...item });
     setInstrumentDraft({ ...instrument });
+    setPartsDraft((instrument.parts ?? []).map((p: any) => ({
+      name:  p.name  ?? "",
+      brand: p.brand ?? "",
+      type:  p.type  ?? "OTHER",
+      notes: p.notes ?? "",
+    })));
     setPanel({ kind: "edit", item, instrument });
   }
 
@@ -114,6 +129,7 @@ export default function InstrumentsPage() {
           tuning:       instrumentDraft.tuning        ?? null,
           bodyMaterial: instrumentDraft.bodyMaterial  ?? null,
           finish:       instrumentDraft.finish        ?? null,
+          parts:        partsDraft.filter((p) => p.name.trim()) as any,
         });
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
@@ -144,6 +160,7 @@ export default function InstrumentsPage() {
           tuning:       instrumentDraft.tuning        ?? null,
           bodyMaterial: instrumentDraft.bodyMaterial  ?? null,
           finish:       instrumentDraft.finish        ?? null,
+          parts:        partsDraft.filter((p) => p.name.trim()) as any,
         });
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
         await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
@@ -322,6 +339,65 @@ export default function InstrumentsPage() {
                     onChange={(e) => setInstrumentDraft((d) => ({ ...d, finish: e.target.value }))} />
                 </div>
               </div>
+
+              <hr className="border-gray-200 dark:border-gray-700" />
+
+              {/* Parts */}
+              <div className="flex items-center justify-between">
+                <p className={labelCls}>Parts & Upgrades</p>
+                <button
+                  type="button"
+                  className="text-xs font-medium px-2 py-1 rounded"
+                  style={{ color: "#EC4899", backgroundColor: "#EC489911", border: "1px solid #EC489933" }}
+                  onClick={() => setPartsDraft((p) => [...p, { name: "", brand: "", type: "OTHER", notes: "" }])}>
+                  + Add Part
+                </button>
+              </div>
+
+              {partsDraft.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  {partsDraft.map((part, i) => (
+                    <div key={i} className="rounded-lg p-3 flex flex-col gap-2"
+                      style={{ backgroundColor: "#EC489908", border: "1px solid #EC489922" }}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold" style={{ color: "#EC4899" }}>Part {i + 1}</span>
+                        <button type="button" className="text-gray-400 hover:text-red-400 text-xs"
+                          onClick={() => setPartsDraft((p) => p.filter((_, j) => j !== i))}>Remove</button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className={labelCls}>Name *</label>
+                          <input type="text" className={inputCls} placeholder="e.g. JJ EL34"
+                            value={part.name}
+                            onChange={(e) => setPartsDraft((p) => p.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Brand</label>
+                          <input type="text" className={inputCls} placeholder="e.g. JJ"
+                            value={part.brand}
+                            onChange={(e) => setPartsDraft((p) => p.map((x, j) => j === i ? { ...x, brand: e.target.value } : x))} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Type</label>
+                        <select className={inputCls}
+                          value={part.type}
+                          onChange={(e) => setPartsDraft((p) => p.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}>
+                          {INSTRUMENT_PART_TYPES.map((t) => (
+                            <option key={t} value={t}>{INSTRUMENT_PART_LABELS[t]}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Notes</label>
+                        <input type="text" className={inputCls} placeholder="Optional notes"
+                          value={part.notes}
+                          onChange={(e) => setPartsDraft((p) => p.map((x, j) => j === i ? { ...x, notes: e.target.value } : x))} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <hr className="border-gray-200 dark:border-gray-700" />
               <ImageUploader

@@ -129,12 +129,15 @@ export default function InventoryPage() {
 
   const filamentByMaterial = filaments.reduce((acc, fl) => {
     const k = fl.material ?? "OTHER";
-    acc[k] = (acc[k] ?? 0) + 1;
+    acc[k] = (acc[k] ?? 0) + (fl.quantity ?? 1);
     return acc;
   }, {} as Record<string, number>);
 
   // All filament colors for the summary card dots
   const allFilamentColors = filaments.map((fl) => fl.color);
+
+  // Total filament spools by quantity field (not record count)
+  const totalFilamentSpools = filaments.reduce((acc, fl) => acc + (fl.quantity ?? 1), 0);
 
   const instrumentByType = instruments.reduce((acc, inst) => {
     const k = inst.type ?? "OTHER";
@@ -178,12 +181,15 @@ export default function InventoryPage() {
                 {cfg.label}
               </span>
               <span className="text-2xl font-bold text-gray-700 dark:text-gray-200">
-                {cat === "AMMO" ? fmtCompact(totalRoundsAvailable) : (countByCat[cat] ?? 0)}
+                {cat === "AMMO" ? fmtCompact(totalRoundsAvailable) : cat === "FILAMENT" ? totalFilamentSpools : (countByCat[cat] ?? 0)}
               </span>
               {cat === "AMMO" && (
                 <span className="text-[11px] text-gray-400">
                   rds available · {countByCat[cat] ?? 0} records
                 </span>
+              )}
+              {cat === "FILAMENT" && (
+                <span className="text-[11px] text-gray-400">spools</span>
               )}
               {breakdowns[cat] && Object.keys(breakdowns[cat]).length > 0 && (
                 <div className="flex flex-col gap-0.5 mt-1 border-t pt-1.5" style={{ borderColor: cfg.color + "33" }}>

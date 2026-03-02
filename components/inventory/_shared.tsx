@@ -50,7 +50,12 @@ export const FILAMENT_MAT_LABELS: Record<string, string> = {
 export const FILAMENT_VARIANTS = ["Basic", "HF", "95A HF", "for AMS", "Translucent", "Matte", "Silk", "Metal", "Sparkle", "Galaxy", "Marble", "Glow", "Gradient", "CF", "GF"] as const;
 export const FILAMENT_DIAMS = ["d175","d285"] as const;
 export const FILAMENT_DIAM_LABELS: Record<string, string> = { d175: "1.75 mm", d285: "2.85 mm" };
-export const INSTRUMENT_TYPES = ["GUITAR","BASS","AMPLIFIER","PEDAL","KEYBOARD","OTHER"] as const;
+export const INSTRUMENT_TYPES      = ["GUITAR","BASS","AMPLIFIER","PEDAL","KEYBOARD","OTHER"] as const;
+export const INSTRUMENT_PART_TYPES = ["TUBES","BRIDGE","PICKUPS","TUNERS","STRINGS","NUT","STRAP","CASE","OTHER"] as const;
+export const INSTRUMENT_PART_LABELS: Record<string, string> = {
+  TUBES: "Tubes", BRIDGE: "Bridge", PICKUPS: "Pickups", TUNERS: "Tuners",
+  STRINGS: "Strings", NUT: "Nut", STRAP: "Strap", CASE: "Case", OTHER: "Other",
+};
 export const CURRENCIES = ["USD","EUR","GBP","CAD","AUD","JPY","CHF","MXN","BRL"] as const;
 
 export const CALIBER_GROUPS: { label: string; calibers: string[] }[] = [
