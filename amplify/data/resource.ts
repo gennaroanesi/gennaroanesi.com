@@ -135,6 +135,58 @@ const schema = a
       })
       .authorization((allow) => [allow.group("admins")]),
 
+    // ── Flight ───────────────────────────────────────────────────────────────
+    // One record per logged flight, sourced from ForeFlight CSV export.
+    flight: a
+      .model({
+        // ── Identity ──────────────────────────────────────────────────
+        date:          a.date().required(),      // YYYY-MM-DD (local departure date)
+        from:          a.string().required(),     // ICAO departure identifier, e.g. "KDVN"
+        to:            a.string().required(),     // ICAO destination identifier
+        route:         a.string(),               // full route string, e.g. "KDVN DVN KCID"
+
+        // ── Aircraft ──────────────────────────────────────────────────
+        aircraftId:    a.string(),               // N-number, e.g. "N12345"
+        aircraftType:  a.string(),               // e.g. "C172", "PA28"
+
+        // ── Times (decimal hours, from ForeFlight) ────────────────────
+        totalTime:     a.float(),                // total flight time
+        pic:           a.float(),                // pilot in command
+        sic:           a.float(),                // second in command
+        solo:          a.float(),
+        night:         a.float(),
+        actualIMC:     a.float(),                // actual instrument conditions
+        simulatedIMC:  a.float(),                // under the hood
+        crossCountry:  a.float(),
+        dualReceived:  a.float(),
+        dualGiven:     a.float(),
+
+        // ── Approaches & landings ─────────────────────────────────────
+        dayLandings:   a.integer(),
+        nightLandings: a.integer(),
+        approaches:    a.integer(),              // number of instrument approaches
+        approachTypes: a.string(),               // free text, e.g. "ILS, RNAV"
+
+        // ── Conditions / classification ───────────────────────────────
+        flightType:    a.enum(["TRAINING", "SOLO", "CROSS_COUNTRY", "CHECKRIDE", "INTRO", "OTHER"]),
+        conditions:    a.enum(["VFR", "IFR", "MVFR", "IMC"]),
+
+        // ── Media ─────────────────────────────────────────────────────
+        kmlS3Key:      a.string(),               // S3 key, e.g. "kml/2026-03-01-KDVN-KCID.kml"
+        videoUrl:      a.url(),                  // YouTube / Vimeo embed URL
+        videoOffsetSec: a.integer(),             // seconds into video where wheels-off occurs
+
+        // ── Display ───────────────────────────────────────────────────
+        title:         a.string(),               // optional override, e.g. "First Solo!"
+        milestone:     a.string(),               // e.g. "First solo cross-country"
+        notes:         a.string(),               // public-facing narrative
+        published:     a.boolean().default(false), // false = imported but not shown publicly yet
+      })
+      .authorization((allow) => [
+        allow.publicApiKey().to(["read"]),       // fully public read
+        allow.group("admins"),                   // admins can write
+      ]),
+
     // ── Notification Person ────────────────────────────────────────────────
     // A person who can receive notifications via one or more channels.
     notificationPerson: a
@@ -193,5 +245,8 @@ export const data = defineData({
   schema,
   authorizationModes: {
     defaultAuthorizationMode: "userPool",
+    apiKeyAuthorizationMode: {
+      expiresInDays: 365,    // public read key for the flights page
+    },
   },
 });

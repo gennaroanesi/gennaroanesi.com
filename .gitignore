@@ -21,6 +21,7 @@ amplifyconfiguration*
 .local
 
 *.temp
+temp/
 
 .xls
 .xlsx

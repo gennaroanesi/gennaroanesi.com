@@ -1,5 +1,25 @@
 # TODO
 
+## Flights (personal website)
+
+### Email-triggered logbook import
+- Forward a ForeFlight CSV export email to `logbookimport@gennaroanesi.com`
+- SES receives the email, stores it in S3, triggers a Lambda
+- Lambda parses the attachment, maps ForeFlight CSV columns to the `flight` model, upserts new records (keyed on date + from + to + aircraftId to avoid duplicates)
+- New flights land with `published: false` — review and publish manually via admin UI
+- Tech stack: SES → S3 → Lambda (Node) → AppSync mutation
+- Need to: verify domain in SES, set up MX record for `gennaroanesi.com`, configure receipt rule
+
+### KML upload flow
+- After importing a flight, upload the corresponding KML to S3 and update `kmlS3Key` on the record
+- Consider a drag-and-drop UI in the admin panel that matches KML filename to flight by date/route
+
+### Flights page (public)
+- Cesium 3D globe showing all published flight tracks
+- Per-flight detail: 3D replay + video embed + ForeFlight stats
+- Video/KML timestamp sync via `videoOffsetSec`
+- Filters: year, flight type, conditions
+
 ## Inventory
 
 ### Beverages model
