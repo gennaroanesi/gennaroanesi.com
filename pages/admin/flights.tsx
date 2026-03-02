@@ -316,7 +316,7 @@ export default function AdminFlightsPage() {
     async function load() {
       try {
         const all: Flight[] = [];
-        let token: string | null | undefined = undefined;
+        let token: string | null | undefined;
         do {
           const { data, nextToken } = await (client.models.flight as any).list({
             limit: 1000, nextToken: token,
