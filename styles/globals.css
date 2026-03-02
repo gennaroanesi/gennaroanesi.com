@@ -156,6 +156,14 @@
   color: #a09aaa;
 }
 
+/* ── Cesium font override ───────────────────────────────────────────────────
+   Cesium's widget stylesheet injects its own font-family rules. This forces
+   all Cesium UI elements to use the site font instead. */
+.cesium-widget,
+.cesium-widget * {
+  font-family: "source-sans-pro", sans-serif !important;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

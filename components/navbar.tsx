@@ -32,6 +32,10 @@ const menuItems = [
     name: "Home",
     href: "/#top",
   },
+  {
+    name: "Flying",
+    href: "/flying",
+  },
 ];
 
 const adminMenu = [
@@ -46,6 +50,10 @@ const adminMenu = [
   {
     name: "Inventory",
     href: "/inventory",
+  },
+  {
+    name: "Flights",
+    href: "/admin/flights",
   },
 ];
 
