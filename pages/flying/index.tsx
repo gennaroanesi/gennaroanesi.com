@@ -127,34 +127,100 @@ function FlightRow({ flight, selected, colorIndex, onClick }: {
 
 // ── Approach chip ─────────────────────────────────────────────────────────────
 
+// S3 base for publicly-accessible chart PDFs
+const CHART_BASE = "https://gennaroanesi.com.s3.amazonaws.com/public/flights/charts/";
+
+// Match a chart key to an approach by procedure type prefix in the filename.
+// d-TPP names loosely follow: ILS->il*, VOR->v*, RNAV->rn*/r*, NDB->nd*
+// Single-approach: always returns the one key. Multi-approach: best-effort.
+function chartUrlForApproach(
+  approachChartKeys: string[] | null | undefined,
+  label: string,
+): string | null {
+  if (!approachChartKeys || approachChartKeys.length === 0) return null;
+
+  if (approachChartKeys.length === 1) {
+    const filename = approachChartKeys[0].split("/").pop();
+    return filename ? `${CHART_BASE}${filename}` : null;
+  }
+
+  // Multi-approach: try to match by procedure type prefix in filename
+  const upper = label.toUpperCase();
+  const prefixHints: [string, string[]][] = [
+    ["ILS",  ["il"]],
+    ["LOC",  ["lo"]],
+    ["RNAV", ["rn", "r0", "r1", "r2", "r3"]],
+    ["VOR",  ["vo", "v0", "v1", "v2", "v3"]],
+    ["NDB",  ["nd", "n0", "n1"]],
+  ];
+
+  for (const [type, prefixes] of prefixHints) {
+    if (!upper.includes(type)) continue;
+    const match = approachChartKeys.find((k) => {
+      const f = k.split("/").pop()?.toLowerCase() ?? "";
+      return prefixes.some((p) => f.startsWith(p));
+    });
+    if (match) {
+      const filename = match.split("/").pop();
+      return filename ? `${CHART_BASE}${filename}` : null;
+    }
+  }
+
+  // Fallback: first key
+  const filename = approachChartKeys[0].split("/").pop();
+  return filename ? `${CHART_BASE}${filename}` : null;
+}
+
 type ApproachChipProps = {
   label: string;
   procedure: string;
   loading: boolean;
   active: boolean;
   unavailable: boolean;
+  chartUrl: string | null;
   onClick: () => void;
 };
 
-function ApproachChip({ label, procedure, loading, active, unavailable, onClick }: ApproachChipProps) {
+function ApproachChip({ label, procedure, loading, active, unavailable, chartUrl, onClick }: ApproachChipProps) {
   return (
-    <button
-      onClick={onClick}
-      disabled={unavailable || loading}
-      title={unavailable ? "No CIFP data for this procedure" : label}
-      className={`flex flex-col items-start px-2.5 py-1.5 rounded border text-left transition-all
-        ${active
-          ? "bg-blue-900/60 border-blue-400/60 text-blue-300"
-          : unavailable
-          ? "border-gray-800 text-gray-700 cursor-not-allowed"
-          : loading
-          ? "border-gray-700 text-gray-600 animate-pulse cursor-wait"
-          : "border-darkBorder hover:border-blue-500/40 hover:bg-blue-950/30 text-gray-400 hover:text-blue-300"
-        }`}
-    >
-      <span className="text-xs font-mono font-bold">{procedure}</span>
-      <span className="text-[10px] leading-tight truncate max-w-[130px]">{label}</span>
-    </button>
+    <div className="flex flex-col gap-1">
+      <button
+        onClick={onClick}
+        disabled={unavailable || loading}
+        title={unavailable ? "No CIFP data for this procedure" : label}
+        className={`flex flex-col items-start px-2.5 py-1.5 rounded border text-left transition-all
+          ${active
+            ? "bg-blue-900/60 border-blue-400/60 text-blue-300"
+            : unavailable
+            ? "border-gray-800 text-gray-700 cursor-not-allowed"
+            : loading
+            ? "border-gray-700 text-gray-600 animate-pulse cursor-wait"
+            : "border-darkBorder hover:border-blue-500/40 hover:bg-blue-950/30 text-gray-400 hover:text-blue-300"
+          }`}
+      >
+        <span className="text-xs font-mono font-bold">{procedure}</span>
+        <span className="text-[10px] leading-tight truncate max-w-[130px]">{label}</span>
+      </button>
+      {chartUrl && (
+        <a
+          href={chartUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono
+            text-amber-500/70 hover:text-amber-400 border border-amber-900/40
+            hover:border-amber-600/50 transition-colors bg-amber-950/20 w-fit"
+          title="View archived FAA approach chart (PDF)"
+        >
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          chart
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -262,6 +328,7 @@ function FlightDetail({
             <div className="flex flex-wrap gap-2">
               {approaches.map((appr) => {
                 const key = `${appr.icao}|${appr.procedure}`;
+                const chartUrl = chartUrlForApproach(flight.approachChartKeys, appr.label);
                 return (
                   <ApproachChip
                     key={key}
@@ -270,6 +337,7 @@ function FlightDetail({
                     loading={approachLoading === key}
                     active={activeApproachKey === key}
                     unavailable={unavailableApproaches.has(key)}
+                    chartUrl={chartUrl}
                     onClick={() => onApproachClick(appr.icao, appr.procedure, appr.label)}
                   />
                 );
@@ -483,14 +551,31 @@ export default function FlyingPage() {
         const all: Flight[] = [];
         let token: string | null | undefined;
         do {
-          const { data, nextToken } = await (client.models.flight as any).list({
+          // approachChartKeys must be fetched via raw graphql — Amplify Gen2 typed client
+          // drops array fields from .list() unless explicitly selected.
+          const listResult = await (client as any).graphql({
+            query: `query ListFlights($filter: ModelFlightFilterInput, $limit: Int, $nextToken: String) {
+              listFlights(filter: $filter, limit: $limit, nextToken: $nextToken) {
+                items {
+                  id date from to route aircraftId aircraftType
+                  totalTime pic sic solo night actualIMC simulatedIMC
+                  crossCountry dualReceived dualGiven
+                  dayLandings nightLandings approaches approachTypes
+                  flightType conditions kmlS3Key approachChartKeys
+                  title milestone notes published
+                }
+                nextToken
+              }
+            }`,
+            variables: { filter: { published: { eq: true } }, limit: 500, nextToken: token ?? null },
             authMode: "apiKey",
-            filter:   { published: { eq: true } },
-            limit:    500,
-            nextToken: token,
           });
+          const { data, nextToken: nt } = {
+            data:      listResult.data?.listFlights?.items ?? [],
+            nextToken: listResult.data?.listFlights?.nextToken ?? null,
+          };
           all.push(...(data as Flight[]));
-          token = nextToken;
+          token = nt;
         } while (token);
         all.sort((a, b) => b.date.localeCompare(a.date));
         setFlights(all);

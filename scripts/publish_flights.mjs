@@ -11,7 +11,11 @@ import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { getConfig } from "./aws-config.mjs";
+import { archiveChartsForFlight } from "./archive-charts.mjs";
 
 const userArg  = process.argv.find((a) => a.startsWith("--user="))?.split("=")[1];
 const passArg  = process.argv.find((a) => a.startsWith("--pass="))?.split("=")[1];
@@ -24,6 +28,12 @@ if (!userArg || !passArg) {
 }
 
 const { region: REGION, clientId: CLIENT_ID, appsyncUrl: APPSYNC_URL } = getConfig();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const _outputs = JSON.parse(
+  readFileSync(path.join(__dirname, "..", "amplify_outputs.json"), "utf8")
+);
+const API_KEY = _outputs?.data?.api_key ?? null;
 
 async function getJwt() {
   const cognito = new CognitoIdentityProviderClient({ region: REGION });
@@ -60,7 +70,7 @@ do {
   const result = await gql(jwt, `
     query List($nextToken: String) {
       listFlights(limit: 1000, nextToken: $nextToken) {
-        items { id date from to totalTime published }
+        items { id date from to totalTime published approachTypes approachChartKeys }
         nextToken
       }
     }
@@ -90,6 +100,16 @@ for (const f of toPublish) {
     console.log(`  DRY    ${f.date}  ${f.from} → ${f.to}`);
     updated++;
     continue;
+  }
+
+  // Archive charts before publishing — ensures chart is captured while cycle is live
+  const needsCharts = f.approachTypes &&
+    (!f.approachChartKeys || f.approachChartKeys.length === 0);
+  if (needsCharts && API_KEY) {
+    console.log(`  [chart] Archiving charts for ${f.date} ${f.from}→${f.to}…`);
+    await archiveChartsForFlight(
+      jwt, f.id, f.approachTypes, APPSYNC_URL, API_KEY, { verbose: true },
+    );
   }
 
   const result = await gql(jwt, `

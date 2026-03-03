@@ -172,7 +172,8 @@ const schema = a
         conditions:    a.enum(["VFR", "IFR", "MVFR", "IMC"]),
 
         // ── Media ─────────────────────────────────────────────────────
-        kmlS3Key:      a.string(),               // S3 key, e.g. "kml/2026-03-01-KDVN-KCID.kml"
+        kmlS3Key:          a.string(),           // S3 key for ForeFlight KML track
+        approachChartKeys: a.string().array(),   // archived FAA approach chart PDFs (S3 keys)
 
         // ── Display ───────────────────────────────────────────────────
         title:         a.string(),               // optional override, e.g. "First Solo!"

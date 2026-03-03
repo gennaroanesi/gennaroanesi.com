@@ -15,14 +15,24 @@ import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
-import { createReadStream } from "fs";
+import { createReadStream, readFileSync } from "fs";
 import { createInterface } from "readline";
+import path from "path";
+import { fileURLToPath } from "url";
 import { getConfig } from "./aws-config.mjs";
+import { archiveChartsForFlight } from "./archive-charts.mjs";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const { region: REGION, clientId: CLIENT_ID, appsyncUrl: APPSYNC_URL } = getConfig();
 const DELAY_MS = 120; // ms between mutations
+
+// Read API key for public reads (InstrumentApproach lookup in archiveChartsForFlight)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const _outputs = JSON.parse(
+  readFileSync(path.join(__dirname, "..", "amplify_outputs.json"), "utf8")
+);
+const API_KEY = _outputs?.data?.api_key ?? null;
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
@@ -381,10 +391,18 @@ for (const flight of flights) {
     );
     errored++;
   } else {
+    const newId = result.data?.createFlight?.id;
     console.log(
       `  OK    ${flight.date}  ${flight.from} → ${flight.to}  ${flight.aircraftId ?? ""}  ${flight.totalTime}h  [${flight.flightType}]`,
     );
     created++;
+
+    // Archive approach charts immediately while the correct FAA cycle is live
+    if (newId && flight.approachTypes && API_KEY) {
+      await archiveChartsForFlight(
+        jwt, newId, flight.approachTypes, APPSYNC_URL, API_KEY, { verbose: true },
+      );
+    }
   }
 
   await delay(DELAY_MS);

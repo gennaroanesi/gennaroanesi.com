@@ -27,6 +27,7 @@ export type Flight = {
   dayLandings: number | null;
   nightLandings: number | null;
   kmlS3Key: string | null;
+  approachChartKeys: string[] | null;
   title: string | null;
   milestone: string | null;
   notes: string | null;
