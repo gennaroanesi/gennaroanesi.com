@@ -4,9 +4,10 @@ import dynamic from "next/dynamic";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import DefaultLayout from "@/layouts/default";
-import type { Flight } from "@/components/CesiumGlobe";
+import type { Flight, AirportMarker, ActiveApproach } from "@/components/CesiumGlobe";
+import { parseApproachTypes } from "@/components/approachUtils";
+import type { ApproachFix } from "@/components/approachUtils";
 
-// ── Dynamically import globe — never SSR (Cesium + Amplify storage need window)
 const CesiumGlobe = dynamic(() => import("@/components/CesiumGlobe"), { ssr: false });
 
 // ── Labels ────────────────────────────────────────────────────────────────────
@@ -85,13 +86,18 @@ function FlightRow({ flight, selected, onClick }: {
         <div className="min-w-0">
           <div className="text-xs font-mono text-gray-500 mb-0.5">{flight.date}</div>
           <div className="text-sm font-semibold text-gray-100 truncate">
-            {flight.from}{flight.to && flight.to !== flight.from ? ` → ${flight.to}` : ""}
+            {flight.from} — {flight.to}
           </div>
           {flight.milestone && (
             <div className="text-xs text-gold mt-0.5">★ {flight.milestone}</div>
           )}
           {flight.title && !flight.milestone && (
             <div className="text-xs text-gray-500 truncate mt-0.5">{flight.title}</div>
+          )}
+          {flight.route && (
+            <div className="text-xs font-mono text-gray-600 truncate mt-0.5 tracking-wide">
+              {flight.route}
+            </div>
           )}
         </div>
         <div className="flex flex-col items-end shrink-0 gap-0.5">
@@ -110,9 +116,56 @@ function FlightRow({ flight, selected, onClick }: {
   );
 }
 
+// ── Approach chip ─────────────────────────────────────────────────────────────
+
+type ApproachChipProps = {
+  label: string;
+  procedure: string;
+  loading: boolean;
+  active: boolean;
+  unavailable: boolean;
+  onClick: () => void;
+};
+
+function ApproachChip({ label, procedure, loading, active, unavailable, onClick }: ApproachChipProps) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={unavailable || loading}
+      title={unavailable ? "No CIFP data for this procedure" : label}
+      className={`flex flex-col items-start px-2.5 py-1.5 rounded border text-left transition-all
+        ${active
+          ? "bg-blue-900/60 border-blue-400/60 text-blue-300"
+          : unavailable
+          ? "border-gray-800 text-gray-700 cursor-not-allowed"
+          : loading
+          ? "border-gray-700 text-gray-600 animate-pulse cursor-wait"
+          : "border-darkBorder hover:border-blue-500/40 hover:bg-blue-950/30 text-gray-400 hover:text-blue-300"
+        }`}
+    >
+      <span className="text-xs font-mono font-bold">{procedure}</span>
+      <span className="text-[10px] leading-tight truncate max-w-[130px]">{label}</span>
+    </button>
+  );
+}
+
 // ── Flight detail panel ───────────────────────────────────────────────────────
 
-function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void }) {
+type FlightDetailProps = {
+  flight: Flight;
+  activeApproachKey: string | null;
+  approachLoading: string | null;
+  unavailableApproaches: Set<string>;
+  onApproachClick: (icao: string, procedure: string, label: string) => void;
+  onClose: () => void;
+};
+
+function FlightDetail({
+  flight, activeApproachKey, approachLoading, unavailableApproaches,
+  onApproachClick, onClose,
+}: FlightDetailProps) {
+  const approaches = parseApproachTypes(flight.approachTypes);
+
   const stats: [string, string | number][] = [
     ["Total",         fmt(flight.totalTime)],
     ["Cross-Country", fmt(flight.crossCountry)],
@@ -136,6 +189,7 @@ function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void
       </div>
 
       <div className="flex flex-col gap-4 p-5">
+        {/* Header */}
         <div>
           <div className="flex items-center gap-2 mb-1.5 flex-wrap">
             <span className="text-xs font-mono text-gray-500 tracking-wider">{flight.date}</span>
@@ -155,7 +209,6 @@ function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void
               </span>
             )}
           </div>
-
           <h2 className="text-lg font-bold text-gray-100 leading-snug">
             {flight.title ?? `${flight.from} → ${flight.to}`}
           </h2>
@@ -170,6 +223,7 @@ function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void
           )}
         </div>
 
+        {/* Aircraft */}
         {(flight.aircraftId || flight.aircraftType) && (
           <div className="flex gap-2 items-center text-sm">
             {flight.aircraftId && (
@@ -183,12 +237,44 @@ function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void
           </div>
         )}
 
+        {/* Route */}
         {flight.route && (
           <div className="font-mono text-xs text-gray-500 bg-darkBg rounded px-3 py-2 border border-darkBorder leading-relaxed break-all">
             {flight.route}
           </div>
         )}
 
+        {/* Approaches section */}
+        {approaches.length > 0 && (
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-mono">
+              Approaches flown
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {approaches.map((appr) => {
+                const key = `${appr.icao}|${appr.procedure}`;
+                return (
+                  <ApproachChip
+                    key={key}
+                    label={appr.label}
+                    procedure={`${appr.icao} ${appr.procedure}`}
+                    loading={approachLoading === key}
+                    active={activeApproachKey === key}
+                    unavailable={unavailableApproaches.has(key)}
+                    onClick={() => onApproachClick(appr.icao, appr.procedure, appr.label)}
+                  />
+                );
+              })}
+            </div>
+            {activeApproachKey && (
+              <p className="text-[10px] text-blue-400/60 mt-2 font-mono">
+                Click again to deselect
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Stats grid */}
         {stats.length > 0 && (
           <div className="grid grid-cols-2 gap-1">
             {stats.map(([label, value]) => (
@@ -201,22 +287,7 @@ function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void
           </div>
         )}
 
-        {flight.approachTypes && (
-          <div>
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1.5 font-mono">
-              Approaches
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {flight.approachTypes.split(", ").map((a, i) => (
-                <span key={i}
-                  className="text-xs font-mono px-2 py-0.5 bg-darkElevated border border-darkBorder rounded text-gray-300">
-                  {a}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
+        {/* Notes */}
         {flight.notes && (
           <p className="text-sm text-gray-400 italic border-l-2 border-gold/30 pl-3 leading-relaxed">
             {flight.notes}
@@ -237,12 +308,19 @@ function FlightDetail({ flight, onClose }: { flight: Flight; onClose: () => void
 
 export default function FlyingPage() {
   const [flights,    setFlights]    = useState<Flight[]>([]);
+  const [airports,   setAirports]   = useState<AirportMarker[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Approach state
+  const [activeApproach,         setActiveApproach]         = useState<ActiveApproach | null>(null);
+  const [activeApproachKey,      setActiveApproachKey]      = useState<string | null>(null);
+  const [approachLoading,        setApproachLoading]        = useState<string | null>(null);
+  const [unavailableApproaches,  setUnavailableApproaches]  = useState<Set<string>>(new Set());
+
   const selected = flights.find((f) => f.id === selectedId) ?? null;
 
-  // Fetch published flights via public API key
+  // ── Load flights + airports ────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       try {
@@ -250,9 +328,9 @@ export default function FlyingPage() {
         let token: string | null | undefined;
         do {
           const { data, nextToken } = await (client.models.flight as any).list({
-            authMode:  "apiKey",
-            filter:    { published: { eq: true } },
-            limit:     500,
+            authMode: "apiKey",
+            filter:   { published: { eq: true } },
+            limit:    500,
             nextToken: token,
           });
           all.push(...(data as Flight[]));
@@ -260,6 +338,28 @@ export default function FlyingPage() {
         } while (token);
         all.sort((a, b) => b.date.localeCompare(a.date));
         setFlights(all);
+
+        const icaoIds = [...new Set(all.flatMap((f) => {
+          const routeIds = (f.route ?? "")
+            .split(/\s+/)
+            .map((s: string) => s.trim().toUpperCase())
+            .filter((s: string) => /^[A-Z0-9]{3,4}$/.test(s));
+          return [f.from, f.to, ...routeIds].filter(Boolean);
+        }))];
+
+        const icaoSet = new Set(icaoIds);
+        const allApts: AirportMarker[] = [];
+        let aptToken: string | null | undefined;
+        do {
+          const { data: aptData, nextToken } = await (client.models.airport as any).list({
+            authMode: "apiKey",
+            limit:    1000,
+            nextToken: aptToken,
+          });
+          allApts.push(...(aptData as AirportMarker[]));
+          aptToken = nextToken;
+        } while (aptToken);
+        setAirports(allApts.filter((a) => icaoSet.has(a.icaoId ?? a.faaId)));
       } finally {
         setLoading(false);
       }
@@ -267,8 +367,68 @@ export default function FlyingPage() {
     load();
   }, []);
 
+  // ── Approach click handler ─────────────────────────────────────────────────
+  const handleApproachClick = useCallback(async (
+    icao: string, procedure: string, label: string,
+  ) => {
+    const key = `${icao}|${procedure}`;
+
+    // Toggle off
+    if (activeApproachKey === key) {
+      setActiveApproach(null);
+      setActiveApproachKey(null);
+      return;
+    }
+
+    // Already known unavailable
+    if (unavailableApproaches.has(key)) return;
+
+    setApproachLoading(key);
+    try {
+      // Query approachProcedure by ICAO secondary index, filter to final segment (empty transition)
+      const { data } = await (client.models.approachProcedure as any).listByIcao(
+        { icao },
+        { authMode: "apiKey", limit: 100 },
+      );
+
+      // Find final segment (empty/null transition) for this procedure
+      const finalSegment = (data as any[]).find(
+        (r: any) => r.procedure === procedure && (!r.transition || r.transition === ""),
+      );
+
+      if (!finalSegment) {
+        setUnavailableApproaches((prev) => new Set(prev).add(key));
+        return;
+      }
+
+      let fixes: ApproachFix[] = [];
+      try {
+        fixes = JSON.parse(finalSegment.fixes);
+      } catch {
+        setUnavailableApproaches((prev) => new Set(prev).add(key));
+        return;
+      }
+
+      setActiveApproach({ label, icao, procedure, fixes });
+      setActiveApproachKey(key);
+    } catch (err) {
+      console.error("[approach] fetch error:", err);
+      setUnavailableApproaches((prev) => new Set(prev).add(key));
+    } finally {
+      setApproachLoading(null);
+    }
+  }, [activeApproachKey, unavailableApproaches]);
+
+  // Clear approach when flight deselected
   const handleSelect = useCallback((id: string) => {
-    setSelectedId((prev) => (prev === id ? null : id));
+    setSelectedId((prev) => {
+      if (prev === id) {
+        setActiveApproach(null);
+        setActiveApproachKey(null);
+        return null;
+      }
+      return id;
+    });
   }, []);
 
   const years = groupByYear(flights);
@@ -280,24 +440,23 @@ export default function FlyingPage() {
       </Head>
 
       <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
-        {/* Stats bar */}
         {!loading && flights.length > 0 && <StatsBar flights={flights} />}
 
-        {/* Globe + sidebar */}
         <div className="flex flex-1 overflow-hidden">
-
           {/* Globe */}
           <div className="flex-1 relative bg-darkBg">
             {loading ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <span className="text-gray-600 font-mono text-xs tracking-widest uppercase animate-pulse">
-                  {loading ? "Loading flights…" : "Initialising globe…"}
+                  Loading flights…
                 </span>
               </div>
             ) : (
               <CesiumGlobe
                 flights={flights}
+                airports={airports}
                 selectedId={selectedId}
+                activeApproach={activeApproach}
                 onSelect={handleSelect}
               />
             )}
@@ -306,7 +465,14 @@ export default function FlyingPage() {
           {/* Sidebar */}
           <div className="w-72 flex flex-col border-l border-darkBorder bg-darkSurface overflow-hidden shrink-0">
             {selected ? (
-              <FlightDetail flight={selected} onClose={() => setSelectedId(null)} />
+              <FlightDetail
+                flight={selected}
+                activeApproachKey={activeApproachKey}
+                approachLoading={approachLoading}
+                unavailableApproaches={unavailableApproaches}
+                onApproachClick={handleApproachClick}
+                onClose={() => { setSelectedId(null); setActiveApproach(null); setActiveApproachKey(null); }}
+              />
             ) : (
               <div className="flex flex-col h-full overflow-y-auto">
                 <div className="px-4 py-3 border-b border-darkBorder sticky top-0 bg-darkSurface z-10">
@@ -314,16 +480,13 @@ export default function FlyingPage() {
                     Logbook
                   </span>
                 </div>
-
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center">
                     <span className="text-gray-600 text-xs font-mono animate-pulse">Loading…</span>
                   </div>
                 ) : flights.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center px-6 text-center">
-                    <span className="text-gray-600 text-xs font-mono">
-                      No published flights yet
-                    </span>
+                    <span className="text-gray-600 text-xs font-mono">No published flights yet</span>
                   </div>
                 ) : (
                   years.map(([year, yf]) => (

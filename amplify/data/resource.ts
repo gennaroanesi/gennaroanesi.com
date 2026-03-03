@@ -224,6 +224,113 @@ const schema = a
       })
       .authorization((allow) => [allow.group("admins")]),
 
+    // ── Airport ───────────────────────────────────────────────────────────────
+    // Sourced from FAA NASR APT_BASE.csv, refreshed every 56 days.
+    airport: a
+      .model({
+        faaId:               a.string().required(),
+        icaoId:              a.string(),
+        hasIcao:             a.boolean().required(),
+        facilityType:        a.enum(["AIRPORT", "HELIPORT", "SEAPLANE_BASE", "ULTRALIGHT", "GLIDERPORT", "BALLOONPORT"]),
+        facilityUse:         a.enum(["PUBLIC", "PRIVATE"]),
+        ownershipType:       a.enum(["PUBLIC", "PRIVATE", "MILITARY"]),
+        name:                a.string().required(),
+        city:                a.string().required(),
+        stateCode:           a.string().required(),
+        stateName:           a.string(),
+        county:              a.string(),
+        faaRegion:           a.string(),
+        sectionalChart:      a.string(),
+        latDecimal:          a.float().required(),
+        lonDecimal:          a.float().required(),
+        elevationFt:         a.integer(),
+        hasTower:            a.boolean(),
+        hasAtis:             a.boolean(),
+        fuelTypes:           a.string(),
+        airframeRepair:      a.enum(["MAJOR", "MINOR", "NONE"]),
+        powerplantRepair:    a.enum(["MAJOR", "MINOR", "NONE"]),
+        hasWeatherStation:   a.boolean(),
+        beaconType:          a.string(),
+        hasLandingFee:       a.boolean(),
+        hasTransientHangar:  a.boolean(),
+        hasTransientTiedown: a.boolean(),
+        contractFuel:        a.boolean(),
+        airspaceClass:       a.enum(["B", "C", "D", "E", "G"]),
+        annualGaOperations:  a.integer(),
+        operationsYear:      a.string(),
+        nasrSiteNo:          a.string().required(),
+        nasrCycleDate:       a.string().required(),
+      })
+      .secondaryIndexes((index) => [
+        index("icaoId"),
+        index("faaId"),
+      ])
+      .authorization((allow) => [
+        allow.publicApiKey(),
+        allow.group("admins"),
+      ]),
+
+    // ── InstrumentApproach ────────────────────────────────────────────────────
+    // Sourced from FAA d-TPP metafile + NASR, refreshed every 56 days.
+    instrumentApproach: a
+      .model({
+        nasrSiteNo:       a.string().required(),
+        airportId:        a.string().required(),
+        procedureName:    a.string().required(),
+        runway:           a.string().required(),
+        navType:          a.enum(["ILS", "LPV", "LNAV_VNAV", "LNAV", "LOC", "LOC_BC", "VOR", "VOR_DME", "NDB", "RNAV", "TACAN", "VISUAL"]),
+        isPrecision:      a.boolean().required(),
+        suffix:           a.string(),
+        isCircling:       a.boolean().required(),
+        straightInDaMsl:  a.integer(),
+        straightInVisSm:  a.float(),
+        straightInRvrFt:  a.integer(),
+        circlingMdaMsl:   a.integer(),
+        circlingVisSm:    a.float(),
+        approachLighting: a.string(),
+        hasTdzl:          a.boolean(),
+        hasCl:            a.boolean(),
+        hasGlideslope:    a.boolean(),
+        hasLocalizer:     a.boolean(),
+        dmeRequired:      a.boolean(),
+        radarRequired:    a.boolean(),
+        pdfName:          a.string(),
+        chartCycle:       a.string(),
+        amdtnum:          a.string(),
+        amdtdate:         a.string(),
+        faaAptIdent:      a.string(),
+        icaoIdent:        a.string(),
+        nasrCycleDate:    a.string().required(),
+      })
+      .authorization((allow) => [
+        allow.publicApiKey(),
+        allow.group("admins"),
+      ]),
+
+    // ── ApproachProcedure ─────────────────────────────────────────────────────
+    // Sourced from FAA CIFP (FAACIFP18), ARINC 424-18 format, updated every 28 days.
+    // Each record = one approach procedure (e.g. ILS 13L at KAUS) with its full
+    // fix sequence including lat/lon and altitude constraints.
+    approachProcedure: a
+      .model({
+        // Identity
+        icao:         a.string().required(),   // airport ICAO identifier, e.g. "KAUS"
+        procedure:    a.string().required(),   // route identifier, e.g. "I13L"
+        transition:   a.string(),              // transition name, e.g. "BITER" or null for final
+        routeType:    a.string(),              // ARINC route type code
+        cycleDate:    a.string(),              // AIRAC cycle, e.g. "2502"
+        // Fix sequence — stored as JSON string (array of fix objects)
+        // Each fix: { seq, fixId, pathTerm, role, lat, lon, alt1, alt2 }
+        fixes:        a.string().required(),
+      })
+      .secondaryIndexes((index) => [
+        index("icao"),
+      ])
+      .authorization((allow) => [
+        allow.publicApiKey(),
+        allow.group("admins"),
+      ]),
+
     // ── testNotification mutation ──────────────────────────────────────────
     // Invokes sendNotification directly so the UI can test delivery without
     // needing to trigger the ammo threshold flow.

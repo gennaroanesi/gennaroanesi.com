@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "npx eslint . --ext .ts,.tsx -c .eslintrc.json --fix",
-    "sandbox": "node --env-file=.env.sandbox node_modules/.bin/ampx sandbox"
+    "sandbox": "node --env-file=.env.sandbox node_modules/.bin/ampx sandbox",
+    "parse-nasr": "node scripts/parse-nasr.mjs",
+    "parse-dtpp": "node scripts/parse-dtpp.mjs",
+    "seed-airports": "node scripts/seed-airports.mjs",
+    "seed-iaps": "node scripts/seed-iaps.mjs",
+    "parse-cifp": "node scripts/parse-cifp.mjs",
+    "seed-cifp": "node scripts/seed-cifp.mjs"
   },
   "dependencies": {
     "@aws-amplify/adapter-nextjs": "^1.5.8",
@@ -68,7 +74,8 @@
     "sharp": "^0.34.0",
     "slugify": "^1.6.6",
     "uuid": "^10.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.14.3",

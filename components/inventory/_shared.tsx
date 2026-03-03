@@ -609,6 +609,132 @@ function SortIcon({ dir }: { dir: "asc" | "desc" | null }) {
   );
 }
 
+// ── FilterTypeahead ──────────────────────────────────────────────────────────
+// Reusable typeahead filter used throughout the inventory. Pass options derived
+// from your data; selected value is a string or "" for "all". Renders an
+// inline pill when active with an × to clear.
+//
+// RULE: Always use <FilterTypeahead> for inventory filters — never plain <select>.
+
+export function FilterTypeahead({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder?: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef  = useRef<HTMLUListElement>(null);
+  const [query,  setQuery]  = useState("");
+  const [open,   setOpen]   = useState(false);
+  const [hiIdx,  setHiIdx]  = useState(0);
+
+  // When an external clear happens, reset query
+  useEffect(() => { if (!value) setQuery(""); }, [value]);
+
+  const filtered = query.trim() === ""
+    ? options
+    : options.filter((o) => o.toLowerCase().includes(query.toLowerCase()));
+
+  function select(v: string) {
+    onChange(v);
+    setQuery(v);
+    setOpen(false);
+  }
+
+  function clear(e: React.MouseEvent) {
+    e.stopPropagation();
+    onChange("");
+    setQuery("");
+    inputRef.current?.focus();
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) { setOpen(true); return; }
+    if (e.key === "ArrowDown")  { setHiIdx((i) => Math.min(i + 1, filtered.length - 1)); e.preventDefault(); }
+    else if (e.key === "ArrowUp")    { setHiIdx((i) => Math.max(i - 1, 0)); e.preventDefault(); }
+    else if (e.key === "Enter")      { if (filtered[hiIdx]) select(filtered[hiIdx]); e.preventDefault(); }
+    else if (e.key === "Escape")     { setOpen(false); if (!value) setQuery(""); }
+    else if (e.key === "Backspace" && !query) { onChange(""); }
+  }
+
+  const displayValue = value || query;
+
+  return (
+    <div className="relative">
+      <div className={[
+        "flex items-center gap-1 border rounded px-2 py-1 text-xs bg-white dark:bg-darkElevated border-gray-300 dark:border-darkBorder cursor-text",
+        value ? "border-purple/60 dark:border-rose/60" : "",
+      ].join(" ")} onClick={() => { setOpen(true); inputRef.current?.focus(); }}>
+        {!value && !query && (
+          <span className="text-gray-400 select-none shrink-0">{label}:</span>
+        )}
+        {value ? (
+          <span className="flex items-center gap-1 bg-purple/10 dark:bg-rose/10 text-purple dark:text-rose rounded px-1.5 py-0.5 text-[11px] font-medium shrink-0">
+            <span className="text-gray-400 text-[10px] mr-0.5">{label}:</span>
+            {value}
+            <button onClick={clear} className="ml-0.5 opacity-60 hover:opacity-100 leading-none">×</button>
+          </span>
+        ) : (
+          <input
+            ref={inputRef}
+            type="text"
+            autoComplete="off"
+            className="flex-1 min-w-[60px] bg-transparent outline-none text-gray-700 dark:text-gray-200 text-xs placeholder:text-gray-300"
+            placeholder={placeholder ?? "Type to filter…"}
+            value={query}
+            onFocus={() => { setOpen(true); setHiIdx(0); }}
+            onBlur={() => {
+              setTimeout(() => {
+                if (!listRef.current?.contains(document.activeElement)) setOpen(false);
+              }, 150);
+            }}
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); setHiIdx(0); }}
+            onKeyDown={handleKeyDown}
+          />
+        )}
+        {value && (
+          // hidden input so keyboard still works after selection
+          <input
+            ref={inputRef}
+            type="text"
+            className="w-0 h-0 opacity-0 absolute"
+            onFocus={() => { onChange(""); setQuery(""); setTimeout(() => { setOpen(true); inputRef.current?.focus(); }, 0); }}
+            readOnly
+          />
+        )}
+      </div>
+
+      {open && filtered.length > 0 && (
+        <ul
+          ref={listRef}
+          className="absolute z-50 left-0 right-0 mt-0.5 max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated shadow-lg text-sm"
+        >
+          {filtered.map((opt, idx) => (
+            <li
+              key={opt}
+              onMouseDown={() => select(opt)}
+              onMouseEnter={() => setHiIdx(idx)}
+              className={[
+                "px-3 py-1.5 cursor-pointer transition-colors text-gray-800 dark:text-gray-200",
+                idx === hiIdx ? "bg-gray-100 dark:bg-white/10" : "hover:bg-gray-50 dark:hover:bg-white/5",
+              ].join(" ")}
+            >
+              {opt}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── useTableControls ──────────────────────────────────────────────────────────
 // Sort + pagination state in one hook.
 
