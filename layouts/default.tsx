@@ -19,8 +19,8 @@ export default function DefaultLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative flex flex-col min-h-dvh bg-gray-50 dark:bg-darkBg">
-      <main className="container mx-auto max-w-full flex-grow ">
+    <div className="relative flex flex-col bg-gray-50 dark:bg-darkBg" style={{ height: "100dvh" }}>
+      <main className="container mx-auto max-w-full flex flex-col" style={{ flex: "1 1 0", minHeight: 0 }}>
         <Head />
         <Navbar />
         {children}

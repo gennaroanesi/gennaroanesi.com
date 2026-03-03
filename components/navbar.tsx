@@ -140,11 +140,16 @@ export const Navbar = () => {
     }
   };
 
+  // On the flying page, hide navbar on mobile (full-bleed map layout)
+  const isFlyingPage = router.pathname === "/flying";
+
   return (
     <NextUINavbar
       id="top"
       className={
-        router.pathname == "/"
+        isFlyingPage
+          ? `bg-transparent lg:flex hidden`
+          : router.pathname == "/"
           ? `bg-transparent backdrop-blur-none  ${offset > 80 ? "blur-navbar" : ""}`
           : `bg-transparent`
       }

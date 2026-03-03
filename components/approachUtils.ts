@@ -34,23 +34,72 @@ export type ParsedApproach = {
 };
 
 /**
+ * Extract just the airport ICAO identifiers from a ForeFlight approachTypes string.
+ * Used to determine which airports to query for approach procedures,
+ * without requiring successful CIFP procedure mapping.
+ */
+export function extractApproachIcaos(approachTypes: string | null): string[] {
+  if (!approachTypes) return [];
+  const icaos: string[] = [];
+  for (const entry of approachTypes.split(/[,\n\r]+/)) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes(";")) {
+      // Semicolon format: "count;procedureName;runway;icao;;"
+      const icao = trimmed.split(";")[3]?.trim();
+      if (icao) icaos.push(icao);
+    } else {
+      // @-format: "RNAV (GPS) RWY 18@KGTU"
+      const atIdx = trimmed.lastIndexOf("@");
+      if (atIdx !== -1) icaos.push(trimmed.slice(atIdx + 1).trim());
+    }
+  }
+  return icaos.filter((s) => /^[A-Z0-9]{3,4}$/.test(s));
+}
+
+/**
  * Parse a ForeFlight approachTypes string into structured approach objects.
- * Input: "RNAV (GPS) RWY 18@KGTU, ILS OR LOC RWY 33@KGRK"
+ *
+ * ForeFlight stores approaches in semicolon-delimited segments, one per line:
+ *   "1;RNAV (GPS) RWY 18;18;KGTU;;"
+ *   "2;ILS OR LOC RWY 33;33;KGRK;;"
+ * Multiple approaches are newline-separated.
+ *
+ * Also handles the legacy @-format: "RNAV (GPS) RWY 18@KGTU"
  */
 export function parseApproachTypes(approachTypes: string | null): ParsedApproach[] {
   if (!approachTypes) return [];
-  return approachTypes
-    .split(", ")
-    .map((entry) => {
-      const atIdx = entry.lastIndexOf("@");
-      if (atIdx === -1) return null;
-      const label = entry.slice(0, atIdx).trim();
-      const icao = entry.slice(atIdx + 1).trim();
+
+  const results: ParsedApproach[] = [];
+
+  for (const entry of approachTypes.split(/\n|\r\n/)) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.includes(";")) {
+      // Semicolon format: "count;procedureName;runway;icao;notes;flags"
+      const parts = trimmed.split(";");
+      const label = parts[1]?.trim();
+      const icao  = parts[3]?.trim();
+      if (!label || !icao) continue;
       const procedure = foreflight2cifp(label, icao);
-      if (!procedure) return null;
-      return { label, icao, procedure };
-    })
-    .filter((x): x is ParsedApproach => x !== null);
+      if (!procedure) continue;
+      results.push({ label, icao, procedure });
+    } else {
+      // Legacy @-format: "RNAV (GPS) RWY 18@KGTU"
+      for (const part of trimmed.split(", ")) {
+        const atIdx = part.lastIndexOf("@");
+        if (atIdx === -1) continue;
+        const label = part.slice(0, atIdx).trim();
+        const icao  = part.slice(atIdx + 1).trim();
+        const procedure = foreflight2cifp(label, icao);
+        if (!procedure) continue;
+        results.push({ label, icao, procedure });
+      }
+    }
+  }
+
+  return results;
 }
 
 /**

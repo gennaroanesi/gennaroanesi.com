@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import Head from "next/head";
 import dynamic from "next/dynamic";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import DefaultLayout from "@/layouts/default";
 import type { Flight, AirportMarker, ActiveApproach } from "@/components/CesiumGlobe";
-import { parseApproachTypes } from "@/components/approachUtils";
+import { parseApproachTypes, extractApproachIcaos } from "@/components/approachUtils";
+import { flightColor } from "@/components/flightColors";
 import type { ApproachFix } from "@/components/approachUtils";
 
 const CesiumGlobe = dynamic(() => import("@/components/CesiumGlobe"), { ssr: false });
@@ -70,36 +71,44 @@ function StatsBar({ flights }: { flights: Flight[] }) {
 
 // ── Flight list row ───────────────────────────────────────────────────────────
 
-function FlightRow({ flight, selected, onClick }: {
-  flight: Flight; selected: boolean; onClick: () => void;
+function FlightRow({ flight, selected, colorIndex, onClick }: {
+  flight: Flight; selected: boolean; colorIndex: number; onClick: () => void;
 }) {
+  const color = flightColor(colorIndex);
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-3 border-b border-darkBorder transition-all duration-150
-        border-l-2 ${selected
-          ? "bg-darkElevated border-l-gold"
-          : "hover:bg-white/[0.03] border-l-transparent"
-        }`}
+      className={`w-full text-left px-4 py-3 border-b border-darkBorder transition-all duration-150 border-l-2 ${
+        selected ? "bg-darkElevated" : "hover:bg-white/[0.03] border-l-transparent"
+      }`}
+      style={{ borderLeftColor: selected ? color : undefined }}
     >
       <div className="flex justify-between items-start gap-2">
-        <div className="min-w-0">
-          <div className="text-xs font-mono text-gray-500 mb-0.5">{flight.date}</div>
-          <div className="text-sm font-semibold text-gray-100 truncate">
-            {flight.from} — {flight.to}
-          </div>
-          {flight.milestone && (
-            <div className="text-xs text-gold mt-0.5">★ {flight.milestone}</div>
-          )}
-          {flight.title && !flight.milestone && (
-            <div className="text-xs text-gray-500 truncate mt-0.5">{flight.title}</div>
-          )}
-          {flight.route && (
-            <div className="text-xs font-mono text-gray-600 truncate mt-0.5 tracking-wide">
-              {flight.route}
+        {/* Left: swatch + text */}
+        <div className="flex items-stretch gap-2.5 min-w-0">
+          <div
+            className="w-1 shrink-0 rounded-full"
+            style={{ backgroundColor: color, minHeight: "1.2rem", opacity: flight.kmlS3Key ? 1 : 0.3 }}
+          />
+          <div className="min-w-0">
+            <div className="text-xs font-mono text-gray-500 mb-0.5">{flight.date}</div>
+            <div className="text-sm font-semibold text-gray-100 truncate">
+              {flight.from} — {flight.to}
             </div>
-          )}
+            {flight.milestone && (
+              <div className="text-xs text-gold mt-0.5">★ {flight.milestone}</div>
+            )}
+            {flight.title && !flight.milestone && (
+              <div className="text-xs text-gray-500 truncate mt-0.5">{flight.title}</div>
+            )}
+            {flight.route && (
+              <div className="text-xs font-mono text-gray-600 truncate mt-0.5 tracking-wide">
+                {flight.route}
+              </div>
+            )}
+          </div>
         </div>
+        {/* Right: time + type */}
         <div className="flex flex-col items-end shrink-0 gap-0.5">
           <span className="text-xs font-mono text-gray-400">{fmt(flight.totalTime)}</span>
           {flight.flightType && (
@@ -304,6 +313,149 @@ function FlightDetail({
   );
 }
 
+// ── Mobile drawer ────────────────────────────────────────────────────────────
+// Three snap states: peek (just handle), list (half height), detail (full)
+type DrawerState = "peek" | "list" | "detail";
+
+function MobileDrawer({
+  state, flights, loading, selected, selectedId, years,
+  activeApproachKey, approachLoading, unavailableApproaches,
+  onApproachClick, onSelect, onClose, onStateChange,
+}: {
+  state: DrawerState;
+  flights: Flight[];
+  loading: boolean;
+  selected: Flight | null;
+  selectedId: string | null;
+  years: [string, Flight[]][];
+  activeApproachKey: string | null;
+  approachLoading: string | null;
+  unavailableApproaches: Set<string>;
+  onApproachClick: (icao: string, procedure: string, label: string) => void;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+  onStateChange: (s: DrawerState) => void;
+}) {
+  const PEEK_H   = 72;   // px — drag handle + summary line
+  const LIST_H   = 52;   // vh
+  const DETAIL_H = 92;   // vh
+
+  const heightMap: Record<DrawerState, string> = {
+    peek:   `${PEEK_H}px`,
+    list:   `${LIST_H}vh`,
+    detail: `${DETAIL_H}vh`,
+  };
+
+  // Drag tracking
+  const startY    = useRef(0);
+  const startH    = useRef(0);
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    startY.current = e.touches[0].clientY;
+    startH.current = drawerRef.current?.offsetHeight ?? 0;
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const dy = startY.current - e.changedTouches[0].clientY; // positive = swipe up
+    if (Math.abs(dy) < 20) return; // ignore tiny taps
+    if (dy > 0) {
+      // swipe up → expand
+      onStateChange(state === "peek" ? "list" : "detail");
+    } else {
+      // swipe down → collapse
+      onStateChange(state === "detail" ? "list" : "peek");
+    }
+  };
+
+  return (
+    <div
+      ref={drawerRef}
+      className="absolute bottom-0 left-0 right-0 z-20 flex flex-col bg-darkSurface
+        border-t border-darkBorder rounded-t-2xl shadow-2xl
+        transition-all duration-300 ease-out overflow-hidden"
+      style={{ height: heightMap[state] }}
+    >
+      {/* Drag handle */}
+      <div
+        className="flex flex-col items-center pt-2 pb-1 shrink-0 cursor-grab active:cursor-grabbing"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+        onClick={() => onStateChange(state === "peek" ? "list" : state === "list" ? "peek" : "list")}
+      >
+        <div className="w-10 h-1 rounded-full bg-gray-600 mb-2" />
+        {/* Peek summary */}
+        {state === "peek" && (
+          <div className="flex items-center justify-between w-full px-4 pb-1">
+            {selected ? (
+              <span className="text-sm font-semibold text-gray-100">
+                {selected.from} → {selected.to}
+                <span className="text-xs text-gray-500 ml-2">{selected.date}</span>
+              </span>
+            ) : (
+              <span className="text-xs font-mono text-gray-500 uppercase tracking-widest">
+                {loading ? "Loading…" : `${flights.length} flights`}
+              </span>
+            )}
+            <span className="text-gray-600 text-xs">↑ swipe</span>
+          </div>
+        )}
+      </div>
+
+      {/* Content — hidden in peek */}
+      {state !== "peek" && (
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {selected && state === "detail" ? (
+            <FlightDetail
+              flight={selected}
+              activeApproachKey={activeApproachKey}
+              approachLoading={approachLoading}
+              unavailableApproaches={unavailableApproaches}
+              onApproachClick={onApproachClick}
+              onClose={onClose}
+            />
+          ) : (
+            <div className="flex flex-col h-full overflow-y-auto">
+              <div className="px-4 py-2 border-b border-darkBorder sticky top-0 bg-darkSurface z-10 flex items-center justify-between">
+                <span className="text-xs font-mono uppercase tracking-widest text-gray-500">Logbook</span>
+                {selected && (
+                  <button
+                    className="text-xs text-gold font-mono"
+                    onClick={() => onStateChange("detail")}
+                  >
+                    {selected.from}→{selected.to} ›
+                  </button>
+                )}
+              </div>
+              {years.map(([year, yf]) => (
+                <div key={year}>
+                  <div className="px-4 py-1.5 bg-darkBg border-b border-darkBorder sticky top-[2.25rem] z-[5]">
+                    <span className="text-xs font-mono text-gold tracking-widest">
+                      {year}
+                      <span className="text-gray-600 ml-2 font-normal">
+                        {yf.length} flights · {yf.reduce((s, f) => s + (f.totalTime ?? 0), 0).toFixed(1)}h
+                      </span>
+                    </span>
+                  </div>
+                  {yf.map((f) => (
+                    <FlightRow
+                      key={f.id}
+                      flight={f}
+                      selected={f.id === selectedId}
+                      colorIndex={flights.findIndex((x) => x.id === f.id)}
+                      onClick={() => { onSelect(f.id); onStateChange("detail"); }}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function FlyingPage() {
@@ -311,11 +463,15 @@ export default function FlyingPage() {
   const [airports,   setAirports]   = useState<AirportMarker[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [drawerState, setDrawerState] = useState<DrawerState>("peek");
+
+  // Approach procedures cache: "ICAO|procedure|transition" -> record
+  const approachCache = useRef<Map<string, any>>(new Map());
 
   // Approach state
   const [activeApproach,         setActiveApproach]         = useState<ActiveApproach | null>(null);
   const [activeApproachKey,      setActiveApproachKey]      = useState<string | null>(null);
-  const [approachLoading,        setApproachLoading]        = useState<string | null>(null);
+  const [approachLoading] = useState<string | null>(null); // unused, kept for chip prop compat
   const [unavailableApproaches,  setUnavailableApproaches]  = useState<Set<string>>(new Set());
 
   const selected = flights.find((f) => f.id === selectedId) ?? null;
@@ -347,19 +503,74 @@ export default function FlyingPage() {
           return [f.from, f.to, ...routeIds].filter(Boolean);
         }))];
 
-        const icaoSet = new Set(icaoIds);
-        const allApts: AirportMarker[] = [];
-        let aptToken: string | null | undefined;
-        do {
-          const { data: aptData, nextToken } = await (client.models.airport as any).list({
-            authMode: "apiKey",
-            limit:    1000,
-            nextToken: aptToken,
-          });
-          allApts.push(...(aptData as AirportMarker[]));
-          aptToken = nextToken;
-        } while (aptToken);
-        setAirports(allApts.filter((a) => icaoSet.has(a.icaoId ?? a.faaId)));
+        // Fetch airports via GSI queries — one parallel request per ICAO.
+        // Using raw client.graphql() to bypass the generated client wrapper
+        // which incorrectly coerces the GSI key argument into a filter object.
+        // Collect airports from from/to AND route strings.
+        // Route contains fixes + airways + airports mixed together, so filter
+        // to tokens that look like ICAO airport identifiers (K/P/C + 3 chars,
+        // or known 3-4 char US identifiers like T74).
+        const looksLikeAirport = (s: string) =>
+          /^[KPC][A-Z0-9]{3}$/.test(s) ||   // KGTU, KAUS, PHNL, CYVR…
+          /^[A-Z]\d{2}$/.test(s) ||          // T74, H46…
+          /^\d[A-Z0-9]{2}$/.test(s);         // 0R0, 3T5…
+
+        const fromToIcaos = [...new Set(all.flatMap((f) => {
+          const base = [f.from, f.to].filter(Boolean) as string[];
+          const routeTokens = (f.route ?? "")
+            .split(/\s+/)
+            .map((s: string) => s.trim().toUpperCase())
+            .filter(looksLikeAirport);
+          return [...base, ...routeTokens];
+        }))];
+        const APT_FIELDS = `id faaId icaoId name city stateCode latDecimal lonDecimal elevationFt hasTower airspaceClass`;
+        const aptResults = await Promise.all(
+          fromToIcaos.map((icaoId) =>
+            (client as any).graphql({
+              query: `query ListAirportByIcaoId($icaoId: String!) {
+                listAirportByIcaoId(icaoId: $icaoId, limit: 1) {
+                  items { ${APT_FIELDS} }
+                }
+              }`,
+              variables: { icaoId },
+              authMode: "apiKey",
+            }).then((res: any) => res.data?.listAirportByIcaoId?.items?.[0] ?? null)
+              .catch(() => null)
+          )
+        );
+        setAirports(aptResults.filter(Boolean) as AirportMarker[]);
+
+        // Fetch approach procedures via GSI — one request per unique ICAO with approaches.
+        // Extract ICAOs directly from the raw approachTypes string (before CIFP mapping)
+        // so airports with unrecognized procedure names still get queried.
+        const apprIcaos = [...new Set(all.flatMap((f) =>
+          extractApproachIcaos(f.approachTypes)
+        ))];
+
+        const cache = approachCache.current;
+        await Promise.all(
+          apprIcaos.map(async (icao) => {
+            let token: string | null | undefined;
+            do {
+              const res: any = await (client as any).graphql({
+                query: `query ListApproachByIcao($icao: String!, $nextToken: String) {
+                  listApproachProcedureByIcao(icao: $icao, limit: 100, nextToken: $nextToken) {
+                    items { icao procedure transition fixes }
+                    nextToken
+                  }
+                }`,
+                variables: { icao, nextToken: token ?? null },
+                authMode: "apiKey",
+              });
+              const page = res.data?.listApproachProcedureByIcao;
+              for (const r of page?.items ?? []) {
+                cache.set(`${r.icao}|${r.procedure}|${r.transition ?? ""}`, r);
+              }
+              token = page?.nextToken;
+            } while (token);
+          })
+        );
+        console.log(`[approaches] cached ${cache.size} records for ${apprIcaos.length} airports`);
       } finally {
         setLoading(false);
       }
@@ -383,39 +594,21 @@ export default function FlyingPage() {
     // Already known unavailable
     if (unavailableApproaches.has(key)) return;
 
-    setApproachLoading(key);
+    // Look up from in-memory cache — no DB call needed
+    const cacheKey = `${icao}|${procedure}|`;
+    const record = approachCache.current.get(cacheKey);
+
+    if (!record) {
+      setUnavailableApproaches((prev) => new Set(prev).add(key));
+      return;
+    }
+
     try {
-      // Query approachProcedure by ICAO secondary index, filter to final segment (empty transition)
-      const { data } = await (client.models.approachProcedure as any).listByIcao(
-        { icao },
-        { authMode: "apiKey", limit: 100 },
-      );
-
-      // Find final segment (empty/null transition) for this procedure
-      const finalSegment = (data as any[]).find(
-        (r: any) => r.procedure === procedure && (!r.transition || r.transition === ""),
-      );
-
-      if (!finalSegment) {
-        setUnavailableApproaches((prev) => new Set(prev).add(key));
-        return;
-      }
-
-      let fixes: ApproachFix[] = [];
-      try {
-        fixes = JSON.parse(finalSegment.fixes);
-      } catch {
-        setUnavailableApproaches((prev) => new Set(prev).add(key));
-        return;
-      }
-
+      const fixes: ApproachFix[] = JSON.parse(record.fixes);
       setActiveApproach({ label, icao, procedure, fixes });
       setActiveApproachKey(key);
-    } catch (err) {
-      console.error("[approach] fetch error:", err);
+    } catch {
       setUnavailableApproaches((prev) => new Set(prev).add(key));
-    } finally {
-      setApproachLoading(null);
     }
   }, [activeApproachKey, unavailableApproaches]);
 
@@ -431,6 +624,13 @@ export default function FlyingPage() {
     });
   }, []);
 
+  const handleClose = useCallback(() => {
+    setSelectedId(null);
+    setActiveApproach(null);
+    setActiveApproachKey(null);
+    setDrawerState("peek");
+  }, []);
+
   const years = groupByYear(flights);
 
   return (
@@ -439,30 +639,20 @@ export default function FlyingPage() {
         <title>Flying — Gennaro Anesi</title>
       </Head>
 
-      <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
+      {/* ── Desktop layout (lg+): side-by-side ───────────────────────────────────────── */}
+      <div className="hidden lg:flex flex-col" style={{ height: "100%" }}>
         {!loading && flights.length > 0 && <StatsBar flights={flights} />}
-
         <div className="flex flex-1 overflow-hidden">
-          {/* Globe */}
           <div className="flex-1 relative bg-darkBg">
             {loading ? (
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-gray-600 font-mono text-xs tracking-widest uppercase animate-pulse">
-                  Loading flights…
-                </span>
+                <span className="text-gray-600 font-mono text-xs tracking-widest uppercase animate-pulse">Loading flights…</span>
               </div>
             ) : (
-              <CesiumGlobe
-                flights={flights}
-                airports={airports}
-                selectedId={selectedId}
-                activeApproach={activeApproach}
-                onSelect={handleSelect}
-              />
+              <CesiumGlobe flights={flights} airports={airports} selectedId={selectedId}
+                activeApproach={activeApproach} onSelect={handleSelect} />
             )}
           </div>
-
-          {/* Sidebar */}
           <div className="w-72 flex flex-col border-l border-darkBorder bg-darkSurface overflow-hidden shrink-0">
             {selected ? (
               <FlightDetail
@@ -471,14 +661,12 @@ export default function FlyingPage() {
                 approachLoading={approachLoading}
                 unavailableApproaches={unavailableApproaches}
                 onApproachClick={handleApproachClick}
-                onClose={() => { setSelectedId(null); setActiveApproach(null); setActiveApproachKey(null); }}
+                onClose={handleClose}
               />
             ) : (
               <div className="flex flex-col h-full overflow-y-auto">
                 <div className="px-4 py-3 border-b border-darkBorder sticky top-0 bg-darkSurface z-10">
-                  <span className="text-xs font-mono uppercase tracking-widest text-gray-500">
-                    Logbook
-                  </span>
+                  <span className="text-xs font-mono uppercase tracking-widest text-gray-500">Logbook</span>
                 </div>
                 {loading ? (
                   <div className="flex-1 flex items-center justify-center">
@@ -500,12 +688,9 @@ export default function FlyingPage() {
                         </span>
                       </div>
                       {yf.map((f) => (
-                        <FlightRow
-                          key={f.id}
-                          flight={f}
-                          selected={f.id === selectedId}
-                          onClick={() => handleSelect(f.id)}
-                        />
+                        <FlightRow key={f.id} flight={f} selected={f.id === selectedId}
+                          colorIndex={flights.findIndex((x) => x.id === f.id)}
+                          onClick={() => handleSelect(f.id)} />
                       ))}
                     </div>
                   ))
@@ -514,6 +699,52 @@ export default function FlyingPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ── Mobile layout (<lg): full-screen globe + bottom drawer ─────────────── */}
+      {/* Fixed positioning bypasses the flex height chain entirely — most reliable on iOS Safari */}
+      <div className="lg:hidden fixed bg-darkBg" style={{ top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+        {/* Globe fills entire area */}
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-gray-600 font-mono text-xs tracking-widest uppercase animate-pulse">Loading flights…</span>
+          </div>
+        ) : (
+          <CesiumGlobe flights={flights} airports={airports} selectedId={selectedId}
+            activeApproach={activeApproach} onSelect={(id) => { handleSelect(id); setDrawerState("detail"); }} />
+        )}
+
+        {/* Floating back button — replaces navbar on mobile */}
+        <a
+          href="/"
+          className="absolute top-3 left-3 z-30 flex items-center justify-center
+            w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm border border-white/10"
+          aria-label="Home"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </a>
+
+        {/* Bottom drawer */}
+        {!loading && (
+          <MobileDrawer
+            state={drawerState}
+            flights={flights}
+            loading={loading}
+            selected={selected}
+            selectedId={selectedId}
+            years={years}
+            activeApproachKey={activeApproachKey}
+            approachLoading={approachLoading}
+            unavailableApproaches={unavailableApproaches}
+            onApproachClick={handleApproachClick}
+            onSelect={handleSelect}
+            onClose={handleClose}
+            onStateChange={setDrawerState}
+          />
+        )}
       </div>
     </DefaultLayout>
   );
