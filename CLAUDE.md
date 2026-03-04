@@ -110,7 +110,21 @@ Scripts that do both (e.g. `archive-charts.mjs`) accept a JWT for mutations and 
 
 ---
 
-## 9. Design system
+## 9. Admin UI convention — sidebar layout
+
+All admin sections use a **shared layout with a left sidebar** (desktop) and **top tab bar** (mobile), following the same pattern as `InventoryLayout`. Do not use in-page tab switchers or top-bar tabs for admin navigation.
+
+- Each admin section gets its own `layouts/<section>-admin.tsx` (e.g. `flying-admin.tsx`, `inventory.tsx`)
+- Pages live at `pages/admin/<section>/index.tsx`, `pages/admin/<section>/<subsection>.tsx`
+- The layout handles auth gating via `useRequireAuth` at the page level, not the layout level
+- Nav items use amber (`#d4a843`) as the primary accent color; subsection-specific accents (e.g. blue for videos) are fine within pages
+- Mobile: horizontal scrollable tab bar pinned to top, `border-b border-darkBorder`
+- Desktop: `w-48` sidebar, `border-r border-darkBorder`, section label in `font-mono uppercase tracking-widest`
+- Use `@heroui/listbox` + `ListboxItem` for the sidebar nav items (matches inventory pattern)
+
+---
+
+## 10. Design system
 
 - **Colors**: navy (`#1e2d4a` range), cream (`#f5f0e8` range), amber (`#d4a843` range)
 - **Font**: serif headings, sans-serif body

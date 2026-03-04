@@ -2,9 +2,11 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import Head from "next/head";
 import dynamic from "next/dynamic";
 import { generateClient } from "aws-amplify/data";
+import { getUrl } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
 import DefaultLayout from "@/layouts/default";
-import type { Flight, AirportMarker, ActiveApproach } from "@/components/CesiumGlobe";
+import type { Flight, AirportMarker, ActiveApproach, TrackPoint } from "@/components/CesiumGlobe";
+import { interpolateTrack } from "@/components/CesiumGlobe";
 import { parseApproachTypes, extractApproachIcaos } from "@/components/approachUtils";
 import { flightColor } from "@/components/flightColors";
 import type { ApproachFix } from "@/components/approachUtils";
@@ -43,28 +45,554 @@ function groupByYear(flights: Flight[]) {
   return Object.entries(groups).sort(([a], [b]) => Number(b) - Number(a));
 }
 
-// ── Stats bar ─────────────────────────────────────────────────────────────────
+// "YYYY-MM" | null
+type MonthFilter = string | null;
 
-function StatsBar({ flights }: { flights: Flight[] }) {
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+// Returns sorted unique "YYYY-MM" strings present in the flight list
+function flightMonths(flights: Flight[]): string[] {
+  const set = new Set(flights.map((f) => f.date.slice(0, 7)));
+  return [...set].sort((a, b) => b.localeCompare(a));
+}
+
+function filterFlights(flights: Flight[], month: MonthFilter): Flight[] {
+  if (!month) return flights;
+  return flights.filter((f) => f.date.startsWith(month));
+}
+
+// ── Featured videos ───────────────────────────────────────────────────────────
+export type FeaturedVideo = {
+  id: string;
+  flightId: string;
+  signedUrl: string;
+  label: string | null;
+  camera: string | null;
+  sortOrder: number | null;
+  kmlOffsetSec: number | null;
+};
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+
+function useFlightStats(flights: Flight[]) {
   const totalHours = flights.reduce((s, f) => s + (f.totalTime ?? 0), 0);
+  const picHours   = flights.reduce((s, f) => s + (f.pic ?? 0), 0);
+  const xcHours    = flights.reduce((s, f) => s + (f.crossCountry ?? 0), 0);
+  const nightHours = flights.reduce((s, f) => s + (f.night ?? 0), 0);
   const imcHours   = flights.reduce((s, f) => s + (f.actualIMC ?? 0), 0);
   const totalAppr  = flights.reduce((s, f) => s + (f.approaches ?? 0), 0);
-  const airports   = new Set([...flights.map((f) => f.from), ...flights.map((f) => f.to)]).size;
+  const airports   = new Set([
+    ...flights.map((f) => f.from),
+    ...flights.map((f) => f.to),
+  ].filter(Boolean)).size;
+
+  return [
+    { label: "Flights",    value: String(flights.length) },
+    { label: "Total",      value: `${totalHours.toFixed(1)}h` },
+    { label: "PIC",        value: `${picHours.toFixed(1)}h` },
+    { label: "XC",         value: `${xcHours.toFixed(1)}h` },
+    { label: "Night",      value: `${nightHours.toFixed(1)}h` },
+    { label: "IMC",        value: `${imcHours.toFixed(1)}h` },
+    { label: "Approaches", value: String(totalAppr) },
+    { label: "Airports",   value: String(airports) },
+  ];
+}
+
+const BUCKET_NAME = "gennaroanesi.com";
+
+// ── TrackPiP — map + vertical profile overlaid on the video ──────────────────
+const NM_TO_DEG_LAT = 1 / 60;
+const PIP_HALF_EXTENT_NM = 3.5;
+
+// Derive instantaneous heading (degrees true) and ground speed (knots)
+// by looking at the track segment surrounding `t`.
+function deriveDynamics(track: TrackPoint[], t: number): { headingDeg: number; groundSpeedKt: number; vsFpm: number; gradDeg: number } | null {
+  if (track.length < 2) return null;
+  // Find surrounding points
+  let lo = 0, hi = track.length - 1;
+  if (t <= track[0].t) { lo = 0; hi = 1; }
+  else if (t >= track[hi].t) { lo = hi - 1; }
+  else {
+    let l = 0, h = hi;
+    while (h - l > 1) { const m = (l + h) >> 1; if (track[m].t <= t) l = m; else h = m; }
+    lo = l; hi = h;
+  }
+  const a = track[lo], b = track[hi];
+  const dt = b.t - a.t;
+  if (dt < 0.5) return null; // too close — noisy
+  const dLat = b.lat - a.lat;
+  const dLon = b.lon - a.lon;
+  const cosLat = Math.cos((a.lat * Math.PI) / 180);
+  // Heading
+  const headingRad = Math.atan2(dLon * cosLat, dLat);
+  const headingDeg = ((headingRad * 180) / Math.PI + 360) % 360;
+  // Ground speed: convert deg difference to nm then to kt
+  const distNm = Math.sqrt((dLat * 60) ** 2 + (dLon * 60 * cosLat) ** 2);
+  const groundSpeedKt = (distNm / dt) * 3600;
+  // Vertical speed
+  const dAltFt = (b.alt - a.alt) * 3.28084;
+  const vsFpm = (dAltFt / dt) * 60;
+  // Gradient: arctan(vertical / horizontal distance)
+  const distFt = distNm * 6076.12;
+  const gradDeg = distFt > 0 ? Math.atan2(dAltFt, distFt) * 180 / Math.PI : 0;
+  return { headingDeg, groundSpeedKt, vsFpm, gradDeg };
+}
+
+function TrackPiP({
+  track, currentTrackSec, color = "#facc15",
+}: {
+  track: TrackPoint[];
+  currentTrackSec: number;
+  color?: string;
+}) {
+  // ── Map panel dimensions
+  const MW = 190, MH = 130, PAD = 10;
+  // ── Vertical profile panel dimensions
+  const VW = 190, VH = 130, VPAD = 10;
+
+  // Current interpolated position
+  const pos = interpolateTrack(track, currentTrackSec);
+  const dynamics = deriveDynamics(track, currentTrackSec);
+
+  // ── Map geometry
+  const halfLat = PIP_HALF_EXTENT_NM * NM_TO_DEG_LAT;
+  const halfLon = pos
+    ? PIP_HALF_EXTENT_NM * NM_TO_DEG_LAT / Math.cos((pos.lat * Math.PI) / 180)
+    : halfLat;
+  const centerLat = pos?.lat ?? (track[0].lat + track[track.length - 1].lat) / 2;
+  const centerLon = pos?.lon ?? (track[0].lon + track[track.length - 1].lon) / 2;
+  const minLat = centerLat - halfLat, maxLat = centerLat + halfLat;
+  const minLon = centerLon - halfLon, maxLon = centerLon + halfLon;
+  const latRange = maxLat - minLat, lonRange = maxLon - minLon;
+  const innerW = MW - PAD * 2, innerH = MH - PAD * 2;
+  const scale  = Math.min(innerW / lonRange, innerH / latRange);
+  const offX   = PAD + (innerW - lonRange * scale) / 2;
+  const offY   = PAD + (innerH - latRange * scale) / 2;
+  const toSvg = (lat: number, lon: number) => ({
+    x: offX + (lon - minLon) * scale,
+    y: offY + (maxLat - lat) * scale,
+  });
+  const pts = track.map((p) => { const s = toSvg(p.lat, p.lon); return `${s.x},${s.y}`; }).join(" ");
+  const flownIdx = track.findIndex((p) => p.t > currentTrackSec);
+  const flownPts = (flownIdx === -1 ? track : track.slice(0, flownIdx + 1))
+    .map((p) => { const s = toSvg(p.lat, p.lon); return `${s.x},${s.y}`; }).join(" ");
+  const dot = pos ? toSvg(pos.lat, pos.lon) : null;
+
+  // ── Vertical profile geometry — same time window as the map (±half-extent at current GS, min 5min)
+  // Use a fixed ±5 minute window centred on currentTrackSec so it matches what
+  // the map is showing rather than spanning the entire flight.
+  const windowSec = 5 * 60; // 5 minutes each side
+  const vTMin = Math.max(track[0].t, currentTrackSec - windowSec);
+  const vTMax = Math.min(track[track.length - 1].t, currentTrackSec + windowSec);
+  const vTrack = track.filter((p) => p.t >= vTMin && p.t <= vTMax);
+  const vTrackSafe = vTrack.length > 1 ? vTrack : track; // fallback
+  const altValues = vTrackSafe.map((p) => p.alt);
+  const minAlt = Math.min(...altValues);
+  const maxAlt = Math.max(...altValues);
+  const altRange = maxAlt - minAlt || 30; // min 30m range so flat segments don't blow up
+  const tMin = vTrackSafe[0].t, tMax = vTrackSafe[vTrackSafe.length - 1].t;
+  const tRange = tMax - tMin || 1;
+  const ALT_LABEL_H = 32; // px reserved at top for the altitude + VS + gradient readout
+  const vInnerW = VW - VPAD * 2, vInnerH = VH - VPAD - ALT_LABEL_H;
+  const toVSvg = (t: number, alt: number) => ({
+    x: VPAD + ((t - tMin) / tRange) * vInnerW,
+    y: ALT_LABEL_H + (1 - (alt - minAlt) / altRange) * vInnerH,
+  });
+  const vPts = vTrackSafe.map((p) => { const s = toVSvg(p.t, p.alt); return `${s.x},${s.y}`; }).join(" ");
+  const vFlownInWindow = vTrackSafe.filter((p) => p.t <= currentTrackSec);
+  const vFlownPts = vFlownInWindow.length > 0
+    ? vFlownInWindow.map((p) => { const s = toVSvg(p.t, p.alt); return `${s.x},${s.y}`; }).join(" ")
+    : "";
+  const vDot = pos ? toVSvg(currentTrackSec, pos.alt) : null;
+  const altFt = pos ? pos.alt * 3.28084 : null;
+
+  // Heading arrow direction
+  const arrowAngle = dynamics ? dynamics.headingDeg : 0;
 
   return (
-    <div className="flex items-center gap-8 px-6 py-2.5 border-b border-darkBorder bg-darkSurface">
-      {[
-        { label: "Flights",    value: flights.length },
-        { label: "Hours",      value: totalHours.toFixed(1) },
-        { label: "IMC",        value: `${imcHours.toFixed(1)}h` },
-        { label: "Approaches", value: totalAppr },
-        { label: "Airports",   value: airports },
-      ].map(({ label, value }) => (
-        <div key={label} className="flex items-baseline gap-2">
-          <span className="text-gold font-mono font-bold text-sm">{value}</span>
-          <span className="text-xs text-gray-500 uppercase tracking-widest font-mono">{label}</span>
+    <div
+      className="absolute bottom-3 right-3 flex flex-col gap-1.5 pointer-events-none"
+    >
+      {/* ── Map panel ── */}
+      <div
+        className="rounded-lg overflow-hidden"
+        style={{
+          width: MW, height: MH,
+          background: "rgba(15,20,35,0.82)",
+          backdropFilter: "blur(6px)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+        }}
+      >
+        <svg width={MW} height={MH} style={{ display: "block" }}>
+          {/* Full track */}
+          <polyline points={pts} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          {/* Flown */}
+          <polyline points={flownPts} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+          {/* Dot */}
+          {dot && (
+            <>
+              <circle cx={dot.x} cy={dot.y} r={6} fill={color} opacity={0.25} />
+              <circle cx={dot.x} cy={dot.y} r={3.5} fill={color} />
+              <circle cx={dot.x} cy={dot.y} r={3.5} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={1} />
+              {/* Heading arrow */}
+              {dynamics && (() => {
+                const rad = (arrowAngle - 90) * Math.PI / 180;
+                const len = 12;
+                const x2 = dot.x + Math.cos(rad) * len;
+                const y2 = dot.y + Math.sin(rad) * len;
+                return <line x1={dot.x} y1={dot.y} x2={x2} y2={y2} stroke={color} strokeWidth={1.5} strokeLinecap="round" opacity={0.9} />;
+              })()}
+            </>
+          )}
+          {/* HUD: heading + GS */}
+          {dynamics && (
+            <>
+              <text x={7} y={18} fontSize={13} fill={color} fontFamily="monospace" fontWeight="bold">
+                {Math.round(dynamics.headingDeg).toString().padStart(3, "0")}°
+              </text>
+              <text x={7} y={33} fontSize={12} fill="rgba(255,255,255,0.6)" fontFamily="monospace">
+                {Math.round(dynamics.groundSpeedKt)}kt
+              </text>
+            </>
+          )}
+        </svg>
+      </div>
+
+      {/* ── Vertical profile panel ── */}
+      <div
+        className="rounded-lg overflow-hidden"
+        style={{
+          width: VW, height: VH,
+          background: "rgba(15,20,35,0.82)",
+          backdropFilter: "blur(6px)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+        }}
+      >
+        <svg width={VW} height={VH} style={{ display: "block" }}>
+          {/* Filled area under profile */}
+          <polyline
+            points={vPts + ` ${VPAD + vInnerW},${ALT_LABEL_H + vInnerH} ${VPAD},${ALT_LABEL_H + vInnerH}`}
+            fill={color + "18"}
+            stroke="none"
+          />
+          {/* Full profile line */}
+          <polyline points={vPts} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          {/* Flown portion */}
+          <polyline points={vFlownPts} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+          {/* Current altitude dot */}
+          {vDot && (
+            <>
+              <circle cx={vDot.x} cy={vDot.y} r={4} fill={color} opacity={0.25} />
+              <circle cx={vDot.x} cy={vDot.y} r={2.5} fill={color} />
+            </>
+          )}
+          {/* Altitude + VS + gradient label row */}
+          {altFt !== null && (
+            <>
+              <text x={7} y={17} fontSize={11} fill={color} fontFamily="monospace" fontWeight="bold">
+                {Math.round(altFt).toLocaleString()}ft
+              </text>
+              {dynamics && (
+                <text x={7} y={29} fontSize={10} fill="rgba(255,255,255,0.5)" fontFamily="monospace">
+                  {dynamics.vsFpm >= 0 ? "+" : ""}{Math.round(dynamics.vsFpm)}fpm · {dynamics.gradDeg >= 0 ? "+" : ""}{dynamics.gradDeg.toFixed(1)}°
+                </text>
+              )}
+            </>
+          )}
+          {/* Min/max labels */}
+          <text x={VW - VPAD} y={ALT_LABEL_H + vInnerH} fontSize={9} fill="rgba(255,255,255,0.3)" fontFamily="monospace" textAnchor="end">
+            {Math.round(minAlt * 3.28084).toLocaleString()}ft
+          </text>
+          <text x={VW - VPAD} y={ALT_LABEL_H + 9} fontSize={9} fill="rgba(255,255,255,0.3)" fontFamily="monospace" textAnchor="end">
+            {Math.round(maxAlt * 3.28084).toLocaleString()}ft
+          </text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ── VideoChip ───────────────────────────────────────────────────────────────────
+function VideoChip({
+  video, size = "md", track, onPlaneTime,
+}: {
+  video: FeaturedVideo;
+  size?: "sm" | "md";
+  track?: TrackPoint[]; // KML track for PiP mini-map
+  onPlaneTime?: (trackSec: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [currentTrackSec, setCurrentTrackSec] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const rafRef   = useRef<number>(0);
+  const label = video.label ?? video.camera ?? "Video";
+
+  // Drive the plane cursor + PiP via rAF while the modal is open.
+  // Update on every frame so cursor stays put even when paused;
+  // only clear on modal close.
+  // kmlOffsetSec is track-relative t (seconds from track[0]) — use directly.
+  const trackOffsetSec = React.useMemo(() => {
+    if (video.kmlOffsetSec == null || !track || track.length === 0) return null;
+    return video.kmlOffsetSec;
+  }, [video.kmlOffsetSec, track]);
+
+  useEffect(() => {
+    if (!open || trackOffsetSec == null) return;
+    const tick = () => {
+      const v = videoRef.current;
+      if (v) {
+        const ts = trackOffsetSec + v.currentTime;
+        onPlaneTime?.(ts);
+        setCurrentTrackSec(ts);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      onPlaneTime?.(null);
+    };
+  }, [open, trackOffsetSec, onPlaneTime]);
+
+  const handleClose = () => {
+    setOpen(false);
+    onPlaneTime?.(null);
+  };
+
+  const hasPiP = !!track && track.length > 1 && trackOffsetSec != null;
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className={`shrink-0 flex items-center gap-2 rounded border border-darkBorder
+          hover:border-gold/40 hover:bg-gold/5 transition-all group
+          ${size === "sm" ? "px-2.5 py-1" : "px-3 py-1.5"}`}
+      >
+        <svg
+          width={size === "sm" ? 10 : 12}
+          height={size === "sm" ? 10 : 12}
+          viewBox="0 0 24 24" fill="currentColor"
+          className="text-gray-500 group-hover:text-gold transition-colors shrink-0"
+        >
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+        <span className={`${size === "sm" ? "text-[10px] text-gray-500" : "text-xs text-gray-400"} group-hover:text-gray-200 transition-colors`}>
+          {label}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={handleClose}
+        >
+          <div className="relative max-w-2xl w-full mx-8" onClick={(e) => e.stopPropagation()}>
+            <button onClick={handleClose} className="absolute -top-8 right-0 text-gray-400 hover:text-gray-200 text-sm">
+              ✕ close
+            </button>
+            {/* Video + PiP container */}
+            <div className="relative">
+              <video
+                ref={videoRef}
+                src={video.signedUrl}
+                controls
+                autoPlay
+                playsInline
+                className="w-full rounded-lg border border-darkBorder block"
+              />
+              {hasPiP && (
+                <TrackPiP
+                  track={track!}
+                  currentTrackSec={currentTrackSec}
+                />
+              )}
+            </div>
+            {video.label && (
+              <p className="text-xs text-gray-500 font-mono mt-2 text-center">{video.label}</p>
+            )}
+          </div>
         </div>
-      ))}
+      )}
+    </>
+  );
+}
+
+// ── Desktop header panel (stats + videos + filter) ───────────────────────────
+function DesktopHeader({
+  allFlights, filteredFlights, monthFilter, onMonthChange, videos, getTrack, onPlaneTime,
+}: {
+  allFlights: Flight[];
+  filteredFlights: Flight[];
+  monthFilter: MonthFilter;
+  onMonthChange: (m: MonthFilter) => void;
+  videos: FeaturedVideo[];
+  getTrack: (flightId: string) => TrackPoint[] | undefined;
+  onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
+}) {
+  const stats  = useFlightStats(filteredFlights);
+  const months = flightMonths(allFlights);
+  const isFiltered = monthFilter !== null;
+
+  return (
+    <div className="shrink-0 border-b border-darkBorder bg-darkSurface">
+      {/* ── Stats row ── */}
+      <div className="flex items-stretch gap-0 border-b border-darkBorder/60 overflow-x-auto">
+        {stats.map(({ label, value }, i) => (
+          <div
+            key={label}
+            className={`flex flex-col items-center justify-center px-5 py-3 shrink-0 min-w-[72px]
+              ${ i < stats.length - 1 ? "border-r border-darkBorder/60" : "" }`}
+          >
+            <span className="text-gold font-mono font-bold text-base leading-none">{value}</span>
+            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-mono mt-1 leading-none">{label}</span>
+          </div>
+        ))}
+
+        {/* Spacer so filter pills right-align */}
+        <div className="flex-1" />
+
+        {/* ── Month filter pills ── */}
+        <div className="flex items-center gap-1.5 px-4 overflow-x-auto shrink-0"
+          style={{ scrollbarWidth: "none" }}>
+          <button
+            onClick={() => onMonthChange(null)}
+            className={`shrink-0 px-3 py-1 rounded-full text-xs font-mono border transition-all
+              ${ !isFiltered
+                ? "bg-gold/15 border-gold/40 text-gold"
+                : "border-darkBorder text-gray-500 hover:border-gray-500 hover:text-gray-300" }`}
+          >
+            All
+          </button>
+          {months.map((m) => {
+            const [y, mo] = m.split("-");
+            const label = `${MONTH_NAMES[Number(mo) - 1]} ${y}`;
+            const active = monthFilter === m;
+            return (
+              <button
+                key={m}
+                onClick={() => onMonthChange(active ? null : m)}
+                className={`shrink-0 px-3 py-1 rounded-full text-xs font-mono border transition-all
+                  ${ active
+                    ? "bg-gold/15 border-gold/40 text-gold"
+                    : "border-darkBorder text-gray-500 hover:border-gray-500 hover:text-gray-300" }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Featured videos row — only shown when videos exist ── */}
+      {videos.length > 0 && (
+        <div className="flex gap-3 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-600 self-center shrink-0">Highlights</span>
+          {videos.map((v) => (
+            <VideoChip
+              key={v.id} video={v}
+              track={getTrack(v.flightId)}
+              onPlaneTime={v.kmlOffsetSec != null
+                ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
+                : undefined}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Mobile header (stats pills + filter + videos) — inside the drawer ────────
+function MobileHeader({
+  allFlights, filteredFlights, monthFilter, onMonthChange, videos, getTrack, onPlaneTime,
+}: {
+  allFlights: Flight[];
+  filteredFlights: Flight[];
+  monthFilter: MonthFilter;
+  onMonthChange: (m: MonthFilter) => void;
+  videos: FeaturedVideo[];
+  getTrack: (flightId: string) => TrackPoint[] | undefined;
+  onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
+}) {
+  const stats  = useFlightStats(filteredFlights);
+  const months = flightMonths(allFlights);
+  const isFiltered = monthFilter !== null;
+
+  return (
+    <div className="shrink-0 border-b border-darkBorder bg-darkBg">
+      {/* Stats pills */}
+      <div
+        className="flex gap-2 px-4 py-2.5 overflow-x-auto"
+        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+      >
+        {stats.map(({ label, value }) => (
+          <div
+            key={label}
+            className="flex flex-col items-center shrink-0 px-3 py-1.5
+              bg-darkSurface border border-darkBorder rounded-lg min-w-[56px]"
+          >
+            <span className="text-gold font-mono font-bold text-xs leading-tight">{value}</span>
+            <span className="text-[9px] text-gray-600 uppercase tracking-widest font-mono mt-0.5 leading-tight">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Month filter pills */}
+      <div
+        className="flex gap-1.5 px-4 pb-2.5 overflow-x-auto"
+        style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+      >
+        <button
+          onClick={() => onMonthChange(null)}
+          className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-all
+            ${ !isFiltered
+              ? "bg-gold/15 border-gold/40 text-gold"
+              : "border-darkBorder text-gray-600 hover:text-gray-400" }`}
+        >
+          All
+        </button>
+        {months.map((m) => {
+          const [y, mo] = m.split("-");
+          const label = `${MONTH_NAMES[Number(mo) - 1]} '${y.slice(2)}`;
+          const active = monthFilter === m;
+          return (
+            <button
+              key={m}
+              onClick={() => onMonthChange(active ? null : m)}
+              className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-all
+                ${ active
+                  ? "bg-gold/15 border-gold/40 text-gold"
+                  : "border-darkBorder text-gray-600 hover:text-gray-400" }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Featured videos — only when present */}
+      {videos.length > 0 && (
+        <div
+          className="flex gap-2 px-4 pb-2.5 overflow-x-auto"
+          style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+        >
+          {videos.map((v) => (
+            <VideoChip
+              key={v.id} video={v} size="sm"
+              track={getTrack(v.flightId)}
+              onPlaneTime={v.kmlOffsetSec != null
+                ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
+                : undefined}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -233,12 +761,16 @@ type FlightDetailProps = {
   unavailableApproaches: Set<string>;
   onApproachClick: (icao: string, procedure: string, label: string) => void;
   onClose: () => void;
+  videos?: FeaturedVideo[];
+  getTrack?: (flightId: string) => TrackPoint[] | undefined;
+  onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
 };
 
 function FlightDetail({
   flight, activeApproachKey, approachLoading, unavailableApproaches,
-  onApproachClick, onClose,
+  onApproachClick, onClose, videos = [], getTrack, onPlaneTime,
 }: FlightDetailProps) {
+  const flightVideos = videos.filter((v) => v.flightId === flight.id);
   const approaches = parseApproachTypes(flight.approachTypes);
 
   const stats: [string, string | number][] = [
@@ -371,6 +903,25 @@ function FlightDetail({
           </p>
         )}
 
+        {/* Videos for this flight */}
+        {flightVideos.length > 0 && (
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-mono">Videos</p>
+            <div className="flex flex-wrap gap-2">
+              {flightVideos.map((v) => (
+                <VideoChip
+                  key={v.id}
+                  video={v}
+                  track={getTrack?.(v.flightId)}
+                  onPlaneTime={v.kmlOffsetSec != null
+                    ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
+                    : undefined}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {!flight.kmlS3Key && (
           <div className="text-xs text-gray-700 text-center py-3 border border-dashed border-darkBorder/50 rounded">
             No GPS track attached
@@ -381,21 +932,27 @@ function FlightDetail({
   );
 }
 
-// ── Mobile drawer ────────────────────────────────────────────────────────────
+// ── Mobile drawer ─────────────────────────────────────────────────────────────
 // Three snap states: peek (just handle), list (half height), detail (full)
 type DrawerState = "peek" | "list" | "detail";
 
 function MobileDrawer({
-  state, flights, loading, selected, selectedId, years,
+  state, allFlights, flights, loading, selected, selectedId, years,
+  monthFilter, onMonthChange, videos, getTrack,
   activeApproachKey, approachLoading, unavailableApproaches,
-  onApproachClick, onSelect, onClose, onStateChange,
+  onApproachClick, onSelect, onClose, onStateChange, onPlaneTime,
 }: {
   state: DrawerState;
+  allFlights: Flight[];
   flights: Flight[];
   loading: boolean;
   selected: Flight | null;
   selectedId: string | null;
   years: [string, Flight[]][];
+  monthFilter: MonthFilter;
+  onMonthChange: (m: MonthFilter) => void;
+  videos: FeaturedVideo[];
+  getTrack: (flightId: string) => TrackPoint[] | undefined;
   activeApproachKey: string | null;
   approachLoading: string | null;
   unavailableApproaches: Set<string>;
@@ -403,6 +960,7 @@ function MobileDrawer({
   onSelect: (id: string) => void;
   onClose: () => void;
   onStateChange: (s: DrawerState) => void;
+  onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
 }) {
   const PEEK_H   = 72;   // px — drag handle + summary line
   const LIST_H   = 52;   // vh
@@ -481,10 +1039,14 @@ function MobileDrawer({
               unavailableApproaches={unavailableApproaches}
               onApproachClick={onApproachClick}
               onClose={onClose}
+              videos={videos}
+              getTrack={getTrack}
+              onPlaneTime={onPlaneTime}
             />
           ) : (
             <div className="flex flex-col h-full overflow-y-auto">
-              <div className="px-4 py-2 border-b border-darkBorder sticky top-0 bg-darkSurface z-10 flex items-center justify-between">
+              {/* Header row */}
+              <div className="px-4 py-2 border-b border-darkBorder sticky top-0 bg-darkSurface z-10 flex items-center justify-between shrink-0">
                 <span className="text-xs font-mono uppercase tracking-widest text-gray-500">Logbook</span>
                 {selected && (
                   <button
@@ -495,6 +1057,21 @@ function MobileDrawer({
                   </button>
                 )}
               </div>
+
+              {/* Stats + filter + videos */}
+              {flights.length > 0 && (
+                <MobileHeader
+                  allFlights={allFlights}
+                  filteredFlights={flights}
+                  monthFilter={monthFilter}
+                  onMonthChange={onMonthChange}
+                  videos={videos}
+                  getTrack={getTrack}
+                  onPlaneTime={onPlaneTime}
+                />
+              )}
+
+              {/* Flight list grouped by year */}
               {years.map(([year, yf]) => (
                 <div key={year}>
                   <div className="px-4 py-1.5 bg-darkBg border-b border-darkBorder sticky top-[2.25rem] z-[5]">
@@ -529,12 +1106,36 @@ function MobileDrawer({
 export default function FlyingPage() {
   const [flights,    setFlights]    = useState<Flight[]>([]);
   const [airports,   setAirports]   = useState<AirportMarker[]>([]);
+  const [videos,     setVideos]     = useState<FeaturedVideo[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerState, setDrawerState] = useState<DrawerState>("peek");
+  const [monthFilter, setMonthFilter] = useState<MonthFilter>(null);
 
   // Approach procedures cache: "ICAO|procedure|transition" -> record
   const approachCache = useRef<Map<string, any>>(new Map());
+
+  // Track data surfaced from CesiumGlobe via onTrackReady — used for PiP mini-maps
+  const trackMap = useRef<Map<string, TrackPoint[]>>(new Map());
+  const handleTrackReady = useCallback((flightId: string, track: TrackPoint[]) => {
+    trackMap.current.set(flightId, track);
+  }, []);
+
+  // Plane cursor — driven by the currently-playing video
+  const [planeCursor, setPlaneCursor] = useState<{ flightId: string; trackSec: number } | null>(null);
+
+  // Force re-render when tracks load so VideoChips that are already open can pick them up
+  const [tracksVersion, setTracksVersion] = useState(0);
+  const handleTrackReadyWithRender = useCallback((flightId: string, track: TrackPoint[]) => {
+    handleTrackReady(flightId, track);
+    setTracksVersion((v) => v + 1);
+  }, [handleTrackReady]);
+
+  // Stable getter — reads from ref so it doesn't cause re-renders; tracksVersion keeps it fresh
+  const getTrack = useCallback((flightId: string): TrackPoint[] | undefined => {
+    void tracksVersion; // reactive dependency so this updates after tracks load
+    return trackMap.current.get(flightId);
+  }, [tracksVersion]);
 
   // Approach state
   const [activeApproach,         setActiveApproach]         = useState<ActiveApproach | null>(null);
@@ -542,7 +1143,9 @@ export default function FlyingPage() {
   const [approachLoading] = useState<string | null>(null); // unused, kept for chip prop compat
   const [unavailableApproaches,  setUnavailableApproaches]  = useState<Set<string>>(new Set());
 
-  const selected = flights.find((f) => f.id === selectedId) ?? null;
+  // Flights visible given the current month filter
+  const visibleFlights = filterFlights(flights, monthFilter);
+  const selected = visibleFlights.find((f) => f.id === selectedId) ?? null;
 
   // ── Load flights + airports ────────────────────────────────────────────────
   useEffect(() => {
@@ -580,21 +1183,6 @@ export default function FlyingPage() {
         all.sort((a, b) => b.date.localeCompare(a.date));
         setFlights(all);
 
-        const icaoIds = [...new Set(all.flatMap((f) => {
-          const routeIds = (f.route ?? "")
-            .split(/\s+/)
-            .map((s: string) => s.trim().toUpperCase())
-            .filter((s: string) => /^[A-Z0-9]{3,4}$/.test(s));
-          return [f.from, f.to, ...routeIds].filter(Boolean);
-        }))];
-
-        // Fetch airports via GSI queries — one parallel request per ICAO.
-        // Using raw client.graphql() to bypass the generated client wrapper
-        // which incorrectly coerces the GSI key argument into a filter object.
-        // Collect airports from from/to AND route strings.
-        // Route contains fixes + airways + airports mixed together, so filter
-        // to tokens that look like ICAO airport identifiers (K/P/C + 3 chars,
-        // or known 3-4 char US identifiers like T74).
         const looksLikeAirport = (s: string) =>
           /^[KPC][A-Z0-9]{3}$/.test(s) ||   // KGTU, KAUS, PHNL, CYVR…
           /^[A-Z]\d{2}$/.test(s) ||          // T74, H46…
@@ -608,6 +1196,7 @@ export default function FlyingPage() {
             .filter(looksLikeAirport);
           return [...base, ...routeTokens];
         }))];
+
         const APT_FIELDS = `id faaId icaoId name city stateCode latDecimal lonDecimal elevationFt hasTower airspaceClass`;
         const aptResults = await Promise.all(
           fromToIcaos.map((icaoId) =>
@@ -626,8 +1215,6 @@ export default function FlyingPage() {
         setAirports(aptResults.filter(Boolean) as AirportMarker[]);
 
         // Fetch approach procedures via GSI — one request per unique ICAO with approaches.
-        // Extract ICAOs directly from the raw approachTypes string (before CIFP mapping)
-        // so airports with unrecognized procedure names still get queried.
         const apprIcaos = [...new Set(all.flatMap((f) =>
           extractApproachIcaos(f.approachTypes)
         ))];
@@ -656,6 +1243,35 @@ export default function FlyingPage() {
           })
         );
         console.log(`[approaches] cached ${cache.size} records for ${apprIcaos.length} airports`);
+
+        // Load flight media (videos) — resolve signed URLs in parallel
+        const mediaResult = await (client as any).graphql({
+          query: `query ListFlightMedia($limit: Int, $nextToken: String) {
+            listFlightMedias(limit: $limit, nextToken: $nextToken) {
+              items { id flightId s3Key label camera sortOrder kmlOffsetSec }
+              nextToken
+            }
+          }`,
+          variables: { limit: 200 },
+          authMode: "apiKey",
+        });
+        const rawMedia: any[] = mediaResult.data?.listFlightMedias?.items ?? [];
+        rawMedia.sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+        const resolvedVideos = await Promise.all(
+          rawMedia.map(async (m: any) => {
+            try {
+              const { url } = await getUrl({
+                path: m.s3Key,
+                options: { bucket: BUCKET_NAME, expiresIn: 7200 },
+              });
+              return { ...m, signedUrl: url.toString() } as FeaturedVideo;
+            } catch {
+              return null;
+            }
+          })
+        );
+        setVideos(resolvedVideos.filter(Boolean) as FeaturedVideo[]);
       } finally {
         setLoading(false);
       }
@@ -716,7 +1332,17 @@ export default function FlyingPage() {
     setDrawerState("peek");
   }, []);
 
-  const years = groupByYear(flights);
+  // Clear selected flight if it's filtered out
+  useEffect(() => {
+    if (selectedId && !visibleFlights.find((f) => f.id === selectedId)) {
+      setSelectedId(null);
+      setActiveApproach(null);
+      setActiveApproachKey(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthFilter]);
+
+  const years = groupByYear(visibleFlights);
 
   return (
     <DefaultLayout>
@@ -724,9 +1350,19 @@ export default function FlyingPage() {
         <title>Flying — Gennaro Anesi</title>
       </Head>
 
-      {/* ── Desktop layout (lg+): side-by-side ───────────────────────────────────────── */}
+      {/* ── Desktop layout (lg+): side-by-side ───────────────────────────────── */}
       <div className="hidden lg:flex flex-col" style={{ height: "100%" }}>
-        {!loading && flights.length > 0 && <StatsBar flights={flights} />}
+        {!loading && flights.length > 0 && (
+          <DesktopHeader
+            allFlights={flights}
+            filteredFlights={visibleFlights}
+            monthFilter={monthFilter}
+            onMonthChange={setMonthFilter}
+            videos={videos}
+            getTrack={getTrack}
+            onPlaneTime={setPlaneCursor}
+          />
+        )}
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 relative bg-darkBg">
             {loading ? (
@@ -734,8 +1370,9 @@ export default function FlyingPage() {
                 <span className="text-gray-600 font-mono text-xs tracking-widest uppercase animate-pulse">Loading flights…</span>
               </div>
             ) : (
-              <CesiumGlobe flights={flights} airports={airports} selectedId={selectedId}
-                activeApproach={activeApproach} onSelect={handleSelect} />
+              <CesiumGlobe flights={visibleFlights} airports={airports} selectedId={selectedId}
+                activeApproach={activeApproach} onSelect={handleSelect} planeCursor={planeCursor}
+                onTrackReady={handleTrackReadyWithRender} />
             )}
           </div>
           <div className="w-72 flex flex-col border-l border-darkBorder bg-darkSurface overflow-hidden shrink-0">
@@ -747,6 +1384,9 @@ export default function FlyingPage() {
                 unavailableApproaches={unavailableApproaches}
                 onApproachClick={handleApproachClick}
                 onClose={handleClose}
+                videos={videos}
+                getTrack={getTrack}
+                onPlaneTime={setPlaneCursor}
               />
             ) : (
               <div className="flex flex-col h-full overflow-y-auto">
@@ -757,9 +1397,9 @@ export default function FlyingPage() {
                   <div className="flex-1 flex items-center justify-center">
                     <span className="text-gray-600 text-xs font-mono animate-pulse">Loading…</span>
                   </div>
-                ) : flights.length === 0 ? (
+                ) : visibleFlights.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center px-6 text-center">
-                    <span className="text-gray-600 text-xs font-mono">No published flights yet</span>
+                    <span className="text-gray-600 text-xs font-mono">No flights this month</span>
                   </div>
                 ) : (
                   years.map(([year, yf]) => (
@@ -774,7 +1414,7 @@ export default function FlyingPage() {
                       </div>
                       {yf.map((f) => (
                         <FlightRow key={f.id} flight={f} selected={f.id === selectedId}
-                          colorIndex={flights.findIndex((x) => x.id === f.id)}
+                          colorIndex={visibleFlights.findIndex((x) => x.id === f.id)}
                           onClick={() => handleSelect(f.id)} />
                       ))}
                     </div>
@@ -786,8 +1426,8 @@ export default function FlyingPage() {
         </div>
       </div>
 
-      {/* ── Mobile layout (<lg): full-screen globe + bottom drawer ─────────────── */}
-      {/* Fixed positioning bypasses the flex height chain entirely — most reliable on iOS Safari */}
+      {/* ── Mobile layout (<lg): full-screen globe + bottom drawer ──────────── */}
+      {/* Fixed positioning bypasses the flex height chain — most reliable on iOS Safari */}
       <div className="lg:hidden fixed bg-darkBg" style={{ top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }}>
         {/* Globe fills entire area */}
         {loading ? (
@@ -795,8 +1435,9 @@ export default function FlyingPage() {
             <span className="text-gray-600 font-mono text-xs tracking-widest uppercase animate-pulse">Loading flights…</span>
           </div>
         ) : (
-          <CesiumGlobe flights={flights} airports={airports} selectedId={selectedId}
-            activeApproach={activeApproach} onSelect={(id) => { handleSelect(id); setDrawerState("detail"); }} />
+          <CesiumGlobe flights={visibleFlights} airports={airports} selectedId={selectedId}
+            activeApproach={activeApproach} onSelect={(id) => { handleSelect(id); setDrawerState("detail"); }}
+            planeCursor={planeCursor} onTrackReady={handleTrackReadyWithRender} />
         )}
 
         {/* Floating back button — replaces navbar on mobile */}
@@ -816,11 +1457,16 @@ export default function FlyingPage() {
         {!loading && (
           <MobileDrawer
             state={drawerState}
-            flights={flights}
+            allFlights={flights}
+            flights={visibleFlights}
             loading={loading}
             selected={selected}
             selectedId={selectedId}
             years={years}
+            monthFilter={monthFilter}
+            onMonthChange={setMonthFilter}
+            videos={videos}
+            getTrack={getTrack}
             activeApproachKey={activeApproachKey}
             approachLoading={approachLoading}
             unavailableApproaches={unavailableApproaches}
@@ -828,6 +1474,7 @@ export default function FlyingPage() {
             onSelect={handleSelect}
             onClose={handleClose}
             onStateChange={setDrawerState}
+            onPlaneTime={setPlaneCursor}
           />
         )}
       </div>

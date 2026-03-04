@@ -91,27 +91,63 @@ function fixDotColor(role: string): string {
   return APPROACH_DOT_DEFAULT;
 }
 
-async function fetchKmlPositions(Cesium: any, kmlS3Key: string): Promise<any[] | null> {
+// ── KML track types ───────────────────────────────────────────────────────────────────
+
+/** One point in a parsed KML track. `t` is seconds since the first point. */
+export type TrackPoint = {
+  t: number;      // seconds since track start (0 for first point)
+  lat: number;
+  lon: number;
+  alt: number;    // metres
+  utc: Date | null; // absolute UTC timestamp (null if KML has no <when>)
+};
+
+/** Interpolate a lat/lon/alt position at `t` seconds into the track. */
+export function interpolateTrack(track: TrackPoint[], t: number): { lat: number; lon: number; alt: number } | null {
+  if (track.length === 0) return null;
+  if (t <= track[0].t) return { lat: track[0].lat, lon: track[0].lon, alt: track[0].alt };
+  if (t >= track[track.length - 1].t) {
+    const last = track[track.length - 1];
+    return { lat: last.lat, lon: last.lon, alt: last.alt };
+  }
+  // Binary search for surrounding segment
+  let lo = 0, hi = track.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (track[mid].t <= t) lo = mid; else hi = mid;
+  }
+  const a = track[lo], b = track[hi];
+  const f = (t - a.t) / (b.t - a.t);
+  return {
+    lat: a.lat + (b.lat - a.lat) * f,
+    lon: a.lon + (b.lon - a.lon) * f,
+    alt: a.alt + (b.alt - a.alt) * f,
+  };
+}
+
+// ── KML fetch + parse ───────────────────────────────────────────────────────────────────
+
+async function fetchKmlTrack(Cesium: any, kmlS3Key: string): Promise<{ positions: any[]; track: TrackPoint[] } | null> {
   try {
     const { url } = await getUrl({
       path: kmlS3Key,
       options: { bucket: BUCKET_NAME, expiresIn: 300 },
     });
+    console.log(`[KML] fetching → ${url.toString()}`);
 
     const res = await fetch(url.toString(), { mode: "cors", credentials: "omit" });
+    console.log(`[KML] response: HTTP ${res.status} ${res.statusText} for ${kmlS3Key}`);
     if (!res.ok) {
-      console.error(`[KML] HTTP ${res.status} for ${kmlS3Key}`);
+      console.error(`[KML] ✗ HTTP ${res.status} — giving up on ${kmlS3Key}`);
       return null;
     }
     const text = await res.text();
-    console.log(`[KML] fetched ${kmlS3Key}, ${text.length} chars`);
+    console.log(`[KML] ✓ fetched ${kmlS3Key} — ${text.length} chars`);
 
-    // Try both XML mime types — Safari sometimes rejects application/xml
     let doc: Document | null = null;
     for (const mime of ["application/xml", "text/xml"] as DOMParserSupportedType[]) {
       try {
         const candidate = new DOMParser().parseFromString(text, mime);
-        // A parse error produces a <parsererror> root element
         if (!candidate.querySelector("parsererror")) { doc = candidate; break; }
       } catch { /* try next */ }
     }
@@ -121,43 +157,73 @@ async function fetchKmlPositions(Cesium: any, kmlS3Key: string): Promise<any[] |
     }
 
     const positions: any[] = [];
+    const track: TrackPoint[] = [];
 
-    // Strategy 1: gx:coord (ForeFlight / Google Earth extended KML)
-    const gxCoords = Array.from(
-      doc.getElementsByTagNameNS("http://www.google.com/kml/ext/2.2", "coord"),
+    // Strategy 1: gx:Track (ForeFlight) — paired <when> + <gx:coord> elements
+    const gxTracks = Array.from(
+      doc.getElementsByTagNameNS("http://www.google.com/kml/ext/2.2", "Track"),
     );
-    if (gxCoords.length > 0) {
-      for (const el of gxCoords) {
-        const parts = el.textContent?.trim().split(/\s+/);
-        if (!parts || parts.length < 2) continue;
-        const lon = parseFloat(parts[0]);
-        const lat = parseFloat(parts[1]);
-        const alt = parts[2] ? parseFloat(parts[2]) : 0;
-        if (!isNaN(lon) && !isNaN(lat))
-          positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, alt));
-      }
-    }
+    if (gxTracks.length > 0) {
+      let t0: number | null = null; // shared across all segments so t is monotonic
+      for (const gxTrack of gxTracks) {
+        const whens  = Array.from(gxTrack.getElementsByTagName("when"));
+        const coords = Array.from(
+          gxTrack.getElementsByTagNameNS("http://www.google.com/kml/ext/2.2", "coord")
+        );
+        const hasTimestamps = whens.length === coords.length && whens.length > 0;
 
-    // Strategy 2: standard <coordinates> (lon,lat,alt tuples)
-    if (positions.length === 0) {
-      for (const coordEl of Array.from(doc.querySelectorAll("coordinates"))) {
-        const tuples = coordEl.textContent?.trim().split(/\s+/).filter(Boolean) ?? [];
-        for (const tuple of tuples) {
-          const parts = tuple.split(",");
-          if (parts.length < 2) continue;
+        for (let i = 0; i < (coords.length || 0); i++) {
+          const parts = coords[i].textContent?.trim().split(/\s+/);
+          if (!parts || parts.length < 2) continue;
           const lon = parseFloat(parts[0]);
           const lat = parseFloat(parts[1]);
           const alt = parts[2] ? parseFloat(parts[2]) : 0;
-          if (!isNaN(lon) && !isNaN(lat))
-            positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, alt));
+          if (isNaN(lon) || isNaN(lat)) continue;
+
+          positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, alt));
+
+          let utc: Date | null = null;
+          let tSec = i; // fallback: 1 second per point
+          if (hasTimestamps && i < whens.length) {
+            const parsed = new Date(whens[i].textContent?.trim() ?? "");
+            if (!isNaN(parsed.getTime())) {
+              utc = parsed;
+              const ms = parsed.getTime();
+              if (t0 === null) t0 = ms;
+              tSec = (ms - t0) / 1000;
+            }
+          } else if (t0 === null) {
+            t0 = 0;
+          }
+
+          track.push({ t: tSec, lat, lon, alt, utc });
         }
       }
     }
 
-    console.log(`[KML] parsed ${positions.length} positions from ${kmlS3Key}`);
-    return positions.length > 1 ? positions : null;
+    // Strategy 2: standard <coordinates> (no timestamps)
+    if (positions.length === 0) {
+      for (const coordEl of Array.from(doc.querySelectorAll("coordinates"))) {
+        const tuples = coordEl.textContent?.trim().split(/\s+/).filter(Boolean) ?? [];
+        for (let i = 0; i < tuples.length; i++) {
+          const parts = tuples[i].split(",");
+          if (parts.length < 2) continue;
+          const lon = parseFloat(parts[0]);
+          const lat = parseFloat(parts[1]);
+          const alt = parts[2] ? parseFloat(parts[2]) : 0;
+          if (!isNaN(lon) && !isNaN(lat)) {
+            positions.push(Cesium.Cartesian3.fromDegrees(lon, lat, alt));
+            track.push({ t: i, lat, lon, alt, utc: null });
+          }
+        }
+      }
+    }
+
+    console.log(`[KML] parsed ${positions.length} positions, ${track.filter(p => p.utc).length} with timestamps`);
+    if (positions.length <= 1) console.warn(`[KML] ⚠ too few positions (${positions.length}) — track skipped`);
+    return positions.length > 1 ? { positions, track } : null;
   } catch (e) {
-    console.error("[KML] fetch/parse error:", e);
+    console.error(`[KML] ✗ fetch/parse error for ${kmlS3Key}:`, e);
     return null;
   }
 }
@@ -185,18 +251,24 @@ export default function CesiumGlobe({
   selectedId,
   activeApproach = null,
   onSelect,
+  onTrackReady,
+  planeCursor = null,
 }: {
   flights: Flight[];
   airports?: AirportMarker[];
   selectedId: string | null;
   activeApproach?: ActiveApproach | null;
   onSelect: (id: string) => void;
+  onTrackReady?: (flightId: string, track: TrackPoint[]) => void;
+  planeCursor?: { flightId: string; trackSec: number } | null;
 }) {
   const containerRef     = useRef<HTMLDivElement>(null);
   const viewerRef        = useRef<any>(null);
   const entityMap        = useRef<Map<string, any>>(new Map());
+  const kmlTrackMap      = useRef<Map<string, TrackPoint[]>>(new Map());
   const airportEntities  = useRef<any[]>([]);
   const approachEntities = useRef<any[]>([]);
+  const planeEntity      = useRef<any>(null);
   const initAttempted    = useRef(false);
 
   // Always start false — never read window at module/render time (breaks iOS SSR hydration)
@@ -305,7 +377,15 @@ export default function CesiumGlobe({
       i++;
       if (!f.kmlS3Key) { setTimeout(drawNext, 0); return; }
 
-      const positions = await fetchKmlPositions(Cesium, f.kmlS3Key);
+      const result = await fetchKmlTrack(Cesium, f.kmlS3Key);
+      const positions = result?.positions ?? null;
+      // Store track for later video sync use, and notify parent
+      if (result?.track.length) {
+        kmlTrackMap.current.set(f.id, result.track);
+        onTrackReady?.(f.id, result.track);
+      }
+      if (positions) console.log(`[KML] drawing track for ${f.id} (${f.from}→${f.to}), ${positions.length} pts`);
+      else console.warn(`[KML] no positions for ${f.id} (${f.from}→${f.to}) kmlS3Key=${f.kmlS3Key}`);
       if (positions && !viewer.isDestroyed()) {
         const entity = viewer.entities.add({
           id: f.id,
@@ -494,6 +574,54 @@ export default function CesiumGlobe({
       duration: 1.4,
     });
   }, [activeApproach, viewerReady]);
+
+  // ── Plane cursor (video-synced) ─────────────────────────────────────────
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    const Cesium = (window as any).Cesium;
+    if (!viewer || !Cesium || viewer.isDestroyed()) return;
+
+    if (!planeCursor) {
+      // Hide the entity when no video is playing
+      if (planeEntity.current) planeEntity.current.show = false;
+      return;
+    }
+
+    const track = kmlTrackMap.current.get(planeCursor.flightId);
+    if (!track || track.length === 0) return;
+
+    const pos = interpolateTrack(track, planeCursor.trackSec);
+    if (!pos) return;
+
+    const cartesian = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat, pos.alt + 30);
+
+    if (!planeEntity.current) {
+      planeEntity.current = viewer.entities.add({
+        position: cartesian,
+        point: {
+          pixelSize: 14,
+          color: Cesium.Color.fromCssColorString("#facc15"),
+          outlineColor: Cesium.Color.fromCssColorString("#1a1a2e"),
+          outlineWidth: 3,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: "✈",
+          font: "bold 18px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.fromCssColorString("#1a1a2e"),
+          outlineWidth: 4,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -22),
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      });
+    } else {
+      planeEntity.current.show = true;
+      planeEntity.current.position = new Cesium.ConstantPositionProperty(cartesian);
+    }
+  }, [planeCursor]);
 
   // ── Selection highlight ───────────────────────────────────────────────────
   useEffect(() => {

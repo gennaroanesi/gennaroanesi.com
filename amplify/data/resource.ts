@@ -191,8 +191,11 @@ const schema = a
     flightMedia: a
       .model({
         flightId:      a.id().required(),        // FK → flight.id
-        url:           a.url().required(),        // YouTube / Vimeo embed URL
-        offsetSec:     a.integer(),              // seconds into video where wheels-off occurs
+        s3Key:         a.string().required(),     // S3 key under public/flights/videos/{id}.mp4
+        kmlOffsetSec:  a.float(),                // seconds into KML track where video frame 0 occurs
+                                                 // positionAt(videoT) = interpolateTrack(track, kmlOffsetSec + videoT)
+                                                 // auto-set if video recordedAt + KML timestamps both present
+                                                 // manually set via sync UI otherwise; null = unsynced
         camera:        a.enum(["RAYBAN", "COCKPIT", "EXTERIOR", "PASSENGER", "OTHER"]),
         label:         a.string(),               // e.g. "Final approach RWY 18", "Takeoff"
         sortOrder:     a.integer().default(0),   // controls display order in the UI
