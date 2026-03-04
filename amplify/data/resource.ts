@@ -270,7 +270,7 @@ const schema = a
         index("faaId"),
       ])
       .authorization((allow) => [
-        allow.publicApiKey(),
+        allow.publicApiKey().to(["read"]),
         allow.group("admins"),
       ]),
 
@@ -307,7 +307,7 @@ const schema = a
         nasrCycleDate:    a.string().required(),
       })
       .authorization((allow) => [
-        allow.publicApiKey(),
+        allow.publicApiKey().to(["read"]),
         allow.group("admins"),
       ]),
 
@@ -331,7 +331,7 @@ const schema = a
         index("icao"),
       ])
       .authorization((allow) => [
-        allow.publicApiKey(),
+        allow.publicApiKey().to(["read"]),
         allow.group("admins"),
       ]),
 
