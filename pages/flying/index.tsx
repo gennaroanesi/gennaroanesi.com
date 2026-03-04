@@ -142,15 +142,16 @@ function deriveDynamics(track: TrackPoint[], t: number): { headingDeg: number; g
 }
 
 function TrackPiP({
-  track, currentTrackSec, color = "#facc15",
+  track, currentTrackSec, color = "#facc15", mobileMapOnly = false, mobileProfileOnly = false,
 }: {
   track: TrackPoint[];
   currentTrackSec: number;
   color?: string;
+  mobileMapOnly?: boolean;
+  mobileProfileOnly?: boolean;
 }) {
-  // ── Map panel dimensions
+  // ── Panel dimensions (desktop PiP)
   const MW = 190, MH = 130, PAD = 10;
-  // ── Vertical profile panel dimensions
   const VW = 190, VH = 130, VPAD = 10;
 
   // Current interpolated position
@@ -211,6 +212,74 @@ function TrackPiP({
 
   // Heading arrow direction
   const arrowAngle = dynamics ? dynamics.headingDeg : 0;
+
+  // ── Mobile single-panel renders (fill the flex-1 container passed by VideoChip) ──
+  if (mobileMapOnly) {
+    return (
+      <svg width="100%" height={MH} viewBox={`0 0 ${MW} ${MH}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
+        <polyline points={pts} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points={flownPts} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+        {dot && (
+          <>
+            <circle cx={dot.x} cy={dot.y} r={6} fill={color} opacity={0.25} />
+            <circle cx={dot.x} cy={dot.y} r={3.5} fill={color} />
+            <circle cx={dot.x} cy={dot.y} r={3.5} fill="none" stroke="rgba(0,0,0,0.6)" strokeWidth={1} />
+            {dynamics && (() => {
+              const rad = (arrowAngle - 90) * Math.PI / 180;
+              return <line x1={dot.x} y1={dot.y} x2={dot.x + Math.cos(rad) * 12} y2={dot.y + Math.sin(rad) * 12} stroke={color} strokeWidth={1.5} strokeLinecap="round" opacity={0.9} />;
+            })()}
+          </>
+        )}
+        {dynamics && (
+          <>
+            <text x={7} y={18} fontSize={13} fill={color} fontFamily="monospace" fontWeight="bold">
+              {Math.round(dynamics.headingDeg).toString().padStart(3, "0")}°
+            </text>
+            <text x={7} y={33} fontSize={12} fill="rgba(255,255,255,0.6)" fontFamily="monospace">
+              {Math.round(dynamics.groundSpeedKt)}kt
+            </text>
+          </>
+        )}
+      </svg>
+    );
+  }
+
+  if (mobileProfileOnly) {
+    return (
+      <svg width="100%" height={VH} viewBox={`0 0 ${VW} ${VH}`} preserveAspectRatio="xMidYMid meet" style={{ display: "block" }}>
+        <polyline
+          points={vPts + ` ${VPAD + vInnerW},${ALT_LABEL_H + vInnerH} ${VPAD},${ALT_LABEL_H + vInnerH}`}
+          fill={color + "18"} stroke="none"
+        />
+        <polyline points={vPts} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points={vFlownPts} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
+        {vDot && (
+          <>
+            <circle cx={vDot.x} cy={vDot.y} r={4} fill={color} opacity={0.25} />
+            <circle cx={vDot.x} cy={vDot.y} r={2.5} fill={color} />
+          </>
+        )}
+        {altFt !== null && (
+          <>
+            <text x={7} y={17} fontSize={11} fill={color} fontFamily="monospace" fontWeight="bold">
+              {Math.round(altFt).toLocaleString()}ft
+            </text>
+            {dynamics && (
+              <text x={7} y={29} fontSize={10} fill="rgba(255,255,255,0.5)" fontFamily="monospace">
+                {dynamics.vsFpm >= 0 ? "+" : ""}{Math.round(dynamics.vsFpm)}fpm · {dynamics.gradDeg >= 0 ? "+" : ""}{dynamics.gradDeg.toFixed(1)}°
+              </text>
+            )}
+          </>
+        )}
+        <text x={VW - VPAD} y={ALT_LABEL_H + vInnerH} fontSize={9} fill="rgba(255,255,255,0.3)" fontFamily="monospace" textAnchor="end">
+          {Math.round(minAlt * 3.28084).toLocaleString()}ft
+        </text>
+        <text x={VW - VPAD} y={ALT_LABEL_H + 9} fontSize={9} fill="rgba(255,255,255,0.3)" fontFamily="monospace" textAnchor="end">
+          {Math.round(maxAlt * 3.28084).toLocaleString()}ft
+        </text>
+      </svg>
+    );
+  }
 
   return (
     <div
@@ -328,9 +397,18 @@ function VideoChip({
 }) {
   const [open, setOpen] = useState(false);
   const [currentTrackSec, setCurrentTrackSec] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef   = useRef<number>(0);
   const label = video.label ?? video.camera ?? "Video";
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   // Drive the plane cursor + PiP via rAF while the modal is open.
   // Update on every frame so cursor stays put even when paused;
@@ -392,31 +470,59 @@ function VideoChip({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={handleClose}
         >
-          <div className="relative max-w-2xl w-full mx-8" onClick={(e) => e.stopPropagation()}>
-            <button onClick={handleClose} className="absolute -top-8 right-0 text-gray-400 hover:text-gray-200 text-sm">
-              ✕ close
-            </button>
-            {/* Video + PiP container */}
-            <div className="relative">
+          {isMobile ? (
+            // ── Mobile: video + panels pinned to bottom of screen ──
+            <div className="fixed inset-0 flex flex-col bg-black" onClick={(e) => e.stopPropagation()}>
+              <button onClick={handleClose} className="absolute top-3 right-3 z-10 text-gray-400 hover:text-gray-200 text-sm leading-none">✕</button>
+              {/* Video grows to fill remaining space above panels */}
               <video
                 ref={videoRef}
                 src={video.signedUrl}
                 controls
                 autoPlay
                 playsInline
-                className="w-full rounded-lg border border-darkBorder block"
+                className="w-full bg-black"
+                style={{ flex: 1, minHeight: 0, objectFit: "contain" }}
               />
+              {/* Panels pinned to bottom */}
               {hasPiP && (
-                <TrackPiP
-                  track={track!}
-                  currentTrackSec={currentTrackSec}
-                />
+                <div className="flex gap-2 px-2 py-2 shrink-0" style={{ background: "rgba(10,14,26,0.98)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <div className="flex-1 rounded-lg overflow-hidden" style={{ background: "rgba(15,20,35,1)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                    <TrackPiP track={track!} currentTrackSec={currentTrackSec} mobileMapOnly />
+                  </div>
+                  <div className="flex-1 rounded-lg overflow-hidden" style={{ background: "rgba(15,20,35,1)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                    <TrackPiP track={track!} currentTrackSec={currentTrackSec} mobileProfileOnly />
+                  </div>
+                </div>
               )}
             </div>
-            {video.label && (
-              <p className="text-xs text-gray-500 font-mono mt-2 text-center">{video.label}</p>
-            )}
-          </div>
+          ) : (
+            // ── Desktop: PiP overlay ──
+            <div className="relative max-w-2xl w-full mx-8" onClick={(e) => e.stopPropagation()}>
+              <button onClick={handleClose} className="absolute -top-8 right-0 text-gray-400 hover:text-gray-200 text-sm">
+                ✕ close
+              </button>
+              <div className="relative">
+                <video
+                  ref={videoRef}
+                  src={video.signedUrl}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="w-full rounded-lg border border-darkBorder block"
+                />
+                {hasPiP && (
+                  <TrackPiP
+                    track={track!}
+                    currentTrackSec={currentTrackSec}
+                  />
+                )}
+              </div>
+              {video.label && (
+                <p className="text-xs text-gray-500 font-mono mt-2 text-center">{video.label}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </>

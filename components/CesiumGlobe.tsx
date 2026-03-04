@@ -14,6 +14,9 @@ export type Flight = {
   aircraftId: string | null;
   aircraftType: string | null;
   totalTime: number | null;
+  pic: number | null;
+  sic: number | null;
+  dualGiven: number | null;
   flightType: string | null;
   conditions: string | null;
   approaches: number | null;
