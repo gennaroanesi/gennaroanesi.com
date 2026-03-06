@@ -12,7 +12,7 @@ import { Repository } from "aws-cdk-lib/aws-ecr";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Duration, Size } from "aws-cdk-lib";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
-import amplifyOutputs from "../amplify_outputs.json";
+
 
 import { auth } from "./auth/resource";
 import { data } from "./data/resource";
@@ -240,9 +240,10 @@ checkFn.addEventSource(
 const importFn = backend.importLogbook.resources.lambda as LambdaFunction;
 const importFlightTable = tables["flight"];
 
-// AppSync URL + API key for mutations (amplifyOutputs imported at top of file)
-importFn.addEnvironment("APPSYNC_URL",     (amplifyOutputs as any).data.url);
-importFn.addEnvironment("APPSYNC_API_KEY", (amplifyOutputs as any).data.api_key ?? "");
+// AppSync URL + API key for mutations — resolved from CDK at deploy time
+const graphqlApi = backend.data.resources.graphqlApi as any;
+importFn.addEnvironment("APPSYNC_URL",     graphqlApi.graphqlUrl);
+importFn.addEnvironment("APPSYNC_API_KEY", graphqlApi.apiKey ?? "");
 importFn.addEnvironment("FLIGHT_TABLE_NAME", importFlightTable.tableName);
 
 // DynamoDB read for dedup scan
