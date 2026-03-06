@@ -228,7 +228,7 @@ export default function AmmoPage() {
         const prevAmmo = panel.ammo;
         const prevAvail =
           prevAmmo.roundsAvailable ?? totalRoundsForRecord(prevAmmo);
-        const draftAvail = ammoDraft.roundsAvailable;
+        const draftAvail = ammoDraft.roundsAvailable ?? undefined;
         const newAvail =
           draftAvail !== undefined && draftAvail !== prevAvail
             ? Math.min(draftAvail, totalRounds)
