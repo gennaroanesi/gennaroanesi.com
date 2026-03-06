@@ -7,9 +7,11 @@ import DefaultLayout from "@/layouts/default";
 const NAV_ITEMS = [
   { key: "flights", label: "Flights",  href: "/admin/flights",        color: "#d4a843" },
   { key: "videos",  label: "Videos",   href: "/admin/flights/videos",  color: "#60a5fa" },
+  { key: "audio",   label: "Audio",    href: "/admin/flights/audio",   color: "#a78bfa" },
 ];
 
 function activeKey(pathname: string): string {
+  if (pathname.includes("audio"))  return "audio";
   if (pathname.includes("videos")) return "videos";
   return "flights";
 }

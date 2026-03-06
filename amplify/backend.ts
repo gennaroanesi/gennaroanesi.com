@@ -5,8 +5,12 @@ import { Bucket } from "aws-cdk-lib/aws-s3";
 import {
   StartingPosition,
   Function as LambdaFunction,
+  DockerImageFunction,
+  DockerImageCode,
 } from "aws-cdk-lib/aws-lambda";
+import { Repository } from "aws-cdk-lib/aws-ecr";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { Duration, Size } from "aws-cdk-lib";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 
 import { auth } from "./auth/resource";
@@ -219,6 +223,103 @@ checkFn.addEventSource(
     filters: [
       // Only fire on item modifications (not inserts/deletes)
       { pattern: JSON.stringify({ eventName: ["MODIFY"] }) },
+    ],
+  }),
+);
+
+// ── transcribeAudio infrastructure ──────────────────────────────────────────
+// Python container Lambda — cannot use defineFunction (Node.js only).
+// Built from the Dockerfile in amplify/functions/transcribeAudio/.
+
+const transcribeStack = backend.createStack("transcribe-audio-stack");
+
+const audioTable       = tables["flightAudio"];
+const flightTable      = tables["flight"];
+const airportTable     = tables["airport"];
+const instrApprTable   = tables["instrumentApproach"];
+const apprProcTable    = tables["approachProcedure"];
+
+// Secrets: HuggingFace token + Anthropic API key
+// Create once:
+//   aws secretsmanager create-secret --name gennaroanesi/transcribe \
+//     --secret-string '{"hfToken":"hf_xxx","anthropicApiKey":"sk-ant-xxx"}'
+const transcribeSecret = Secret.fromSecretNameV2(
+  transcribeStack,
+  "TranscribeSecret",
+  "gennaroanesi/transcribe",
+);
+
+// Image is built and pushed manually via:
+//   ./amplify/functions/transcribeAudio/scripts/docker-push.sh
+// Using a fixed stable tag avoids CDK hash recomputation on every sandbox run.
+const ECR_REPO_URI = "802060244747.dkr.ecr.us-east-1.amazonaws.com/transcribe-audio";
+const ECR_TAG      = "latest";
+
+const transcribeRepo = Repository.fromRepositoryName(
+  transcribeStack,
+  "TranscribeAudioRepo",
+  "transcribe-audio",
+);
+
+const transcribeFn = new DockerImageFunction(transcribeStack, "TranscribeAudioFn", {
+  code: DockerImageCode.fromEcr(transcribeRepo, { tagOrDigest: ECR_TAG }),
+  timeout:          Duration.seconds(900),   // 15 min max
+  memorySize:       10240,                   // 10 GB — Whisper large-v3 int8 needs ~8-9 GB peak
+  ephemeralStorageSize: Size.gibibytes(10),  // 10 GB /tmp — model weights are ~2 GB
+  environment: {
+    AUDIO_TABLE_NAME:     audioTable.tableName,
+    FLIGHT_TABLE_NAME:    flightTable.tableName,
+    AIRPORT_TABLE_NAME:   airportTable.tableName,
+    APPROACH_TABLE_NAME:  instrApprTable.tableName,
+    PROCEDURE_TABLE_NAME: apprProcTable.tableName,
+    BUCKET_NAME:          "gennaroanesi.com",
+    HF_TOKEN:             transcribeSecret.secretValueFromJson("hfToken").unsafeUnwrap(),
+    ANTHROPIC_API_KEY:    transcribeSecret.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+  },
+});
+
+// Grant secret read
+transcribeSecret.grantRead(transcribeFn);
+
+// Read access to all tables the context builder queries
+[audioTable, flightTable, airportTable, instrApprTable, apprProcTable].forEach((t) =>
+  t.grantReadData(transcribeFn),
+);
+
+// Write access to flightAudio so the Lambda can update status + transcript
+audioTable.grantWriteData(transcribeFn);
+
+// S3 read: uploaded audio files + model weights cache
+transcribeFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetObject", "s3:ListBucket"],
+    resources: [
+      `${customBucket.bucketArn}/public/flights/audio/*`,  // audio files
+      `${customBucket.bucketArn}/private/models/*`,        // model weights
+      customBucket.bucketArn,                              // needed for ListBucket
+    ],
+  }),
+);
+
+// DynamoDB Stream trigger — fires when transcriptStatus → PENDING
+audioTable.grantStreamRead(transcribeFn);
+transcribeFn.addEventSource(
+  new DynamoEventSource(audioTable, {
+    startingPosition: StartingPosition.LATEST,
+    batchSize: 1,        // one at a time — each job is heavyweight
+    retryAttempts: 1,    // one retry; FAILED status set by handler on error
+    filters: [
+      {
+        pattern: JSON.stringify({
+          eventName: ["INSERT", "MODIFY"],
+          dynamodb: {
+            NewImage: {
+              transcriptStatus: { S: ["PENDING"] },
+            },
+          },
+        }),
+      },
     ],
   }),
 );

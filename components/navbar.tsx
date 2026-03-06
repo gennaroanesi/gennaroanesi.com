@@ -204,28 +204,32 @@ export const Navbar = () => {
             {menuOption(item.name, item.href)}
           </NavbarMenuItem>
         ))}
-        <NavbarMenuItem key="Admin" className="text-whiteishText">
-          Admin
-        </NavbarMenuItem>
-        {adminMenu.map((item, index) => (
-          <NavbarMenuItem
-            key={`10-${item}-${index}`}
-            className="text-whiteishText"
-          >
-            <Link
-              as={NextLink}
-              className="indent-8 lg:block text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
-              size="lg"
-              href="#"
-              onPress={(e) => {
-                router.push(item.href);
-                setIsMenuOpen(false);
-              }}
-            >
-              {item.name}
-            </Link>
-          </NavbarMenuItem>
-        ))}
+        {isLoggedIn && (
+          <>
+            <NavbarMenuItem key="Admin" className="text-whiteishText">
+              Admin
+            </NavbarMenuItem>
+            {adminMenu.map((item, index) => (
+              <NavbarMenuItem
+                key={`10-${item}-${index}`}
+                className="text-whiteishText"
+              >
+                <Link
+                  as={NextLink}
+                  className="indent-8 lg:block text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
+                  size="lg"
+                  href="#"
+                  onPress={(e) => {
+                    router.push(item.href);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  {item.name}
+                </Link>
+              </NavbarMenuItem>
+            ))}
+          </>
+        )}
       </NavbarMenu>
     </NextUINavbar>
   );

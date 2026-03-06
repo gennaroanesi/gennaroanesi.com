@@ -199,6 +199,55 @@ const schema = a
         camera:        a.enum(["RAYBAN", "COCKPIT", "EXTERIOR", "PASSENGER", "OTHER"]),
         label:         a.string(),               // e.g. "Final approach RWY 18", "Takeoff"
         sortOrder:     a.integer().default(0),   // controls display order in the UI
+        featured:      a.boolean().default(false), // show in public highlights reel
+      })
+      .authorization((allow) => [
+        allow.publicApiKey().to(["read"]),
+        allow.group("admins"),
+      ]),
+
+    // ── FlightAudio ───────────────────────────────────────────────────────────
+    // One record per audio clip attached to a flight.
+    // Sources: personal cockpit recording, extracted video audio, or LiveATC archive clip.
+    // Sync semantics identical to flightMedia: kmlOffsetSec anchors sample 0
+    // to a position on the KML track timeline.
+    flightAudio: a
+      .model({
+        // ── Identity ────────────────────────────────────────────────────
+        flightId:        a.id().required(),        // FK → flight.id
+        s3Key:           a.string().required(),     // S3 key under public/flights/audio/{id}.mp3
+        sourceType:      a.enum(["PERSONAL", "LIVEATC", "COCKPIT_EXTRACTED"]),
+        sourceUrl:       a.url(),                  // attribution URL (LiveATC archive link, etc.)
+        label:           a.string(),               // e.g. "KAUS Approach 125.0", "Cockpit intercom"
+        frequency:       a.string(),               // e.g. "125.025" (MHz, ATC tracks only)
+        durationSec:     a.float(),                // populated on upload
+        sortOrder:       a.integer().default(0),
+
+        // ── Sync ────────────────────────────────────────────────────────
+        kmlOffsetSec:    a.float(),                // seconds into KML track where sample 0 occurs
+        recordedAt:      a.datetime(),             // UTC wall-clock start (drives auto-sync)
+
+        // ── Mix ─────────────────────────────────────────────────────────
+        // mixGain: default playback gain in admin preview (0–1).
+        // Also used as display priority for captions (higher = foreground) when
+        // multiple audio tracks have overlapping segments.
+        mixGain:         a.float().default(1),
+
+        // ── Transcription state machine ─────────────────────────────────
+        // NONE     → no transcription requested yet
+        // PENDING  → admin triggered; DynamoDB Stream fires Lambda
+        // PROCESSING → Lambda picked it up and is running
+        // DONE     → transcript populated
+        // FAILED   → transcriptError explains why
+        transcriptStatus:   a.enum(["NONE", "PENDING", "PROCESSING", "DONE", "FAILED"]),
+        transcriptProgress: a.integer(),           // 0–100, updated during PROCESSING
+        transcriptError:    a.string(),            // last error message if FAILED
+
+        // Transcript stored as JSON string:
+        // [{ startSec, endSec, speaker: "PILOT"|"ATC"|"UNKNOWN", raw, text }]
+        // raw  = Whisper verbatim output
+        // text = Claude-corrected output
+        transcript:       a.string(),
       })
       .authorization((allow) => [
         allow.publicApiKey().to(["read"]),

@@ -64,6 +64,49 @@ function filterFlights(flights: Flight[], month: MonthFilter): Flight[] {
   return flights.filter((f) => f.date.startsWith(month));
 }
 
+// ── Video thumbnail extraction ──────────────────────────────────────────────
+// Cache thumbnails in memory so we only seek each video once.
+const thumbnailCache = new Map<string, string>(); // signedUrl → dataURL
+
+function useThumbnail(signedUrl: string): string | null {
+  const [dataUrl, setDataUrl] = useState<string | null>(
+    () => thumbnailCache.get(signedUrl) ?? null
+  );
+
+  useEffect(() => {
+    if (thumbnailCache.has(signedUrl)) {
+      setDataUrl(thumbnailCache.get(signedUrl)!);
+      return;
+    }
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    const onSeeked = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width  = video.videoWidth  || 320;
+      canvas.height = video.videoHeight || 180;
+      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const url = canvas.toDataURL("image/jpeg", 0.7);
+      thumbnailCache.set(signedUrl, url);
+      setDataUrl(url);
+      video.src = "";
+    };
+    const onLoadedMetadata = () => { video.currentTime = 1; };
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("seeked", onSeeked);
+    video.src = signedUrl;
+    return () => {
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("seeked", onSeeked);
+      video.src = "";
+    };
+  }, [signedUrl]);
+
+  return dataUrl;
+}
+
 // ── Featured videos ───────────────────────────────────────────────────────────
 export type FeaturedVideo = {
   id: string;
@@ -73,6 +116,7 @@ export type FeaturedVideo = {
   camera: string | null;
   sortOrder: number | null;
   kmlOffsetSec: number | null;
+  featured: boolean | null;
 };
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -97,7 +141,6 @@ function useFlightStats(flights: Flight[]) {
     { label: "Night",      value: `${nightHours.toFixed(1)}h` },
     { label: "IMC",        value: `${imcHours.toFixed(1)}h` },
     { label: "Approaches", value: String(totalAppr) },
-    { label: "Airports",   value: String(airports) },
   ];
 }
 
@@ -141,14 +184,24 @@ function deriveDynamics(track: TrackPoint[], t: number): { headingDeg: number; g
   return { headingDeg, groundSpeedKt, vsFpm, gradDeg };
 }
 
+// Approach fix dot colors — mirrors CesiumGlobe constants
+const PIP_FIX_COLORS: Record<string, string> = {
+  IAF: "#facc15",
+  FAF: "#f97316",
+  MAP: "#ef4444",
+};
+const PIP_FIX_DEFAULT = "#93c5fd";
+
 function TrackPiP({
   track, currentTrackSec, color = "#facc15", mobileMapOnly = false, mobileProfileOnly = false,
+  approachFixes = [],
 }: {
   track: TrackPoint[];
   currentTrackSec: number;
   color?: string;
   mobileMapOnly?: boolean;
   mobileProfileOnly?: boolean;
+  approachFixes?: ApproachFix[];
 }) {
   // ── Panel dimensions (desktop PiP)
   const MW = 190, MH = 130, PAD = 10;
@@ -176,6 +229,22 @@ function TrackPiP({
     x: offX + (lon - minLon) * scale,
     y: offY + (maxLat - lat) * scale,
   });
+  // Project approach fixes into the same SVG space — only those with valid coords
+  const validFixes = approachFixes.filter((f) => f.lat !== null && f.lon !== null);
+  const fixSvgPts = validFixes.map((f) => toSvg(f.lat!, f.lon!));
+
+  if (approachFixes.length > 0 || validFixes.length > 0) {
+    console.log(`[TrackPiP] approachFixes received: ${approachFixes.length}, valid (have coords): ${validFixes.length}`);
+    validFixes.forEach((fix, i) => {
+      const pt = fixSvgPts[i];
+      const inBounds = pt.x >= 0 && pt.x <= MW && pt.y >= 0 && pt.y <= MH;
+      console.log(`  [${i}] ${fix.fixId.padEnd(6)} role=${(fix.role || '—').padEnd(3)} lat=${fix.lat?.toFixed(4)} lon=${fix.lon?.toFixed(4)} → svg(${pt.x.toFixed(1)}, ${pt.y.toFixed(1)}) ${inBounds ? '✓ in bounds' : '✗ OUT OF BOUNDS'}`);
+    });
+    console.log(`  map viewport: lon[${minLon.toFixed(4)}…${maxLon.toFixed(4)}] lat[${minLat.toFixed(4)}…${maxLat.toFixed(4)}] scale=${scale.toFixed(1)} center=(${centerLat.toFixed(4)}, ${centerLon.toFixed(4)})`);
+  } else {
+    console.log('[TrackPiP] no approachFixes passed');
+  }
+
   const pts = track.map((p) => { const s = toSvg(p.lat, p.lon); return `${s.x},${s.y}`; }).join(" ");
   const flownIdx = track.findIndex((p) => p.t > currentTrackSec);
   const flownPts = (flownIdx === -1 ? track : track.slice(0, flownIdx + 1))
@@ -230,6 +299,26 @@ function TrackPiP({
             })()}
           </>
         )}
+        {/* Approach waypoints */}
+        {fixSvgPts.map((pt, i) => {
+          const fix = validFixes[i];
+          const dotColor = PIP_FIX_COLORS[fix.role] ?? PIP_FIX_DEFAULT;
+          const isKey = !!fix.role;
+          return (
+            <g key={`fix-${fix.fixId}-${i}`}>
+              <circle cx={pt.x} cy={pt.y} r={isKey ? 4 : 2.5}
+                fill={dotColor} opacity={0.9}
+                stroke="rgba(0,0,0,0.7)" strokeWidth={1} />
+              {isKey && (
+                <text x={pt.x + 5} y={pt.y + 3.5} fontSize={7} fill={dotColor}
+                  fontFamily="monospace" fontWeight="bold"
+                  stroke="rgba(0,0,0,0.8)" strokeWidth={2} paintOrder="stroke">
+                  {fix.fixId}
+                </text>
+              )}
+            </g>
+          );
+        })}
         {dynamics && (
           <>
             <text x={7} y={18} fontSize={13} fill={color} fontFamily="monospace" fontWeight="bold">
@@ -317,6 +406,25 @@ function TrackPiP({
               })()}
             </>
           )}
+            {/* Approach waypoints */}
+          {fixSvgPts.map((pt, i) => {
+            const fix = validFixes[i];
+            const dotColor = PIP_FIX_COLORS[fix.role] ?? PIP_FIX_DEFAULT;
+            const isKey = !!fix.role;
+            return (
+              <g key={`fix-${fix.fixId}-${i}`}>
+                <circle cx={pt.x} cy={pt.y} r={isKey ? 4.5 : 3} fill={dotColor} opacity={0.9}
+                  stroke="rgba(0,0,0,0.6)" strokeWidth={1} />
+                {isKey && (
+                  <text x={pt.x + 6} y={pt.y + 4} fontSize={8} fill={dotColor}
+                    fontFamily="monospace" fontWeight="bold"
+                    style={{ textShadow: "0 0 3px #000" }}>
+                    {fix.fixId}
+                  </text>
+                )}
+              </g>
+            );
+          })}
           {/* HUD: heading + GS */}
           {dynamics && (
             <>
@@ -388,11 +496,12 @@ function TrackPiP({
 
 // ── VideoChip ───────────────────────────────────────────────────────────────────
 function VideoChip({
-  video, size = "md", track, onPlaneTime,
+  video, size = "md", track, approachFixes = [], onPlaneTime,
 }: {
   video: FeaturedVideo;
   size?: "sm" | "md";
-  track?: TrackPoint[]; // KML track for PiP mini-map
+  track?: TrackPoint[];
+  approachFixes?: ApproachFix[];
   onPlaneTime?: (trackSec: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -443,26 +552,50 @@ function VideoChip({
   };
 
   const hasPiP = !!track && track.length > 1 && trackOffsetSec != null;
+  const thumbnail = useThumbnail(video.signedUrl);
+
+  // Card dimensions
+  const cardW = size === "sm" ? 96  : 120;
+  const cardH = size === "sm" ? 54  : 68;
 
   return (
     <>
       <button
         onClick={() => setOpen(true)}
-        className={`shrink-0 flex items-center gap-2 rounded border border-darkBorder
-          hover:border-gold/40 hover:bg-gold/5 transition-all group
-          ${size === "sm" ? "px-2.5 py-1" : "px-3 py-1.5"}`}
+        className="shrink-0 flex flex-col rounded overflow-hidden border border-darkBorder
+          hover:border-gold/40 transition-all group"
+        style={{ width: cardW }}
       >
-        <svg
-          width={size === "sm" ? 10 : 12}
-          height={size === "sm" ? 10 : 12}
-          viewBox="0 0 24 24" fill="currentColor"
-          className="text-gray-500 group-hover:text-gold transition-colors shrink-0"
-        >
-          <polygon points="5 3 19 12 5 21 5 3" />
-        </svg>
-        <span className={`${size === "sm" ? "text-[10px] text-gray-500" : "text-xs text-gray-400"} group-hover:text-gray-200 transition-colors`}>
-          {label}
-        </span>
+        {/* Thumbnail */}
+        <div className="relative w-full overflow-hidden bg-darkBg" style={{ height: cardH }}>
+          {thumbnail
+            ? <img src={thumbnail} alt={label} className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"
+                  className="text-gray-700">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              </div>
+          }
+          {/* Play overlay */}
+          <div className="absolute inset-0 flex items-center justify-center
+            opacity-0 group-hover:opacity-100 transition-opacity
+            bg-black/30">
+            <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="white">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+            </div>
+          </div>
+        </div>
+        {/* Title */}
+        <div className="px-1.5 py-1 bg-darkSurface w-full">
+          <span className={`block truncate text-left ${
+            size === "sm" ? "text-[9px]" : "text-[10px]"
+          } text-gray-500 group-hover:text-gray-300 transition-colors font-mono`}>
+            {label}
+          </span>
+        </div>
       </button>
 
       {open && (
@@ -488,7 +621,7 @@ function VideoChip({
               {hasPiP && (
                 <div className="flex gap-2 px-2 py-2 shrink-0" style={{ background: "rgba(10,14,26,0.98)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
                   <div className="flex-1 rounded-lg overflow-hidden" style={{ background: "rgba(15,20,35,1)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                    <TrackPiP track={track!} currentTrackSec={currentTrackSec} mobileMapOnly />
+                    <TrackPiP track={track!} currentTrackSec={currentTrackSec} approachFixes={approachFixes} mobileMapOnly />
                   </div>
                   <div className="flex-1 rounded-lg overflow-hidden" style={{ background: "rgba(15,20,35,1)", border: "1px solid rgba(255,255,255,0.08)" }}>
                     <TrackPiP track={track!} currentTrackSec={currentTrackSec} mobileProfileOnly />
@@ -515,6 +648,7 @@ function VideoChip({
                   <TrackPiP
                     track={track!}
                     currentTrackSec={currentTrackSec}
+                    approachFixes={approachFixes}
                   />
                 )}
               </div>
@@ -531,7 +665,7 @@ function VideoChip({
 
 // ── Desktop header panel (stats + videos + filter) ───────────────────────────
 function DesktopHeader({
-  allFlights, filteredFlights, monthFilter, onMonthChange, videos, getTrack, onPlaneTime,
+  allFlights, filteredFlights, monthFilter, onMonthChange, videos, getTrack, getApproachFixes, onPlaneTime,
 }: {
   allFlights: Flight[];
   filteredFlights: Flight[];
@@ -539,6 +673,7 @@ function DesktopHeader({
   onMonthChange: (m: MonthFilter) => void;
   videos: FeaturedVideo[];
   getTrack: (flightId: string) => TrackPoint[] | undefined;
+  getApproachFixes: (flightId: string) => ApproachFix[];
   onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
 }) {
   const stats  = useFlightStats(filteredFlights);
@@ -547,8 +682,10 @@ function DesktopHeader({
 
   return (
     <div className="shrink-0 border-b border-darkBorder bg-darkSurface">
-      {/* ── Stats row ── */}
-      <div className="flex items-stretch gap-0 border-b border-darkBorder/60 overflow-x-auto">
+      {/* ── Stats + highlights + filter — single row ── */}
+      <div className="flex items-stretch gap-0 border-b border-darkBorder/60 overflow-x-auto"
+        style={{ scrollbarWidth: "none" }}>
+        {/* Stat cells */}
         {stats.map(({ label, value }, i) => (
           <div
             key={label}
@@ -559,6 +696,27 @@ function DesktopHeader({
             <span className="text-[10px] text-gray-500 uppercase tracking-widest font-mono mt-1 leading-none">{label}</span>
           </div>
         ))}
+
+        {/* Highlights — shown inline when videos exist */}
+        {videos.length > 0 && (
+          <>
+            <div className="w-px bg-darkBorder/60 shrink-0 my-2" />
+            <div className="flex items-center gap-3 px-4 py-2 overflow-x-auto shrink-0"
+              style={{ scrollbarWidth: "none" }}>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-gray-600 shrink-0">Highlights</span>
+              {videos.map((v) => (
+                <VideoChip
+                  key={v.id} video={v}
+                  track={getTrack(v.flightId)}
+                  approachFixes={getApproachFixes(v.flightId)}
+                  onPlaneTime={v.kmlOffsetSec != null
+                    ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
+                    : undefined}
+                />
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Spacer so filter pills right-align */}
         <div className="flex-1" />
@@ -594,29 +752,13 @@ function DesktopHeader({
           })}
         </div>
       </div>
-
-      {/* ── Featured videos row — only shown when videos exist ── */}
-      {videos.length > 0 && (
-        <div className="flex gap-3 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-gray-600 self-center shrink-0">Highlights</span>
-          {videos.map((v) => (
-            <VideoChip
-              key={v.id} video={v}
-              track={getTrack(v.flightId)}
-              onPlaneTime={v.kmlOffsetSec != null
-                ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
-                : undefined}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
 // ── Mobile header (stats pills + filter + videos) — inside the drawer ────────
 function MobileHeader({
-  allFlights, filteredFlights, monthFilter, onMonthChange, videos, getTrack, onPlaneTime,
+  allFlights, filteredFlights, monthFilter, onMonthChange, videos, getTrack, getApproachFixes, onPlaneTime,
 }: {
   allFlights: Flight[];
   filteredFlights: Flight[];
@@ -624,6 +766,7 @@ function MobileHeader({
   onMonthChange: (m: MonthFilter) => void;
   videos: FeaturedVideo[];
   getTrack: (flightId: string) => TrackPoint[] | undefined;
+  getApproachFixes: (flightId: string) => ApproachFix[];
   onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
 }) {
   const stats  = useFlightStats(filteredFlights);
@@ -692,6 +835,7 @@ function MobileHeader({
             <VideoChip
               key={v.id} video={v} size="sm"
               track={getTrack(v.flightId)}
+              approachFixes={getApproachFixes(v.flightId)}
               onPlaneTime={v.kmlOffsetSec != null
                 ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
                 : undefined}
@@ -869,12 +1013,13 @@ type FlightDetailProps = {
   onClose: () => void;
   videos?: FeaturedVideo[];
   getTrack?: (flightId: string) => TrackPoint[] | undefined;
+  getApproachFixes?: (flightId: string) => ApproachFix[];
   onPlaneTime?: (v: { flightId: string; trackSec: number } | null) => void;
 };
 
 function FlightDetail({
   flight, activeApproachKey, approachLoading, unavailableApproaches,
-  onApproachClick, onClose, videos = [], getTrack, onPlaneTime,
+  onApproachClick, onClose, videos = [], getTrack, getApproachFixes, onPlaneTime,
 }: FlightDetailProps) {
   const flightVideos = videos.filter((v) => v.flightId === flight.id);
   const approaches = parseApproachTypes(flight.approachTypes);
@@ -1019,6 +1164,7 @@ function FlightDetail({
                   key={v.id}
                   video={v}
                   track={getTrack?.(v.flightId)}
+                  approachFixes={getApproachFixes?.(v.flightId)}
                   onPlaneTime={v.kmlOffsetSec != null
                     ? (t) => onPlaneTime?.(t != null ? { flightId: v.flightId, trackSec: t } : null)
                     : undefined}
@@ -1044,7 +1190,7 @@ type DrawerState = "peek" | "list" | "detail";
 
 function MobileDrawer({
   state, allFlights, flights, loading, selected, selectedId, years,
-  monthFilter, onMonthChange, videos, getTrack,
+  monthFilter, onMonthChange, videos, getTrack, getApproachFixes,
   activeApproachKey, approachLoading, unavailableApproaches,
   onApproachClick, onSelect, onClose, onStateChange, onPlaneTime,
 }: {
@@ -1059,6 +1205,7 @@ function MobileDrawer({
   onMonthChange: (m: MonthFilter) => void;
   videos: FeaturedVideo[];
   getTrack: (flightId: string) => TrackPoint[] | undefined;
+  getApproachFixes: (flightId: string) => ApproachFix[];
   activeApproachKey: string | null;
   approachLoading: string | null;
   unavailableApproaches: Set<string>;
@@ -1147,6 +1294,7 @@ function MobileDrawer({
               onClose={onClose}
               videos={videos}
               getTrack={getTrack}
+              getApproachFixes={getApproachFixes}
               onPlaneTime={onPlaneTime}
             />
           ) : (
@@ -1171,8 +1319,9 @@ function MobileDrawer({
                   filteredFlights={flights}
                   monthFilter={monthFilter}
                   onMonthChange={onMonthChange}
-                  videos={videos}
+                  videos={videos.filter((v) => v.featured)}
                   getTrack={getTrack}
+                  getApproachFixes={getApproachFixes}
                   onPlaneTime={onPlaneTime}
                 />
               )}
@@ -1242,6 +1391,34 @@ export default function FlyingPage() {
     void tracksVersion; // reactive dependency so this updates after tracks load
     return trackMap.current.get(flightId);
   }, [tracksVersion]);
+
+  // Return all approach fixes for any approach linked to a given flight,
+  // merged across all procedures (e.g. multiple approaches on one flight).
+  const getApproachFixes = useCallback((flightId: string): ApproachFix[] => {
+    const flight = flights.find((f) => f.id === flightId);
+    if (!flight) return [];
+    const approaches = parseApproachTypes(flight.approachTypes);
+    console.log(`[getApproachFixes] flight=${flightId} approachTypes=${JSON.stringify(flight.approachTypes)}`);
+    console.log(`[getApproachFixes] parsed approaches:`, approaches);
+    const fixes: ApproachFix[] = [];
+    for (const appr of approaches) {
+      // Try both with and without empty-string transition key
+      const key0 = `${appr.icao}|${appr.procedure}|`;
+      const record = approachCache.current.get(key0);
+      console.log(`[getApproachFixes]   ${key0} → ${record ? `found (${JSON.parse(record.fixes ?? '[]').length} fixes)` : 'MISS'}`);
+      if (!record) {
+        // Dump nearby cache keys to help diagnose
+        const nearby = [...approachCache.current.keys()].filter((k) => k.startsWith(appr.icao));
+        console.log(`[getApproachFixes]   cache keys for ${appr.icao}:`, nearby);
+        continue;
+      }
+      try {
+        const parsed: ApproachFix[] = JSON.parse(record.fixes);
+        fixes.push(...parsed.filter((f) => f.lat !== null && f.lon !== null));
+      } catch { /* malformed */ }
+    }
+    return fixes;
+  }, [flights]);
 
   // Approach state
   const [activeApproach,         setActiveApproach]         = useState<ActiveApproach | null>(null);
@@ -1354,7 +1531,7 @@ export default function FlyingPage() {
         const mediaResult = await (client as any).graphql({
           query: `query ListFlightMedia($limit: Int, $nextToken: String) {
             listFlightMedias(limit: $limit, nextToken: $nextToken) {
-              items { id flightId s3Key label camera sortOrder kmlOffsetSec }
+              items { id flightId s3Key label camera sortOrder kmlOffsetSec featured }
               nextToken
             }
           }`,
@@ -1464,8 +1641,9 @@ export default function FlyingPage() {
             filteredFlights={visibleFlights}
             monthFilter={monthFilter}
             onMonthChange={setMonthFilter}
-            videos={videos}
+            videos={videos.filter((v) => v.featured)}
             getTrack={getTrack}
+            getApproachFixes={getApproachFixes}
             onPlaneTime={setPlaneCursor}
           />
         )}
@@ -1492,6 +1670,7 @@ export default function FlyingPage() {
                 onClose={handleClose}
                 videos={videos}
                 getTrack={getTrack}
+                getApproachFixes={getApproachFixes}
                 onPlaneTime={setPlaneCursor}
               />
             ) : (
@@ -1573,6 +1752,7 @@ export default function FlyingPage() {
             onMonthChange={setMonthFilter}
             videos={videos}
             getTrack={getTrack}
+            getApproachFixes={getApproachFixes}
             activeApproachKey={activeApproachKey}
             approachLoading={approachLoading}
             unavailableApproaches={unavailableApproaches}

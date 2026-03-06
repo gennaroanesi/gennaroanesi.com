@@ -25,6 +25,7 @@ type FlightMedia = {
   camera: string | null;
   sortOrder: number | null;
   kmlOffsetSec: number | null;  // seconds into KML track where frame 0 occurs
+  featured: boolean | null;
   signedUrl?: string;
   flightLabel?: string;
 };
@@ -896,16 +897,18 @@ function ManualSyncModal({
 
 // ── Video row ─────────────────────────────────────────────────────────────────
 
-function VideoRow({ media, track, onDelete, onSynced, deleting }: {
+function VideoRow({ media, track, onDelete, onSynced, onFeaturedToggle, deleting }: {
   media: FlightMedia;
-  track: KmlTrack | null;  // KML track for this video's flight, if loaded
+  track: KmlTrack | null;
   onDelete: () => void;
   onSynced: (kmlOffsetSec: number | null) => void;
+  onFeaturedToggle: (featured: boolean) => void;
   deleting: boolean;
 }) {
   const [showPreview,   setShowPreview]   = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [syncing,       setSyncing]       = useState(false);
+  const [togglingFeatured, setTogglingFeatured] = useState(false);
 
   const handleSync = async () => {
     if (!track) return;
@@ -965,6 +968,19 @@ function VideoRow({ media, track, onDelete, onSynced, deleting }: {
     }
   };
 
+  const handleFeaturedToggle = async () => {
+    setTogglingFeatured(true);
+    try {
+      const next = !media.featured;
+      await (client.models.flightMedia as any).update({ id: media.id, featured: next });
+      onFeaturedToggle(next);
+    } catch (e: any) {
+      alert(`Update failed: ${e.message}`);
+    } finally {
+      setTogglingFeatured(false);
+    }
+  };
+
   const handleUnsync = async () => {
     try {
       await (client.models.flightMedia as any).update({ id: media.id, kmlOffsetSec: null });
@@ -1019,6 +1035,18 @@ function VideoRow({ media, track, onDelete, onSynced, deleting }: {
         {media.sortOrder ?? 0}
       </td>
       <td className="px-4 py-3 whitespace-nowrap">{syncBadge}</td>
+      <td className="px-4 py-3 text-center">
+        <button
+          onClick={handleFeaturedToggle}
+          disabled={togglingFeatured}
+          title={media.featured ? "Remove from highlights" : "Add to highlights"}
+          className={`text-lg leading-none transition-colors disabled:opacity-40 ${
+            media.featured ? "text-gold hover:text-gold/60" : "text-gray-700 hover:text-gold/60"
+          }`}
+        >
+          ★
+        </button>
+      </td>
       <td className="px-4 py-3 whitespace-nowrap">
         {media.signedUrl ? (
           <button
@@ -1213,7 +1241,7 @@ export default function AdminVideosPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-darkSurface border-b border-darkBorder">
-                  {["Flight", "Label / S3 Key", "Camera", "Order", "Sync", "Preview", ""].map((h) => (
+                  {["Flight", "Label / S3 Key", "Camera", "Order", "Sync", "★", "Preview", ""].map((h) => (
                     <th key={h} className="px-4 py-2.5 text-left text-xs font-mono text-gray-600 uppercase tracking-widest">{h}</th>
                   ))}
                 </tr>
@@ -1232,6 +1260,9 @@ export default function AdminVideosPage() {
                       onDelete={() => handleDelete(m)}
                       onSynced={(offset) => setVideos((prev) =>
                         prev.map((v) => v.id === m.id ? { ...v, kmlOffsetSec: offset ?? null } : v)
+                      )}
+                      onFeaturedToggle={(featured) => setVideos((prev) =>
+                        prev.map((v) => v.id === m.id ? { ...v, featured } : v)
                       )}
                       deleting={deleting.has(m.id)}
                     />

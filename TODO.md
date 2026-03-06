@@ -2,34 +2,12 @@
 
 ## Flights (personal website)
 
-### Flying page — stats header
-- Add a summary bar at the top of the flying page with key logbook stats
-- Total hours, total PIC, total cross-country, total night, total IMC/IFR
-- Number of unique airports visited, number of instrument approaches
-- Consider a "hours by year" sparkline or bar chart
-- Mobile: collapse into a horizontally-scrollable pill row
+### ~~Flying page — stats header~~ ✅
+### ~~Flying page — milestones timeline~~ ✅
+### ~~Flying page — highlight reel (Meta Rayban videos)~~ ✅
+### ~~Per-flight media section~~ ✅
 
-### Flying page — milestones timeline
-- Vertical or horizontal timeline showing flights with `milestone` set
-- E.g. "First Solo", "First Solo XC", "Checkride", "IPC", etc.
-- Could double as a visual logbook narrative — scroll through the story of training
-- Each entry: date, from→to, milestone label, optional short notes excerpt
-
-### Flying page — highlight reel (Meta Rayban videos)
-- Curated section with 4–5 featured videos (best Meta Rayban clips)
-- Each video has a caption, and optionally links to a flight detail
-- Autoplaying muted loop on desktop, tap-to-play on mobile
-- Could be a full-width horizontal scroll or a grid
-- Uses the existing `flightMedia` model — flag certain entries as "featured" (add `isFeatured: boolean` field or use `sortOrder` convention)
-
-### Per-flight media section
-- In the flight detail panel, add a "Media" section below Approaches
-- Queries `flightMedia` by `flightId`, renders embedded video players (YouTube/Vimeo)
-- Shows `label`, `camera` type badge, and `offsetSec` (if set, show "starts at Xm Ys into flight")
-- Admin UI: attach/remove videos per flight, set offset and label
-- Mobile: media section scrolls horizontally as video cards
-
-### Email-triggered logbook import
+### Email-triggered logbook import ← next up
 - Set up email address `logbookimport@gennaroanesi.com` via AWS SES
 - Forward a ForeFlight CSV export email to that address — SES stores it in S3, triggers Lambda
 - Lambda parses the attachment (ForeFlight CSV), maps columns to the `flight` model, upserts new records
@@ -39,9 +17,43 @@
 - Tech stack: SES receipt rule → S3 → Lambda (Node) → AppSync mutations
 - Steps: verify `gennaroanesi.com` domain in SES, add MX record pointing to SES inbound endpoint, configure receipt rule set, write Lambda handler reusing existing `import_flights.mjs` logic
 
-### KML upload flow
-- After importing a flight, upload the corresponding KML to S3 and update `kmlS3Key` on the record
-- Consider a drag-and-drop UI in the admin panel that matches KML filename to flight by date/route
+### ~~KML upload flow~~ ✅
+
+### Full-screen replay mode ← next after email import
+- Dedicated flight replay view: cockpit video fills the screen, Cesium globe animates alongside at full size (not PiP)
+- Globe camera follows the plane in real time — heading, altitude, bank angle driving the 3D view
+- Transcript scrolls in sync on the side (once subtitle feature is built)
+- Vertical profile strip at the bottom scrubbing with playback
+- Shareable URL per flight for instructor review
+
+### Transcript as searchable index
+- Search across all flight transcripts by keyword or phrase
+- e.g. "go around", "descend and maintain 3000", "traffic alert"
+- Results show flight, timestamp, and speaker; clicking jumps to that moment in the audio (+ synced video if available)
+- Requires transcripts to be indexed — could be a simple DynamoDB scan or a dedicated search layer
+
+### Flight debrief view
+- Single-flight page combining all data into a produced narrative
+- Timeline scrubber across the top driving everything
+- Cesium globe below, transcript on the side in sync, video playing when available, vertical profile at the bottom
+- Shareable with an instructor as a read-only link (token-gated route)
+- Natural endpoint of the video + audio + track system
+
+### Approach analysis / scoring
+- Automatically score each approach using KML track + fix coordinates + procedure data
+- Questions: was aircraft stabilized at FAF? Did it intercept glideslope from below? How close was MAP crossing to published DA?
+- Display as a grade card in the flight detail panel
+- All data already available — just needs analysis logic
+
+### Instructor sharing / review links
+- Generate time-limited shareable link for a specific flight
+- Read-only view of replay + transcript for a non-authenticated user
+- Simple token-gated route, no new infra needed
+
+### Cross-flight pattern recognition
+- Aggregate dashboard layer: how often flight following requested, approaches by type over time, IMC hours by month
+- Requires enough transcribed flights to be meaningful
+- Low priority until transcript coverage is higher
 
 ### Approach chart overlay on map (MAJOR FEATURE)
 This is the most ambitious feature — plotting the FAA approach plate on the 3D map as a geo-registered overlay, with the actual flown vertical path drawn on top.

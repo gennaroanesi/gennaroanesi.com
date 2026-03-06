@@ -20,6 +20,8 @@ amplifyconfiguration*
 # others
 .local
 
+.venv
+
 *.temp
 temp/
 

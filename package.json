@@ -48,6 +48,7 @@
     "cldr-data": "^36.0.4",
     "clsx": "2.1.1",
     "dayjs": "^1.11.13",
+    "docker": "^1.0.0",
     "embla-carousel-react": "^8.6.0",
     "fast-sort": "^3.4.1",
     "framer-motion": "^12.6.3",

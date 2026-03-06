@@ -1,0 +1,23 @@
+# Exclude everything that isn't needed to build the Lambda image.
+# This keeps the build context small AND ensures the CDK asset hash
+# is stable across runs (no generated files, metadata, or local caches
+# polluting the hash computation).
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# CDK / Node
+cdk.out/
+node_modules/
+*.js.map
+
+# Scripts (not needed in the image)
+scripts/
+
+# Local dev artifacts
+.DS_Store
+*.swp

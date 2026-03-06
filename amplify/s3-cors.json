@@ -1,0 +1,16 @@
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://gennaroanesi.com",
+        "https://www.gennaroanesi.com"
+      ],
+      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+      "AllowedHeaders": ["*"],
+      "ExposeHeaders": ["ETag", "x-amz-request-id"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
