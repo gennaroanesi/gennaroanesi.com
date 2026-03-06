@@ -1,5 +1,5 @@
 import { defineBackend } from "@aws-amplify/backend";
-import { Effect, Policy, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { Effect, Policy, PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { CfnUserPool } from "aws-cdk-lib/aws-cognito";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import {
@@ -12,17 +12,20 @@ import { Repository } from "aws-cdk-lib/aws-ecr";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Duration, Size } from "aws-cdk-lib";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
+import amplifyOutputs from "../amplify_outputs.json";
 
 import { auth } from "./auth/resource";
 import { data } from "./data/resource";
 import { sendNotification } from "./functions/sendNotification/resource";
 import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
+import { importLogbook } from "./functions/importLogbook/resource";
 
 const backend = defineBackend({
   auth,
   data,
   sendNotification,
   checkAmmoThresholds,
+  importLogbook,
   //storage,
 });
 
@@ -226,6 +229,61 @@ checkFn.addEventSource(
     ],
   }),
 );
+
+// ── importLogbook infrastructure ─────────────────────────────────────────────
+// SES receipt rule stores raw inbound email to S3 → triggers this Lambda.
+// Manual setup required (see scripts/setup-ses-inbound.sh):
+//   1. Verify gennaroanesi.com domain in SES
+//   2. Add MX record: 10 inbound-smtp.us-east-1.amazonaws.com
+//   3. Create SES receipt rule set + rule (handled in setup script)
+
+const importFn = backend.importLogbook.resources.lambda as LambdaFunction;
+const importFlightTable = tables["flight"];
+
+// AppSync URL + API key for mutations (amplifyOutputs imported at top of file)
+importFn.addEnvironment("APPSYNC_URL",     (amplifyOutputs as any).data.url);
+importFn.addEnvironment("APPSYNC_API_KEY", (amplifyOutputs as any).data.api_key ?? "");
+importFn.addEnvironment("FLIGHT_TABLE_NAME", importFlightTable.tableName);
+
+// DynamoDB read for dedup scan
+importFlightTable.grantReadData(importFn);
+
+// AppSync write — Lambda calls AppSync directly via HTTP (API key auth)
+// No extra IAM needed for API key auth.
+
+// S3: read raw emails deposited by SES
+importFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetObject"],
+    resources: [`${customBucket.bucketArn}/private/email-import/*`],
+  }),
+);
+
+// SES: send summary reply email
+importFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["ses:SendEmail", "ses:SendRawEmail"],
+    resources: ["*"],
+  }),
+);
+
+// S3 trigger: fires when SES writes a new email object
+importFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetBucketNotification", "s3:PutBucketNotification"],
+    resources: [customBucket.bucketArn],
+  }),
+);
+
+// Allow S3 to invoke the Lambda (also done in setup-ses-inbound.sh for SES direct invoke)
+importFn.addPermission("S3InvokeImportLogbook", {
+  principal: new ServicePrincipal("s3.amazonaws.com"),
+  action:    "lambda:InvokeFunction",
+  sourceArn: customBucket.bucketArn,
+});
 
 // ── transcribeAudio infrastructure ──────────────────────────────────────────
 // Python container Lambda — cannot use defineFunction (Node.js only).

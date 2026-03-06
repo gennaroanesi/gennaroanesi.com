@@ -7,7 +7,7 @@
 ### ~~Flying page — highlight reel (Meta Rayban videos)~~ ✅
 ### ~~Per-flight media section~~ ✅
 
-### Email-triggered logbook import ← next up
+### ~~Email-triggered logbook import~~ ✅
 - Set up email address `logbookimport@gennaroanesi.com` via AWS SES
 - Forward a ForeFlight CSV export email to that address — SES stores it in S3, triggers Lambda
 - Lambda parses the attachment (ForeFlight CSV), maps columns to the `flight` model, upserts new records
