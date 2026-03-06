@@ -60,6 +60,7 @@ async function directConsume(
   targetItemId: string,
   roundsToConsume: number,
   details: Map<string, AmmoRecord>,
+  totalRoundsForRecord: (ammo: AmmoRecord) => number,
 ): Promise<{
   updatedDetails: Map<string, AmmoRecord>;
   consumed: number;
@@ -69,7 +70,7 @@ async function directConsume(
   if (!ammo)
     return { updatedDetails: details, consumed: 0, shortfall: roundsToConsume };
 
-  const available = ammo.roundsAvailable ?? 0;
+  const available = ammo.roundsAvailable ?? totalRoundsForRecord(ammo);
   const take = Math.min(available, roundsToConsume);
   const newAvail = available - take;
   const shortfall = roundsToConsume - take;
@@ -222,12 +223,16 @@ export default function AmmoPage() {
           setDetails((prev) => new Map(prev).set(newItem.id, newAmmo));
         }
       } else if (panel?.kind === "edit") {
-        // If quantity/roundsPerUnit changed, adjust roundsAvailable proportionally
+        // Use manual roundsAvailable override if the user set it in the form;
+        // otherwise preserve the existing value (respecting prior log-use deductions).
         const prevAmmo = panel.ammo;
-        const prevTotal = totalRoundsForRecord(prevAmmo);
-        const prevAvail = prevAmmo.roundsAvailable ?? prevTotal;
-        const consumed = prevTotal - prevAvail;
-        const newAvail = Math.max(0, totalRounds - consumed);
+        const prevAvail =
+          prevAmmo.roundsAvailable ?? totalRoundsForRecord(prevAmmo);
+        const draftAvail = ammoDraft.roundsAvailable;
+        const newAvail =
+          draftAvail !== undefined && draftAvail !== prevAvail
+            ? Math.min(draftAvail, totalRounds)
+            : Math.min(prevAvail, totalRounds);
 
         await client.models.inventoryItem.update({
           id: panel.item.id,
@@ -322,6 +327,7 @@ export default function AmmoPage() {
           entry.itemId,
           entry.rounds as number,
           currentDetails,
+          totalRoundsForRecord,
         );
         currentDetails = updatedDetails;
         results.push({
