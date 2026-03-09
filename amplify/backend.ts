@@ -12,6 +12,8 @@ import { Repository } from "aws-cdk-lib/aws-ecr";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { Duration, Size } from "aws-cdk-lib";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
+import { CfnApi, CfnIntegration, CfnRoute, CfnStage } from "aws-cdk-lib/aws-apigatewayv2";
+import { CfnOutput } from "aws-cdk-lib";
 
 
 import { auth } from "./auth/resource";
@@ -19,6 +21,9 @@ import { data } from "./data/resource";
 import { sendNotification } from "./functions/sendNotification/resource";
 import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
+import { whatsappAck } from "./functions/whatsappAck/resource";
+import { whatsappAgent } from "./functions/whatsappAgent/resource";
+import { notesApi } from "./functions/notesApi/resource";
 
 const backend = defineBackend({
   auth,
@@ -26,6 +31,9 @@ const backend = defineBackend({
   sendNotification,
   checkAmmoThresholds,
   importLogbook,
+  notesApi,
+  whatsappAck,
+  whatsappAgent,
   //storage,
 });
 
@@ -278,6 +286,189 @@ importFn.addToRolePolicy(
     resources: [customBucket.bucketArn],
   }),
 );
+
+// ── notesApi infrastructure ─────────────────────────────────────────────────
+// HTTP API Gateway → Lambda → S3 PARA/
+// Auth: Bearer token stored in gennaroanesi/notes secret
+// Create once:
+//   aws secretsmanager create-secret --name gennaroanesi/notes \
+//     --secret-string '{"token":"<generate a strong random token>"}'
+//
+// After deploy, the API URL is printed in the stack outputs as NotesApiUrl.
+// Use it in Claude as: https://<id>.execute-api.us-east-1.amazonaws.com
+
+{
+  // Lambda lives in the "data" resource group (same nested stack as other data functions).
+  // API Gateway constructs go in backend.stack (root) to avoid circular dependencies.
+  const notesFn    = backend.notesApi.resources.lambda as LambdaFunction;
+  const notesScope = backend.stack;
+
+  // Secret: the bearer token Claude will use
+  const notesSecret = Secret.fromSecretNameV2(
+    notesScope,
+    "NotesApiSecret",
+    "gennaroanesi/notes",
+  );
+  notesSecret.grantRead(notesFn);
+
+  // Env vars — injected via cfnFn to avoid cross-stack addEnvironment issues
+  const cfnNotesFn = notesFn.node.defaultChild as any;
+  Object.assign(cfnNotesFn, {
+    environment: {
+      variables: {
+        BUCKET_NAME:      "gennaroanesi.com",
+        NOTES_API_TOKEN:  notesSecret.secretValueFromJson("token").unsafeUnwrap(),
+      },
+    },
+  });
+
+  // S3 permissions — PARA/ prefix only
+  notesFn.addToRolePolicy(new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+    resources: ["arn:aws:s3:::gennaroanesi.com/PARA/*"],
+  }));
+  notesFn.addToRolePolicy(new PolicyStatement({
+    effect:    Effect.ALLOW,
+    actions:   ["s3:ListBucket"],
+    resources: ["arn:aws:s3:::gennaroanesi.com"],
+    conditions: { StringLike: { "s3:prefix": ["PARA/", "PARA/*"] } },
+  }));
+
+  // HTTP API (L1 constructs — no alpha packages needed)
+  const cfnApi = new CfnApi(notesScope, "NotesHttpApi", {
+    name:         "notesApi",
+    description:  "Household PARA vault CRUD",
+    protocolType: "HTTP",
+    corsConfiguration: {
+      allowHeaders: ["Authorization", "Content-Type"],
+      allowMethods: ["GET", "PUT", "DELETE", "OPTIONS"],
+      allowOrigins: ["*"],
+    },
+  });
+
+  // Auto-deploy $default stage
+  new CfnStage(notesScope, "NotesDefaultStage", {
+    apiId:      cfnApi.ref,
+    stageName:  "$default",
+    autoDeploy: true,
+  });
+
+  // Lambda proxy integration
+  const cfnIntegration = new CfnIntegration(notesScope, "NotesLambdaIntegration", {
+    apiId:                cfnApi.ref,
+    integrationType:      "AWS_PROXY",
+    integrationUri:       notesFn.functionArn,
+    payloadFormatVersion: "2.0",
+  });
+
+  // Grant API Gateway permission to invoke the Lambda
+  notesFn.addPermission("NotesApiGatewayInvoke", {
+    principal:   new ServicePrincipal("apigateway.amazonaws.com"),
+    action:      "lambda:InvokeFunction",
+    sourceArn:   `arn:aws:execute-api:us-east-1:*:${cfnApi.ref}/*`,
+  });
+
+  // Routes
+  new CfnRoute(notesScope, "NotesListRoute", {
+    apiId:    cfnApi.ref,
+    routeKey: "GET /notes",
+    target:   `integrations/${cfnIntegration.ref}`,
+  });
+  new CfnRoute(notesScope, "NotesGetRoute", {
+    apiId:    cfnApi.ref,
+    routeKey: "GET /notes/{key+}",
+    target:   `integrations/${cfnIntegration.ref}`,
+  });
+  new CfnRoute(notesScope, "NotesPutRoute", {
+    apiId:    cfnApi.ref,
+    routeKey: "PUT /notes/{key+}",
+    target:   `integrations/${cfnIntegration.ref}`,
+  });
+  new CfnRoute(notesScope, "NotesDeleteRoute", {
+    apiId:    cfnApi.ref,
+    routeKey: "DELETE /notes/{key+}",
+    target:   `integrations/${cfnIntegration.ref}`,
+  });
+
+  // Output URL — printed after deploy, needed to configure Claude
+  new CfnOutput(notesScope, "NotesApiUrl", {
+    value:       `https://${cfnApi.ref}.execute-api.us-east-1.amazonaws.com`,
+    description: "Notes API base URL — use as NOTES_API_URL in Claude",
+  });
+}
+
+// ── WhatsApp agent infrastructure ───────────────────────────────────────────
+// Secrets: Twilio creds + Anthropic API key
+// These are already in gennaroanesi/twilio and gennaroanesi/transcribe
+// For the agent we need a new secret for the Anthropic key if not already there:
+//   aws secretsmanager create-secret --name gennaroanesi/agent \
+//     --secret-string '{"anthropicApiKey":"sk-ant-xxx"}'
+
+const agentSecret = Secret.fromSecretNameV2(
+  backend.stack,
+  "AgentSecret",
+  "gennaroanesi/agent",
+);
+
+const ackFn   = backend.whatsappAck.resources.lambda   as LambdaFunction;
+const agentFn = backend.whatsappAgent.resources.lambda as LambdaFunction;
+
+// Lambda A (ack): just needs to invoke Lambda B and validate Twilio
+agentFn.grantInvoke(ackFn);
+ackFn.addEnvironment("AGENT_LAMBDA_ARN", agentFn.functionArn);
+ackFn.addEnvironment("TWILIO_AUTH_TOKEN",
+  twilioSecret.secretValueFromJson("authToken").unsafeUnwrap()
+);
+// WEBHOOK_URL is set manually after deploy (API Gateway URL not known at synth time)
+// ackFn.addEnvironment("WEBHOOK_URL", "https://YOUR_APIGW_URL/whatsapp/webhook");
+
+// Lambda B (agent): needs DynamoDB, S3, Twilio, Anthropic
+// Guard each table — finance tables only exist after Windows-side schema is merged
+const agentTableNames = [
+  "agentMessage",
+  "task",
+  "notificationPerson",
+  "inventoryAmmo",
+  "financeAccount",
+  "financeTransaction",
+] as const;
+agentTableNames.forEach((name) => {
+  const t = tables[name as keyof typeof tables];
+  if (t) t.grantReadWriteData(agentFn);
+});
+
+// S3: PARA notes + pending confirmations
+agentFn.addToRolePolicy(new PolicyStatement({
+  effect:  Effect.ALLOW,
+  actions: ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+  resources: [
+    `${customBucket.bucketArn}/PARA/*`,
+    `${customBucket.bucketArn}/private/agent-pending/*`,
+    customBucket.bucketArn,
+  ],
+}));
+
+// Twilio + Anthropic secrets
+[twilioSecret, agentSecret].forEach((s) => s.grantRead(agentFn));
+
+const cfnAgentFn = agentFn.node.defaultChild as any;
+Object.assign(cfnAgentFn, {
+  environment: {
+    variables: {
+      TWILIO_ACCOUNT_SID:   twilioSecret.secretValueFromJson("accountSid").unsafeUnwrap(),
+      TWILIO_AUTH_TOKEN:    twilioSecret.secretValueFromJson("authToken").unsafeUnwrap(),
+      TWILIO_FROM_WHATSAPP: twilioSecret.secretValueFromJson("fromWhatsapp").unsafeUnwrap(),
+      ANTHROPIC_API_KEY:    agentSecret.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+      AGENT_MESSAGE_TABLE:  tables["agentMessage"]?.tableName ?? "",
+      TASK_TABLE:           tables["task"]?.tableName ?? "",
+      PERSON_TABLE:         tables["notificationPerson"]?.tableName ?? "",
+      AMMO_TABLE:           tables["inventoryAmmo"]?.tableName ?? "",
+      FIN_ACCOUNT_TABLE:    (tables as any)["financeAccount"]?.tableName ?? "",
+      FIN_TX_TABLE:         (tables as any)["financeTransaction"]?.tableName ?? "",
+    },
+  },
+});
 
 // Allow S3 to invoke the Lambda (also done in setup-ses-inbound.sh for SES direct invoke)
 importFn.addPermission("S3InvokeImportLogbook", {

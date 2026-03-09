@@ -56,6 +56,14 @@ const adminMenu = [
     href: "/finance",
   },
   {
+    name: "Notes",
+    href: "/notes",
+  },
+  {
+    name: "Tasks",
+    href: "/tasks",
+  },
+  {
     name: "Flights",
     href: "/admin/flights",
   },
@@ -154,8 +162,8 @@ export const Navbar = () => {
         isFlyingPage
           ? `bg-transparent lg:flex hidden`
           : router.pathname == "/"
-          ? `bg-transparent backdrop-blur-none  ${offset > 80 ? "blur-navbar" : ""}`
-          : `bg-transparent`
+            ? `bg-transparent backdrop-blur-none  ${offset > 80 ? "blur-navbar" : ""}`
+            : `bg-transparent`
       }
       maxWidth="xl"
       position="sticky"
