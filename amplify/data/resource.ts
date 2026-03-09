@@ -384,6 +384,60 @@ const schema = a
         allow.group("admins"),
       ]),
 
+    // ── Finance ───────────────────────────────────────────────────────────────
+
+    financeAccount: a
+      .model({
+        name:           a.string().required(),
+        type:           a.enum(["CHECKING", "SAVINGS", "BROKERAGE", "CREDIT", "CASH", "OTHER"]),
+        currentBalance: a.float().required().default(0),
+        currency:       a.string().default("USD"),
+        notes:          a.string(),
+        active:         a.boolean().default(true),
+        creditLimit:    a.float(),              // CREDIT accounts only
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    financeTransaction: a
+      .model({
+        accountId:    a.id().required(),       // FK → financeAccount.id
+        amount:       a.float().required(),    // positive = in, negative = out
+        type:         a.enum(["INCOME", "EXPENSE", "TRANSFER"]),
+        category:     a.string(),
+        description:  a.string(),
+        date:         a.date().required(),     // YYYY-MM-DD
+        status:       a.enum(["POSTED", "PENDING"]),  // POSTED affects balance; PENDING is forecast only
+        goalId:       a.id(),                  // optional tag → financeSavingsGoal.id
+        toAccountId:  a.id(),                  // TRANSFER destination account
+        importHash:   a.string(),              // dedup fingerprint: hash(date+amount+description)
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    financeRecurring: a
+      .model({
+        accountId:   a.id().required(),        // FK → financeAccount.id
+        amount:      a.float().required(),     // positive = income, negative = expense
+        type:        a.enum(["INCOME", "EXPENSE"]),
+        category:    a.string(),
+        description: a.string().required(),
+        cadence:     a.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "ANNUALLY"]),
+        startDate:   a.date().required(),      // YYYY-MM-DD
+        nextDate:    a.date(),                 // next expected occurrence
+        active:      a.boolean().default(true),
+        goalId:      a.id(),                   // optional tag → financeSavingsGoal.id
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
+    financeSavingsGoal: a
+      .model({
+        name:          a.string().required(),
+        targetAmount:  a.float().required(),
+        currentAmount: a.float().required().default(0),
+        targetDate:    a.date(),               // optional deadline
+        notes:         a.string(),
+      })
+      .authorization((allow) => [allow.group("admins")]),
+
     // ── testNotification mutation ──────────────────────────────────────────
     // Invokes sendNotification directly so the UI can test delivery without
     // needing to trigger the ammo threshold flow.
