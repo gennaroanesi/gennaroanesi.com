@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"  xmlns:gx="http://www.google.com/kml/ext/2.2">
+    <Document>
+        <open>1</open>
+        <visibility>1</visibility>
+        <Style id="trackStyle">
+            <LineStyle>
+                <color>ffDB9034</color>
+                <width>4</width>
+            </LineStyle>
+            <PolyStyle>
+                <color>80DB9034</color>
+            </PolyStyle>
+        </Style>
+        <Style id="pathStyle">
+            <LineStyle>
+                <color>f8000080</color>
+                <width>8</width>
+            </LineStyle>
+        </Style>
+        <Style id="positionReportPlacemark">
+            <IconStyle>
+                <Icon>
+                    <href>https://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href>
+                </Icon>
+            </IconStyle>
+        </Style>
+        <Placemark>
+            <name></name>
+            <styleUrl>#trackStyle</styleUrl>
+            <gx:Track>
+                <altitudeMode>absolute</altitudeMode>
+                <extrude>1</extrude>
+                <altitudeMode>absolute</altitudeMode>
+                <gx:interpolate>1</gx:interpolate>
+                <when>2025-08-01T14:42:35.296725988Z</when>
+                <gx:coord>-97.650244 30.542992 -100000.0</gx:coord>
+                <when>2025-08-01T14:42:37.121841907Z</when>
+                <gx:coord>-97.649948 30.543277 204.2</gx:coord>
+                <when>2025-08-01T14:42:38.193907022Z</when>
+                <gx:coord>-97.649910 30.543304 198.2</gx:coord>
+            </gx:Track>
+        </Placemark>
+        <Placemark>
+            <name>Start</name>
+            <Point>
+                <coordinates>-97.650244,30.542992,-100000.0</coordinates>
+            </Point>
+        </Placemark>
+        <ExtendedData>
+            <SchemaData>
+                <gx:SimpleArrayData name="acc_horiz">
+                    <gx:value>87</gx:value>
+                    <gx:value>6</gx:value>
+                    <gx:value>7</gx:value>
+                </gx:SimpleArrayData>
+                <gx:SimpleArrayData name="acc_vert">
+                    <gx:value>155</gx:value>
+                    <gx:value>24</gx:value>
+                    <gx:value>16</gx:value>
+                </gx:SimpleArrayData>
+                <gx:SimpleArrayData name="course">
+                    <gx:value>-1.00</gx:value>
+                    <gx:value>135.70</gx:value>
+                    <gx:value>135.70</gx:value>
+                </gx:SimpleArrayData>
+                <gx:SimpleArrayData name="speed_kts">
+                    <gx:value>0.00</gx:value>
+                    <gx:value>1.24</gx:value>
+                    <gx:value>1.24</gx:value>
+                </gx:SimpleArrayData>
+                <gx:SimpleArrayData name="altitude">
+                    <gx:value>-328083.99</gx:value>
+                    <gx:value>669.83</gx:value>
+                    <gx:value>650.20</gx:value>
+                </gx:SimpleArrayData>
+                <gx:SimpleArrayData name="bank">
+                    <gx:value>0.39</gx:value>
+                    <gx:value>0.39</gx:value>
+                    <gx:value>0.39</gx:value>
+                </gx:SimpleArrayData>
+                <gx:SimpleArrayData name="pitch">
+                        <gx:value>-0.57</gx:value>
+                        <gx:value>-0.57</gx:value>
+                        <gx:value>-0.57</gx:value>
+                </gx:SimpleArrayData>
+            </SchemaData>
+            <Data name="source">
+                <displayName>Source</displayName>
+                <value>ForeFlight Web</value>
+            </Data>
+            <Data name="GPSModelName">
+                <value>iOS</value>
+            </Data>
+            <Data name="flightTitle">
+                <value>63TA - 63TA</value>
+            </Data>
+            <Data name="pilotName">
+                <value></value>
+            </Data>
+            <Data name="tailNumber">
+                <value>N964SP</value>
+            </Data>
+            <Data name="pilotNotes">
+                <value></value>
+            </Data>
+
+        </ExtendedData>
+    </Document>
+</kml>
