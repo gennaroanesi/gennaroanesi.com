@@ -13,9 +13,12 @@
     "seed-airports": "node scripts/seed-airports.mjs",
     "seed-iaps": "node scripts/seed-iaps.mjs",
     "parse-cifp": "node scripts/parse-cifp.mjs",
-    "seed-cifp": "node scripts/seed-cifp.mjs"
+    "seed-cifp": "node scripts/seed-cifp.mjs",
+    "seed-para-household": "node scripts/seed-para-household.mjs",
+    "seed-para": "node scripts/seed-para.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@aws-amplify/adapter-nextjs": "^1.5.8",
     "@aws-amplify/ui-react": "^6.11.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.1000.0",
@@ -41,6 +44,7 @@
     "@heroui/system": "2.4.13",
     "@heroui/theme": "2.4.13",
     "@react-aria/visually-hidden": "3.8.12",
+    "@types/marked": "^5.0.2",
     "@types/uuid": "^10.0.0",
     "@vis.gl/react-google-maps": "^1.7.1",
     "aws-amplify": "^6.16.2",
@@ -58,6 +62,7 @@
     "i18next-http-backend": "^3.0.2",
     "intl-messageformat": "^10.7.16",
     "keen-slider": "^6.8.6",
+    "marked": "^17.0.4",
     "mp4box": "^2.3.0",
     "next": "^15.2.5",
     "next-i18next": "^15.4.2",

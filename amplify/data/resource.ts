@@ -384,6 +384,49 @@ const schema = a
         allow.group("admins"),
       ]),
 
+    // ── Task ──────────────────────────────────────────────────────────────────
+    // Actionable items for the household agent. Structured (vs. PARA notes which
+    // are freeform markdown). Notifications fire on overdue/upcoming tasks.
+    task: a
+      .model({
+        title:       a.string().required(),
+        notes:       a.string(),              // inline detail; longer context lives in projectRef note
+        dueDate:     a.date(),                // YYYY-MM-DD; null = no deadline
+        done:        a.boolean().default(false),
+        doneAt:      a.datetime(),            // set when done flips to true
+        priority:    a.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
+        assignedTo:  a.id(),                  // FK → notificationPerson.id; null = unassigned
+        projectRef:  a.string(),              // S3 key of related PARA note, e.g. "PARA/Projects/ir-checkride.md"
+        tags:        a.string().array(),      // free-form tags: ["home", "flying", "finance"]
+        recurrence:  a.string(),              // iCal RRULE string; null = one-off
+        snoozedUntil: a.datetime(),           // agent can snooze a task
+        source:      a.enum(["MANUAL", "AGENT", "IMPORT"]),
+      })
+      .secondaryIndexes((index) => [
+        index("dueDate"),
+        index("assignedTo"),
+      ])
+      .authorization((allow) => [allow.group("admins")]),
+
+    // ── AgentMessage ─────────────────────────────────────────────────────────
+    // Shared household conversation thread with the WhatsApp agent.
+    // All messages (from either person, and all agent replies) live here.
+    // Claude receives the last N messages as context on each inbound message.
+    agentMessage: a
+      .model({
+        role:        a.enum(["USER", "ASSISTANT"]),
+        content:     a.string().required(),   // message text
+        fromPhone:   a.string(),              // E.164 sender phone (USER messages only)
+        fromName:    a.string(),              // display name: "Gennaro" or "Wife"
+        toolCalls:   a.string(),              // JSON: Claude tool_use blocks (ASSISTANT only)
+        toolResults: a.string(),              // JSON: tool results passed back to Claude
+        sentAt:      a.datetime().required(), // wall-clock UTC timestamp
+      })
+      .secondaryIndexes((index) => [
+        index("sentAt"),
+      ])
+      .authorization((allow) => [allow.group("admins")]),
+
     // ── testNotification mutation ──────────────────────────────────────────
     // Invokes sendNotification directly so the UI can test delivery without
     // needing to trigger the ammo threshold flow.

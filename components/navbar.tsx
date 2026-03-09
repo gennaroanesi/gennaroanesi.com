@@ -52,6 +52,18 @@ const adminMenu = [
     href: "/inventory",
   },
   {
+    name: "Finance",
+    href: "/finance",
+  },
+  {
+    name: "Notes",
+    href: "/notes",
+  },
+  {
+    name: "Tasks",
+    href: "/tasks",
+  },
+  {
     name: "Flights",
     href: "/admin/flights",
   },
