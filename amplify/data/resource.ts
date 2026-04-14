@@ -65,7 +65,7 @@ const schema = a.schema({
       name: a.string().required(),
       brand: a.string(),
       description: a.string(),
-      category: a.enum(["FIREARM", "AMMO", "FILAMENT", "INSTRUMENT", "OTHER"]),
+      category: a.enum(["FIREARM", "AMMO", "FILAMENT", "INSTRUMENT", "PHOTOGRAPHY", "OTHER"]),
       datePurchased: a.date(),
       vendor: a.string(),
       url: a.url(),
@@ -161,6 +161,33 @@ const schema = a.schema({
       bodyMaterial: a.string(),
       finish: a.string(),
       parts: a.ref("InstrumentPart").array(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Photography detail ───────────────────────────────────────────────────
+  inventoryPhotography: a
+    .model({
+      itemId: a.id().required(), // FK → inventoryItem.id
+      type: a.enum([
+        "CAMERA",
+        "LENS",
+        "DRONE",
+        "GIMBAL",
+        "TRIPOD",
+        "LIGHT",
+        "ACCESSORY",
+        "OTHER",
+      ]),
+      serialNumber: a.string(),
+      mount: a.string(),            // E, RF, L, EF, DJI, M4/3, etc.
+      sensorFormat: a.string(),     // FF, APS-C, M43, 1", 1/2.3"
+      focalLengthMin: a.float(),    // mm
+      focalLengthMax: a.float(),    // mm; equal to min for primes
+      apertureMax: a.float(),       // f-stop, e.g. 2.8
+      stabilized: a.boolean(),
+      weightG: a.integer(),
+      maxFlightTimeMin: a.integer(), // drones
+      subC250g: a.boolean(),         // drones: under FAA 250g registration threshold
     })
     .authorization((allow) => [allow.group("admins")]),
 
@@ -520,23 +547,6 @@ const schema = a.schema({
       source: a.enum(["MANUAL", "AGENT", "IMPORT"]),
     })
     .secondaryIndexes((index) => [index("dueDate"), index("assignedTo")])
-    .authorization((allow) => [allow.group("admins")]),
-
-  // ── AgentMessage ─────────────────────────────────────────────────────────
-  // Shared household conversation thread with the WhatsApp agent.
-  // All messages (from either person, and all agent replies) live here.
-  // Claude receives the last N messages as context on each inbound message.
-  agentMessage: a
-    .model({
-      role: a.enum(["USER", "ASSISTANT"]),
-      content: a.string().required(), // message text
-      fromPhone: a.string(), // E.164 sender phone (USER messages only)
-      fromName: a.string(), // display name: "Gennaro" or "Wife"
-      toolCalls: a.string(), // JSON: Claude tool_use blocks (ASSISTANT only)
-      toolResults: a.string(), // JSON: tool results passed back to Claude
-      sentAt: a.datetime().required(), // wall-clock UTC timestamp
-    })
-    .secondaryIndexes((index) => [index("sentAt")])
     .authorization((allow) => [allow.group("admins")]),
 
   // ── testNotification mutation ──────────────────────────────────────────

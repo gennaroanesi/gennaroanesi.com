@@ -5,7 +5,7 @@ import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import NextLink from "next/link";
 import {
-  ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord,
+  ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord, PhotographyRecord,
   Category,
   CATEGORY_CONFIG, FILAMENT_MAT_LABELS,
   thCls, tdCls,
@@ -27,6 +27,7 @@ export default function InventoryPage() {
   const [ammos,     setAmmos]     = useState<AmmoRecord[]>([]);
   const [filaments, setFilaments] = useState<FilamentRecord[]>([]);
   const [instruments, setInstruments] = useState<InstrumentRecord[]>([]);
+  const [photography, setPhotography] = useState<PhotographyRecord[]>([]);
   const [loading,   setLoading]   = useState(true);
   const [search,    setSearch]    = useState("");
   const [catFilter, setCatFilter] = useState<Category | "ALL">("ALL");
@@ -38,19 +39,21 @@ export default function InventoryPage() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: itemData }, { data: fwData }, { data: amData }, { data: flData }, { data: instData }] =
+      const [{ data: itemData }, { data: fwData }, { data: amData }, { data: flData }, { data: instData }, { data: phData }] =
         await Promise.all([
           client.models.inventoryItem.list({ filter: { active: { ne: false } }, limit: 500 }),
           client.models.inventoryFirearm.list({ limit: 500 }),
           client.models.inventoryAmmo.list({ limit: 500 }),
           client.models.inventoryFilament.list({ limit: 500 }),
           client.models.inventoryInstrument.list({ limit: 500 }),
+          client.models.inventoryPhotography.list({ limit: 500 }),
         ]);
       setItems(itemData ?? []);
       setFirearms(fwData ?? []);
       setAmmos(amData ?? []);
       setFilaments(flData ?? []);
       setInstruments(instData ?? []);
+      setPhotography(phData ?? []);
     } finally {
       setLoading(false);
     }
@@ -151,11 +154,18 @@ export default function InventoryPage() {
     return acc;
   }, {} as Record<string, number>);
 
+  const photographyByType = photography.reduce((acc, p) => {
+    const k = p.type ?? "OTHER";
+    acc[k] = (acc[k] ?? 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
   const breakdowns: Record<string, Record<string, number>> = {
-    FIREARM:    firearmByCaliber,
-    AMMO:       ammoByCaliberQty,
-    FILAMENT:   filamentByMaterial,
-    INSTRUMENT: instrumentByType,
+    FIREARM:     firearmByCaliber,
+    AMMO:        ammoByCaliberQty,
+    FILAMENT:    filamentByMaterial,
+    INSTRUMENT:  instrumentByType,
+    PHOTOGRAPHY: photographyByType,
   };
 
   function breakdownLabel(cat: string, key: string, val: number) {
@@ -175,7 +185,7 @@ export default function InventoryPage() {
         </div>
 
         {/* ── Summary cards ─────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           {(Object.entries(CATEGORY_CONFIG) as [Category, typeof CATEGORY_CONFIG[Category]][]).map(([cat, cfg]) => (
             <NextLink
               key={cat}

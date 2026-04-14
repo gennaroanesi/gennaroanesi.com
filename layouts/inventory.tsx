@@ -12,6 +12,7 @@ const NAV_ITEMS: { key: string; label: string; href: string; color: string }[] =
   { key: "ammo",        label: "Ammo",        href: "/inventory/ammo",        color: CATEGORY_CONFIG.AMMO.color },
   { key: "filaments",   label: "Filaments",   href: "/inventory/filaments",   color: CATEGORY_CONFIG.FILAMENT.color },
   { key: "instruments", label: "Instruments", href: "/inventory/instruments", color: CATEGORY_CONFIG.INSTRUMENT.color },
+  { key: "photography", label: "Photography", href: "/inventory/photography", color: CATEGORY_CONFIG.PHOTOGRAPHY.color },
   { key: "other",       label: "Other",       href: "/inventory/other",       color: CATEGORY_CONFIG.OTHER.color },
 ];
 
@@ -26,6 +27,7 @@ function activeKey(pathname: string): string {
   if (pathname.includes("ammo"))        return "ammo";
   if (pathname.includes("filaments"))   return "filaments";
   if (pathname.includes("instruments")) return "instruments";
+  if (pathname.includes("photography")) return "photography";
   if (pathname.includes("other"))       return "other";
   if (pathname.includes("people"))      return "people";
   if (pathname.includes("thresholds"))  return "thresholds";

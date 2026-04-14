@@ -6,7 +6,7 @@ import InventoryLayout from "@/layouts/inventory";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import {
-  ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord,
+  ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord, PhotographyRecord,
   CATEGORY_CONFIG, Category,
   fmtCurrency, fmtDate,
   labelCls, tdCls,
@@ -21,6 +21,7 @@ type Detail =
   | { kind: "AMMO";       data: AmmoRecord }
   | { kind: "FILAMENT";   data: FilamentRecord }
   | { kind: "INSTRUMENT"; data: InstrumentRecord }
+  | { kind: "PHOTOGRAPHY"; data: PhotographyRecord }
   | { kind: "OTHER" }
   | null;
 
@@ -71,6 +72,11 @@ export default function ItemDetailPage() {
           filter: { itemId: { eq: itemId } }, limit: 1,
         });
         setDetail(data?.[0] ? { kind: "INSTRUMENT", data: data[0] } : { kind: "OTHER" });
+      } else if (cat === "PHOTOGRAPHY") {
+        const { data } = await client.models.inventoryPhotography.list({
+          filter: { itemId: { eq: itemId } }, limit: 1,
+        });
+        setDetail(data?.[0] ? { kind: "PHOTOGRAPHY", data: data[0] } : { kind: "OTHER" });
       } else {
         setDetail({ kind: "OTHER" });
       }
@@ -176,6 +182,7 @@ export default function ItemDetailPage() {
             {detail?.kind === "AMMO"    && <AmmoDetail    data={detail.data} totalPaid={item.pricePaid} currency={item.currency ?? "USD"} />}
             {detail?.kind === "FILAMENT"   && <FilamentDetail   data={detail.data} />}
             {detail?.kind === "INSTRUMENT" && <InstrumentDetail data={detail.data} />}
+            {detail?.kind === "PHOTOGRAPHY" && <PhotographyDetail data={detail.data} />}
 
             {item.notes && (
               <Section title="Notes">
@@ -299,6 +306,29 @@ function InstrumentDetail({ data }: { data: InstrumentRecord }) {
       <Row label="Tuning"        value={data.tuning} />
       <Row label="Body Material" value={data.bodyMaterial} />
       <Row label="Finish"        value={data.finish} />
+    </Section>
+  );
+}
+
+function PhotographyDetail({ data }: { data: PhotographyRecord }) {
+  const focal =
+    data.focalLengthMin != null && data.focalLengthMax != null && data.focalLengthMin !== data.focalLengthMax
+      ? `${data.focalLengthMin}–${data.focalLengthMax}mm`
+      : data.focalLengthMin != null || data.focalLengthMax != null
+      ? `${data.focalLengthMin ?? data.focalLengthMax}mm`
+      : undefined;
+  return (
+    <Section title="Photography Details">
+      <Row label="Type"          value={data.type} />
+      <Row label="Serial #"      value={data.serialNumber} />
+      <Row label="Mount"         value={data.mount} />
+      <Row label="Sensor"        value={data.sensorFormat} />
+      <Row label="Focal length"  value={focal} />
+      <Row label="Aperture"      value={data.apertureMax ? `f/${data.apertureMax}` : undefined} />
+      <Row label="Stabilized"    value={data.stabilized == null ? undefined : data.stabilized ? "Yes" : "No"} />
+      <Row label="Weight"        value={data.weightG ? `${data.weightG} g` : undefined} />
+      <Row label="Max flight"    value={data.maxFlightTimeMin ? `${data.maxFlightTimeMin} min` : undefined} />
+      <Row label="Under 250 g"   value={data.subC250g == null ? undefined : data.subC250g ? "Yes" : "No"} />
     </Section>
   );
 }

@@ -23,8 +23,9 @@ export type FirearmRecord = Schema["inventoryFirearm"]["type"];
 export type AmmoRecord = Schema["inventoryAmmo"]["type"];
 export type FilamentRecord = Schema["inventoryFilament"]["type"];
 export type InstrumentRecord = Schema["inventoryInstrument"]["type"];
+export type PhotographyRecord = Schema["inventoryPhotography"]["type"];
 
-export type Category = "FIREARM" | "AMMO" | "FILAMENT" | "INSTRUMENT" | "OTHER";
+export type Category = "FIREARM" | "AMMO" | "FILAMENT" | "INSTRUMENT" | "PHOTOGRAPHY" | "OTHER";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -32,11 +33,12 @@ export const CATEGORY_CONFIG: Record<
   Category,
   { label: string; color: string; href: string }
 > = {
-  FIREARM:    { label: "Firearm",    color: "#587D71", href: "/inventory/firearms" },
-  AMMO:       { label: "Ammo",       color: "#B8940A", href: "/inventory/ammo" },
-  FILAMENT:   { label: "Filament",   color: "#8B5CF6", href: "/inventory/filaments" },
-  INSTRUMENT: { label: "Instrument", color: "#EC4899", href: "/inventory/instruments" },
-  OTHER:      { label: "Other",      color: "#BCABAE", href: "/inventory/other" },
+  FIREARM:     { label: "Firearm",     color: "#587D71", href: "/inventory/firearms" },
+  AMMO:        { label: "Ammo",        color: "#B8940A", href: "/inventory/ammo" },
+  FILAMENT:    { label: "Filament",    color: "#8B5CF6", href: "/inventory/filaments" },
+  INSTRUMENT:  { label: "Instrument",  color: "#EC4899", href: "/inventory/instruments" },
+  PHOTOGRAPHY: { label: "Photography", color: "#0EA5E9", href: "/inventory/photography" },
+  OTHER:       { label: "Other",       color: "#BCABAE", href: "/inventory/other" },
 };
 
 export const FIREARM_TYPES = ["HANDGUN","RIFLE","SHOTGUN","SBR","SUPPRESSOR","OTHER"] as const;
@@ -51,6 +53,11 @@ export const FILAMENT_VARIANTS = ["Basic", "HF", "95A HF", "for AMS", "Transluce
 export const FILAMENT_DIAMS = ["d175","d285"] as const;
 export const FILAMENT_DIAM_LABELS: Record<string, string> = { d175: "1.75 mm", d285: "2.85 mm" };
 export const INSTRUMENT_TYPES      = ["GUITAR","BASS","AMPLIFIER","PEDAL","KEYBOARD","OTHER"] as const;
+export const PHOTOGRAPHY_TYPES = ["CAMERA","LENS","DRONE","GIMBAL","TRIPOD","LIGHT","ACCESSORY","OTHER"] as const;
+export const PHOTOGRAPHY_ICONS: Record<string, string> = {
+  CAMERA: "📷", LENS: "🔎", DRONE: "🛸", GIMBAL: "🎥",
+  TRIPOD: "📐", LIGHT: "💡", ACCESSORY: "🎒", OTHER: "📸",
+};
 export const INSTRUMENT_PART_TYPES = ["TUBES","BRIDGE","PICKUPS","TUNERS","STRINGS","NUT","STRAP","CASE","OTHER"] as const;
 export const INSTRUMENT_PART_LABELS: Record<string, string> = {
   TUBES: "Tubes", BRIDGE: "Bridge", PICKUPS: "Pickups", TUNERS: "Tuners",
