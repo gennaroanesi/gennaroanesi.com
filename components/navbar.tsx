@@ -33,9 +33,17 @@ const menuItems = [
     href: "/#top",
   },
   {
+    name: "Intro",
+    href: "/intro",
+  },
+  {
+    name: "Projects",
+    href: "/projects",
+  },
+  /*{
     name: "Flying",
     href: "/flying",
-  },
+  }, */
 ];
 
 const adminMenu = [
@@ -133,6 +141,11 @@ export const Navbar = () => {
     }
   }
 
+  // On the flying page, hide navbar on mobile (full-bleed map layout)
+  const isFlyingPage = router.pathname === "/flying";
+  // On the home page, render the navbar in solid white (full-bleed hero behind it)
+  const isHomePage = router.pathname === "/";
+
   const menuOption = (name: string, href: string) => {
     if (name == "Login" && isLoggedIn) {
       return;
@@ -142,7 +155,11 @@ export const Navbar = () => {
         return (
           <Link
             as={NextLink}
-            className="dark:text-rose text-purple w-full transparent h-[40px] lg:leading-loose lg:align-middle lg:uppercase lg:mix-blend-difference"
+            className={
+              isHomePage
+                ? "text-white w-full transparent h-[40px] lg:leading-loose lg:align-middle lg:uppercase drop-shadow"
+                : "dark:text-rose text-purple w-full transparent h-[40px] lg:leading-loose lg:align-middle lg:uppercase lg:mix-blend-difference"
+            }
             href={href}
             size="lg"
           >
@@ -151,9 +168,6 @@ export const Navbar = () => {
         );
     }
   };
-
-  // On the flying page, hide navbar on mobile (full-bleed map layout)
-  const isFlyingPage = router.pathname === "/flying";
 
   return (
     <NextUINavbar
@@ -174,7 +188,11 @@ export const Navbar = () => {
         <NavbarBrand className="max-w-fit">
           <NextLink className="flex justify-start items-center gap-1" href="/">
             <ReactSVG
-              className="h-8 w-8 fill-purple dark:fill-rose"
+              className={
+                isHomePage
+                  ? "h-8 w-8 fill-white drop-shadow"
+                  : "h-8 w-8 fill-purple dark:fill-rose"
+              }
               src={IconSvg.src}
               wrapper="svg"
             />
@@ -196,7 +214,11 @@ export const Navbar = () => {
           <NavbarItem key="admin" className="hidden lg:flex">
             <Link
               as={NextLink}
-              className="text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
+              className={
+                isHomePage
+                  ? "text-white w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase drop-shadow"
+                  : "text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
+              }
               href="/login"
               size="lg"
             >
@@ -208,7 +230,11 @@ export const Navbar = () => {
       {/*Mobile Menu*/}
       <NavbarMenuToggle
         aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-        className="flex lg:hidden text-purple dark:text-rose"
+        className={
+          isHomePage
+            ? "flex lg:hidden text-white drop-shadow"
+            : "flex lg:hidden text-purple dark:text-rose"
+        }
       />
       <NavbarMenu className="backdrop-blur-sm bg-transparent backdrop-brightness-[80%] dark:backdrop-brightness-[30%] uppercase">
         {menuItems.map((item, index) => (
