@@ -5,7 +5,7 @@ import DefaultLayout from "@/layouts/default";
 const LINKS = [
   { label: "home", href: "/" },
   { label: "flying", href: "/flying" },
-  { label: "projects", href: "/projects" },
+  { label: "timeline", href: "/timeline" },
 ];
 
 export default function IntroPage() {
@@ -23,19 +23,27 @@ export default function IntroPage() {
           <p className="text-base sm:text-lg text-purple/90 dark:text-rose/90 leading-relaxed mb-5">
             Data scientist by title, based in Austin, TX. In practice I
             wander across data, engineering, and whatever else the product
-            needs.
+            needs — I've been at Meta since 2018, mostly on teams that sit
+            between DS and sales.
           </p>
           <p className="text-base sm:text-lg text-purple/90 dark:text-rose/90 leading-relaxed mb-5">
-            I have too many hobbies and refuse to be casual about any of
-            them: flying small planes around Texas and Colorado, guitar, a
-            handful of others.
+            Day-to-day that's anything from data pipelines to production
+            models. Outside of that I lean heavily on Claude Code to build
+            stuff — this site included — and generally enjoy the
+            React/Node/AWS side of things.
           </p>
           <p className="text-base sm:text-lg text-purple/90 dark:text-rose/90 leading-relaxed mb-5">
-            Notes from the Underground is my favorite book, if that tells
+            I have too many hobbies and cannot be casual about any of
+            them: flying small planes around Texas and Colorado, guitar,
+            3D printing, a handful of others.
+          </p>
+          <p className="text-base sm:text-lg text-purple/90 dark:text-rose/90 leading-relaxed mb-5">
+            <em>Notes from the Underground</em> is my favorite book, if that tells
             you anything.
           </p>
           <p className="text-base sm:text-lg text-purple/70 dark:text-rose/70 leading-relaxed mb-10 sm:mb-12">
-            This site is my flight log, photos, and a few projects.
+            This site is my flight log, photos, and a running timeline of
+            things I've worked on.
           </p>
 
           <div className="flex flex-wrap gap-3">

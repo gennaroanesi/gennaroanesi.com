@@ -13,7 +13,7 @@ type Project = {
 
 const CATEGORIES: Record<Category, { label: string; color: string }> = {
   aviation: { label: "Aviation", color: "#DEBA02" },
-  dev: { label: "Dev", color: "#60a5fa" },
+  dev: { label: "Personal Projects", color: "#60a5fa" },
   work: { label: "Work", color: "#587D71" },
   music: { label: "Music", color: "#c084fc" },
   photo: { label: "Photo", color: "#d97757" },
@@ -24,41 +24,57 @@ const CATEGORIES: Record<Category, { label: string; color: string }> = {
 const PROJECTS: Project[] = [
   {
     date: "2026-03",
-    title: "Night IFR currency",
-    description: "Night approach videos at KGTU.",
+    title: "Instrument Checkride",
+    description: "Passed at Lubbock, TX.",
     category: "aviation",
+  },
+  {
+    date: "2026-03",
+    title: "Created 91 Dispatcher",
+    description: "A safety-oriented aviation app.",
+    category: "dev",
+    link: "https://91dispatcher.ai",
   },
   {
     date: "2026-02",
-    title: "gennaroanesi.com rewrite",
+    title: "gennaroanesi.com 'rewrite' with Claude Code",
     description:
       "Next.js + Amplify Gen2. Flight log, photo hub, this timeline.",
-    category: "dev",
-    link: "https://github.com/",
+    category: "dev"
   },
   {
     date: "2025-12",
-    title: "Approach at Telluride",
-    description: "Mountain flying, steep terrain, tight pattern.",
-    category: "aviation",
-  },
-  {
-    date: "2025-11",
-    title: "Private Pilot checkride",
-    description: "Passed at KGTU.",
+    title: "Mountain Flying course",
+    description:
+      "Flying on the rockies with approaches at Telluride, Aspen and Eagle.",
     category: "aviation",
   },
   {
     date: "2025-10",
-    title: "Santorini",
-    description: "Two weeks, a lot of film shots.",
-    category: "photo",
+    title: "Started leading a team of Data Scientists at Meta supporting Sales AI",
+    description:
+      "Extensive use of Claude, Gemini and Llama to boost efficiency and deliver data insights to unlock key product decisions.",
+    category: "work",
   },
   {
     date: "2025-08",
-    title: "Dispatcher POC",
-    description: "Weather-aware go/no-go briefing tool for VFR pilots.",
-    category: "dev",
+    title: "Private Pilot Checkride",
+    description: "Passed at Lubbock, TX.",
+    category: "aviation",
+  },
+  {
+    date: "2025-02",
+    title: "Created Paid Messaging Long-Range Plan",
+    description:
+      "Outlined how a nascent product could achieve multi-billion dollar revenue in 5–10 years. Direct conversations with CRO and multiple product, sales, and marketing VPs.",
+    category: "work",
+  },
+  {
+    date: "2024-04",
+    title: "Created 0->1 Sales Pitch Recommendation System",
+    description:
+      "Created a ranking metric to compare fundamentally different products; elected the best based on sales capacity and delivered pitch recommendations with personalized insights to improve adoption rates. This work is now staffed by a full DS team and is one of the main drivers of sales conversations with clients.",
+    category: "work",
   },
 ];
 
@@ -83,12 +99,10 @@ export default function ProjectsPage() {
 
   const toggle = (c: Category) => {
     setActive((prev) => {
-      const next = new Set(prev);
-      if (next.has(c)) next.delete(c);
-      else next.add(c);
-      // Never leave zero active — clicking the last one resets to all on.
-      if (next.size === 0) return new Set(ALL);
-      return next;
+      // If this category is the only one selected, clicking it again resets to All.
+      if (prev.size === 1 && prev.has(c)) return new Set(ALL);
+      // Otherwise, selecting a category shows only that category.
+      return new Set([c]);
     });
   };
 
@@ -96,18 +110,21 @@ export default function ProjectsPage() {
 
   return (
     <DefaultLayout>
-      <div className="px-6 sm:px-10 py-12 sm:py-16">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-medium text-purple dark:text-rose mb-3">
-            Projects
+      <div
+        className="flex flex-col px-6 sm:px-10 pt-8 sm:pt-12"
+        style={{ height: "calc(100dvh - 4rem)" }}
+      >
+        <div className="max-w-3xl mx-auto w-full flex flex-col min-h-0 flex-1">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-medium text-purple dark:text-rose mb-3 flex-shrink-0">
+            Timeline
           </h1>
-          <p className="text-base text-purple/70 dark:text-rose/70 mb-10 sm:mb-12">
+          <p className="text-base text-purple/70 dark:text-rose/70 mb-6 sm:mb-8 flex-shrink-0">
             A running log of what I've been building, flying, shooting, and
             playing.
           </p>
 
           {/* Category filter */}
-          <div className="flex flex-wrap items-center gap-2 mb-10 sm:mb-12">
+          <div className="flex flex-wrap items-center gap-2 mb-6 sm:mb-8 flex-shrink-0">
             <button
               type="button"
               onClick={showAll}
@@ -153,7 +170,7 @@ export default function ProjectsPage() {
           </div>
 
           {/* Timeline */}
-          <ol className="relative">
+          <ol className="relative flex-1 min-h-0 overflow-y-auto pb-8 scrollbar-hide">
             <div className="absolute left-[7px] top-2 bottom-2 w-px bg-darkBorder" />
 
             {filtered.map((p, i) => {

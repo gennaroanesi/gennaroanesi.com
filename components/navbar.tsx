@@ -37,8 +37,8 @@ const menuItems = [
     href: "/intro",
   },
   {
-    name: "Projects",
-    href: "/projects",
+    name: "Timeline",
+    href: "/timeline",
   },
   /*{
     name: "Flying",

@@ -93,7 +93,8 @@ export default function IndexPage() {
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
   const activeSlide = SLIDES.find((s) => s.key === active)!;
-  const activeItem = activeSlide.items[itemIdx];
+  const safeItemIdx = Math.min(itemIdx, activeSlide.items.length - 1);
+  const activeItem = activeSlide.items[safeItemIdx];
 
   // Reset carousel when switching slides.
   useEffect(() => {
@@ -134,9 +135,36 @@ export default function IndexPage() {
     setItemIdx((i) => (i + 1) % slide.items.length);
   };
 
+  // ── Swipe handling ─────────────────────────────────────────────────────────
+  const touchStartX = useRef<number | null>(null);
+  const SWIPE_THRESHOLD = 50; // px
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const startX = touchStartX.current;
+    touchStartX.current = null;
+    if (startX === null) return;
+    const delta = e.changedTouches[0].clientX - startX;
+    if (Math.abs(delta) < SWIPE_THRESHOLD) return;
+    if (activeSlide.items.length <= 1) return;
+    const len = activeSlide.items.length;
+    if (delta < 0) {
+      setItemIdx((i) => (i + 1) % len);
+    } else {
+      setItemIdx((i) => (i - 1 + len) % len);
+    }
+  };
+
   return (
     <DefaultLayout>
-      <div className="relative -mt-16 h-[100dvh] w-full overflow-hidden bg-black">
+      <div
+        className="relative -mt-16 h-[100dvh] w-full overflow-hidden bg-black touch-pan-y"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
         {SLIDES.map((slide) => (
           <div
             key={slide.key}
@@ -247,7 +275,7 @@ export default function IndexPage() {
                   <li key={s.key}>
                     <button
                       type="button"
-                      onClick={() => setActive(s.key)}
+                      onClick={() => { setItemIdx(0); setActive(s.key); }}
                       aria-pressed={isActive}
                       className="group relative px-2 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/80 rounded-sm"
                     >
