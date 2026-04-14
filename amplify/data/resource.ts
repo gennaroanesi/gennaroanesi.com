@@ -492,13 +492,15 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.group("admins")]),
 
-  financeSavingsGoal: a.model({
-    name: a.string().required(),
-    targetAmount: a.float().required(),
-    currentAmount: a.float().required().default(0),
-    targetDate: a.date(), // optional deadline
-    notes: a.string(),
-  }),
+  financeSavingsGoal: a
+    .model({
+      name: a.string().required(),
+      targetAmount: a.float().required(),
+      currentAmount: a.float().required().default(0),
+      targetDate: a.date(), // optional deadline
+      notes: a.string(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
   // ── Task ──────────────────────────────────────────────────────────────────
   // Actionable items for the household agent. Structured (vs. PARA notes which
   // are freeform markdown). Notifications fire on overdue/upcoming tasks.
