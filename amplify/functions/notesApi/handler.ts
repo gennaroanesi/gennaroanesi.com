@@ -65,9 +65,9 @@ function text(statusCode: number, body: string, contentType = "text/markdown; ch
 }
 
 async function streamToString(stream: any): Promise<string> {
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array[] = [];
   for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    chunks.push(new Uint8Array(chunk));
   }
   return Buffer.concat(chunks).toString("utf-8");
 }
