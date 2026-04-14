@@ -38,7 +38,9 @@ function authorize(event: any): boolean {
   if (!token || !TOKEN) return false;
   // Constant-time compare to prevent timing attacks
   try {
-    return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(TOKEN));
+    const a = new Uint8Array(Buffer.from(token));
+    const b = new Uint8Array(Buffer.from(TOKEN));
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch {
     return false;
   }
