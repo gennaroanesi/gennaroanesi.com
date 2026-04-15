@@ -104,7 +104,7 @@ export default function InventoryPage() {
   }
 
   // ── Stats ─────────────────────────────────────────────────────────────────
-  const totalSpend = items.reduce((acc, it) => acc + (it.pricePaid ?? 0), 0);
+  const totalSpend = filtered.reduce((acc, it) => acc + (it.pricePaid ?? 0), 0);
   const countByCat = Object.keys(CATEGORY_CONFIG).reduce((acc, k) => {
     acc[k] = items.filter((it) => it.category === k).length;
     return acc;
