@@ -29,7 +29,7 @@ export type  TxType      = (typeof TX_TYPES)[number];
 export const TX_STATUSES = ["POSTED", "PENDING"] as const;
 export type  TxStatus    = (typeof TX_STATUSES)[number];
 
-export const CADENCES    = ["WEEKLY", "BIWEEKLY", "MONTHLY", "ANNUALLY"] as const;
+export const CADENCES    = ["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"] as const;
 export type  Cadence     = (typeof CADENCES)[number];
 
 export const FINANCE_COLOR = "#10b981";
@@ -44,10 +44,12 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
 };
 
 export const CADENCE_LABELS: Record<Cadence, string> = {
-  WEEKLY:   "Weekly",
-  BIWEEKLY: "Bi-weekly",
-  MONTHLY:  "Monthly",
-  ANNUALLY: "Annually",
+  WEEKLY:       "Weekly",
+  BIWEEKLY:     "Bi-weekly",
+  MONTHLY:      "Monthly",
+  QUARTERLY:    "Quarterly",
+  SEMIANNUALLY: "Semi-annually",
+  ANNUALLY:     "Annually",
 };
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -81,11 +83,40 @@ export function todayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Advance a date by N months, returning YYYY-MM-DD */
+/** Last day of the month for a given year/month (month is 0-indexed). */
+function lastDayOfMonth(year: number, month: number): number {
+  // Day 0 of next month = last day of this month
+  return new Date(year, month + 1, 0).getDate();
+}
+
+/**
+ * Advance a date by N months, returning YYYY-MM-DD.
+ * Naive: uses JS setMonth semantics (overflows at month end — e.g. Jan 30 + 1mo = Mar 2).
+ * Prefer {@link addMonthsAnchored} when you care about preserving a day-of-month anchor.
+ */
 export function addMonths(isoDate: string, n: number): string {
   const d = new Date(isoDate + "T12:00:00");
   d.setMonth(d.getMonth() + n);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Advance a date by N months while preserving an anchor day-of-month.
+ * Clamps to the last day of the target month when the anchor doesn't exist
+ * (e.g. anchor=31, Feb → Feb 28/29).
+ *
+ * Example: anchor=30, Jan 30 + 1mo → Feb 28/29; Feb 28 + 1mo → Mar 30.
+ */
+export function addMonthsAnchored(isoDate: string, n: number, anchorDay: number): string {
+  const d = new Date(isoDate + "T12:00:00");
+  const targetYear  = d.getFullYear();
+  const targetMonth = d.getMonth() + n;
+  // Let JS normalize year/month overflow by setting day=1 first
+  const normalized = new Date(targetYear, targetMonth, 1, 12, 0, 0);
+  const y = normalized.getFullYear();
+  const m = normalized.getMonth();
+  const day = Math.min(anchorDay, lastDayOfMonth(y, m));
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function addDays(isoDate: string, n: number): string {
@@ -94,19 +125,80 @@ function addDays(isoDate: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Next occurrence >= today given a cadence and current nextDate */
-export function nextOccurrence(nextDate: string, cadence: Cadence): string {
+/** Months to advance for each cadence (null = not month-based). */
+export const CADENCE_MONTH_STEP: Record<Cadence, number | null> = {
+  WEEKLY:       null,
+  BIWEEKLY:     null,
+  MONTHLY:      1,
+  QUARTERLY:    3,
+  SEMIANNUALLY: 6,
+  ANNUALLY:     12,
+};
+
+/** Approximate monthly-equivalent factor for aggregating recurring amounts. */
+export const CADENCE_MONTHLY_FACTOR: Record<Cadence, number> = {
+  WEEKLY:       4.33,
+  BIWEEKLY:     2.17,
+  MONTHLY:      1,
+  QUARTERLY:    1 / 3,
+  SEMIANNUALLY: 1 / 6,
+  ANNUALLY:     1 / 12,
+};
+
+/**
+ * Next occurrence >= today given a cadence and current nextDate.
+ * For month-based cadences, pass the anchor date (usually the recurrence's
+ * startDate) so day-of-month is preserved across months with fewer days.
+ */
+export function nextOccurrence(nextDate: string, cadence: Cadence, anchorDate?: string): string {
   const today = todayIso();
   let cur = nextDate;
+  const monthStep = CADENCE_MONTH_STEP[cadence];
+  const anchorDay = anchorDate
+    ? parseInt(anchorDate.split("-")[2], 10)
+    : parseInt(nextDate.split("-")[2], 10);
+
   while (cur < today) {
-    switch (cadence) {
-      case "WEEKLY":   cur = addDays(cur, 7);    break;
-      case "BIWEEKLY": cur = addDays(cur, 14);   break;
-      case "MONTHLY":  cur = addMonths(cur, 1);  break;
-      case "ANNUALLY": cur = addMonths(cur, 12); break;
+    if (monthStep != null) {
+      cur = addMonthsAnchored(cur, monthStep, anchorDay);
+    } else {
+      switch (cadence) {
+        case "WEEKLY":   cur = addDays(cur, 7);  break;
+        case "BIWEEKLY": cur = addDays(cur, 14); break;
+      }
     }
   }
   return cur;
+}
+
+/**
+ * Advance a date by exactly one occurrence of the given cadence,
+ * preserving the anchor day for month-based cadences.
+ */
+export function advanceByCadence(isoDate: string, cadence: Cadence, anchorDate?: string): string {
+  const monthStep = CADENCE_MONTH_STEP[cadence];
+  if (monthStep != null) {
+    const anchorDay = anchorDate
+      ? parseInt(anchorDate.split("-")[2], 10)
+      : parseInt(isoDate.split("-")[2], 10);
+    return addMonthsAnchored(isoDate, monthStep, anchorDay);
+  }
+  switch (cadence) {
+    case "WEEKLY":   return addDays(isoDate, 7);
+    case "BIWEEKLY": return addDays(isoDate, 14);
+    default:         return isoDate;
+  }
+}
+
+/**
+ * Whether a recurrence is live for cashflow/projection purposes.
+ * Treats a recurrence as ended if endDate is set and already past today.
+ * Inactive flag (user-toggled) takes precedence.
+ */
+export function isRecurrenceLive(rec: RecurringRecord): boolean {
+  if (rec.active === false) return false;
+  if (rec.endDate && rec.endDate < todayIso()) return false;
+  return true;
 }
 
 /** Months remaining from today to a target date */

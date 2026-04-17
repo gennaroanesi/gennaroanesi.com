@@ -6,7 +6,7 @@ import {
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
-  amountColor, goalPctColor,
+  amountColor, goalPctColor, isRecurrenceLive,
   AccountBadge,
   type Cadence,
 } from "@/components/finance/_shared";
@@ -56,11 +56,13 @@ export default function FinanceDashboard() {
 
   // Upcoming recurring in the next 30 days
   const upcoming = recurrings
-    .filter((r) => r.active !== false)
+    .filter(isRecurrenceLive)
     .map((r) => ({
       rec:  r,
-      next: nextOccurrence(r.nextDate ?? r.startDate ?? today, r.cadence as Cadence),
+      next: nextOccurrence(r.nextDate ?? r.startDate ?? today, r.cadence as Cadence, r.startDate ?? undefined),
     }))
+    // Respect per-recurrence end date (inclusive): drop occurrences that land beyond it
+    .filter(({ rec, next }) => !rec.endDate || next <= rec.endDate)
     .filter(({ next }) => next >= today && next <= in30)
     .sort((a, b) => a.next.localeCompare(b.next));
 

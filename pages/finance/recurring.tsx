@@ -5,8 +5,9 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, RecurringRecord, TransactionRecord,
-  CADENCES, CADENCE_LABELS, FINANCE_COLOR,
-  fmtCurrency, fmtDate, todayIso, nextOccurrence, amountColor,
+  CADENCES, CADENCE_LABELS, CADENCE_MONTHLY_FACTOR, FINANCE_COLOR,
+  fmtCurrency, fmtDate, todayIso, nextOccurrence, advanceByCadence, amountColor,
+  isRecurrenceLive,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, StatusBadge,
   type Cadence,
@@ -78,6 +79,7 @@ export default function RecurringPage() {
           description: draft.description!,
           cadence:     (draft.cadence ?? "MONTHLY") as any,
           startDate:   draft.startDate ?? todayIso(),
+          endDate:     draft.endDate ?? null,
           nextDate:    draft.nextDate ?? draft.startDate ?? todayIso(),
           active:      draft.active ?? true,
           goalId:      draft.goalId ?? null,
@@ -93,6 +95,7 @@ export default function RecurringPage() {
           description: draft.description!,
           cadence:     (draft.cadence ?? "MONTHLY") as any,
           startDate:   draft.startDate ?? todayIso(),
+          endDate:     draft.endDate ?? null,
           nextDate:    draft.nextDate ?? draft.startDate ?? todayIso(),
           active:      draft.active ?? true,
           goalId:      draft.goalId ?? null,
@@ -142,38 +145,34 @@ export default function RecurringPage() {
         await client.models.financeAccount.update({ id: acc.id, currentBalance: newBal });
         setAccounts((p) => p.map((a) => a.id === acc.id ? { ...a, currentBalance: newBal } : a));
       }
-      // Advance nextDate
-      const nextDate = nextOccurrence(
-        nextOccurrence(rec.nextDate ?? rec.startDate ?? today, rec.cadence as Cadence),
-        rec.cadence as Cadence,
-      );
-      // We call nextOccurrence twice: once to get today's occurrence date (already past), once to get the next future one
-      const advancedNext = (() => {
-        let cur = rec.nextDate ?? rec.startDate ?? today;
-        // advance past today
-        while (cur <= today) {
-          switch (rec.cadence as Cadence) {
-            case "WEEKLY":   cur = new Date(new Date(cur + "T12:00:00").setDate(new Date(cur + "T12:00:00").getDate() + 7)).toISOString().slice(0,10); break;
-            case "BIWEEKLY": cur = new Date(new Date(cur + "T12:00:00").setDate(new Date(cur + "T12:00:00").getDate() + 14)).toISOString().slice(0,10); break;
-            case "MONTHLY":  { const d = new Date(cur + "T12:00:00"); d.setMonth(d.getMonth()+1); cur = d.toISOString().slice(0,10); break; }
-            case "ANNUALLY": { const d = new Date(cur + "T12:00:00"); d.setMonth(d.getMonth()+12); cur = d.toISOString().slice(0,10); break; }
-          }
-        }
-        return cur;
-      })();
-      await client.models.financeRecurring.update({ id: rec.id, nextDate: advancedNext });
-      setRecurrings((p) => p.map((r) => r.id === rec.id ? { ...r, nextDate: advancedNext } : r));
+      // Advance nextDate past today, preserving the startDate's day-of-month anchor
+      const cadence = rec.cadence as Cadence;
+      const anchor  = rec.startDate ?? rec.nextDate ?? today;
+      let advancedNext = rec.nextDate ?? rec.startDate ?? today;
+      while (advancedNext <= today) {
+        advancedNext = advanceByCadence(advancedNext, cadence, anchor);
+      }
+
+      // If the new next occurrence passes the recurrence's end date, deactivate it.
+      const endedOut = rec.endDate != null && advancedNext > rec.endDate;
+      const patch: Partial<RecurringRecord> = { nextDate: advancedNext };
+      if (endedOut) patch.active = false;
+
+      await client.models.financeRecurring.update({ id: rec.id, ...patch });
+      setRecurrings((p) => p.map((r) => r.id === rec.id ? { ...r, ...patch } as RecurringRecord : r));
     } finally {
       setSaving(false);
     }
   }
 
-  const active   = recurrings.filter((r) => r.active !== false).sort((a, b) => (a.nextDate ?? "").localeCompare(b.nextDate ?? ""));
-  const inactive = recurrings.filter((r) => r.active === false);
+  // Live = active AND endDate not passed. Everything else (paused or ended) drops into inactive.
+  const active   = recurrings.filter(isRecurrenceLive)
+    .sort((a, b) => (a.nextDate ?? "").localeCompare(b.nextDate ?? ""));
+  const inactive = recurrings.filter((r) => !isRecurrenceLive(r));
 
   const monthlyNet = active.reduce((s, r) => {
     const amt = r.amount ?? 0;
-    const factor = r.cadence === "WEEKLY" ? 4.33 : r.cadence === "BIWEEKLY" ? 2.17 : r.cadence === "ANNUALLY" ? 1/12 : 1;
+    const factor = CADENCE_MONTHLY_FACTOR[r.cadence as Cadence] ?? 1;
     return s + amt * factor;
   }, 0);
 
@@ -228,7 +227,7 @@ export default function RecurringPage() {
                           </td>
                           <td className="px-4 py-2 text-gray-500 text-xs hidden sm:table-cell">{CADENCE_LABELS[rec.cadence as Cadence]}</td>
                           <td className="px-4 py-2 text-gray-500 text-xs hidden md:table-cell">
-                            {fmtDate(nextOccurrence(rec.nextDate ?? rec.startDate ?? todayIso(), rec.cadence as Cadence))}
+                            {fmtDate(nextOccurrence(rec.nextDate ?? rec.startDate ?? todayIso(), rec.cadence as Cadence, rec.startDate ?? undefined))}
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums font-semibold whitespace-nowrap"
                             style={{ color: amountColor(rec.amount ?? 0) }}>
@@ -321,18 +320,24 @@ export default function RecurringPage() {
                   </select>
                 </div>
               </div>
+              <div>
+                <label className={labelCls}>Amount</label>
+                <input type="number" step="0.01" className={inputCls} placeholder="0.00"
+                  value={draft.amount ?? ""}
+                  onChange={(e) => setDraft((d) => ({ ...d, amount: parseFloat(e.target.value) || 0 }))} />
+                <p className="text-[10px] text-gray-400 mt-0.5">Positive = income · Negative = expense</p>
+              </div>
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelCls}>Amount</label>
-                  <input type="number" step="0.01" className={inputCls} placeholder="0.00"
-                    value={draft.amount ?? ""}
-                    onChange={(e) => setDraft((d) => ({ ...d, amount: parseFloat(e.target.value) || 0 }))} />
-                  <p className="text-[10px] text-gray-400 mt-0.5">Positive = income · Negative = expense</p>
-                </div>
                 <div>
                   <label className={labelCls}>Next Date</label>
                   <input type="date" className={inputCls} value={draft.nextDate ?? ""}
                     onChange={(e) => setDraft((d) => ({ ...d, nextDate: e.target.value }))} />
+                </div>
+                <div>
+                  <label className={labelCls}>End Date</label>
+                  <input type="date" className={inputCls} value={draft.endDate ?? ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, endDate: e.target.value || (null as any) }))} />
+                  <p className="text-[10px] text-gray-400 mt-0.5">Leave blank for no end (default)</p>
                 </div>
               </div>
               <div>

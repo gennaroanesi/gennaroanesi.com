@@ -511,8 +511,9 @@ const schema = a.schema({
       type: a.enum(["INCOME", "EXPENSE"]),
       category: a.string(),
       description: a.string().required(),
-      cadence: a.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "ANNUALLY"]),
+      cadence: a.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"]),
       startDate: a.date().required(), // YYYY-MM-DD
+      endDate: a.date(),   // YYYY-MM-DD; null = no end (default). Inclusive: last occurrence may land on endDate.
       nextDate: a.date(), // next expected occurrence
       active: a.boolean().default(true),
       goalId: a.id(), // optional tag → financeSavingsGoal.id
