@@ -15,9 +15,9 @@ const ENVIRONMENTS = {
   },
   prod: {
     region:     "us-east-1",
-    clientId:   "1gqivvp8d9uh2vqnv6v0ehuoj4",
+    clientId:   "2cra2mdgp22rh7813g3aq26k20",
     appsyncUrl: "https://cdglsrrdm5fhrnu6wge6533jyy.appsync-api.us-east-1.amazonaws.com/graphql",
-    apiKey:     null, // TODO: paste prod API key here (from prod amplify_outputs.json data.api_key)
+    apiKey:     "da2-d22ry4q5efes7hcycitl2fxhlm",
   },
 };
 

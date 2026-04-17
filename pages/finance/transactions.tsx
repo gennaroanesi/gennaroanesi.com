@@ -57,6 +57,7 @@ export default function TransactionsPage() {
   const [importFormat,    setImportFormat]    = useState("");
   const [importRows,      setImportRows]      = useState<ImportRow[]>([]);
   const [importAccountId, setImportAccountId] = useState<string>("");
+  const [importReverse,   setImportReverse]   = useState(false);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
 
@@ -87,6 +88,15 @@ export default function TransactionsPage() {
     }
   }, [router.isReady, router.query.new]);
 
+  // Preselect account filter from ?account= query param
+  useEffect(() => {
+    if (!router.isReady) return;
+    const qAcc = router.query.account;
+    if (typeof qAcc === "string" && qAcc) {
+      setFilterAccount(qAcc);
+    }
+  }, [router.isReady, router.query.account]);
+
   // ── Openers ───────────────────────────────────────────────────────────────
 
   function openNewTx() {
@@ -113,6 +123,7 @@ export default function TransactionsPage() {
     setImportRows([]);
     setImportFormat("");
     setImportAccountId(accounts[0]?.id ?? "");
+    setImportReverse(false);
     setPanel({ kind: "import" });
   }
 
@@ -258,6 +269,13 @@ export default function TransactionsPage() {
 
   // ── CSV Import ────────────────────────────────────────────────────────────
 
+  // If the reverse-sign toggle is on, flip the amount for all import math (display,
+  // classification, commit, balance preview). Dedup hash stays keyed on the parser's
+  // original amount so toggling doesn't break duplicate detection across re-imports.
+  function effectiveAmount(raw: number): number {
+    return importReverse ? -raw : raw;
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -285,10 +303,11 @@ export default function TransactionsPage() {
     try {
       const created: TransactionRecord[] = [];
       for (const row of toImport) {
-        const type: TxType = row.amount >= 0 ? "INCOME" : "EXPENSE";
+        const amt: number  = effectiveAmount(row.amount);
+        const type: TxType = amt >= 0 ? "INCOME" : "EXPENSE";
         const { data: tx } = await client.models.financeTransaction.create({
           accountId:   importAccountId,
-          amount:      row.amount,
+          amount:      amt,
           type:        type as any,
           category:    row.category || null,
           description: row.description,
@@ -301,8 +320,8 @@ export default function TransactionsPage() {
         if (tx) created.push(tx);
       }
 
-      // Adjust account balance by sum of imported amounts
-      const delta = toImport.reduce((s, r) => s + r.amount, 0);
+      // Adjust account balance by sum of imported amounts (using effective signs)
+      const delta = toImport.reduce((s, r) => s + effectiveAmount(r.amount), 0);
       await adjustBalance(importAccountId, delta, null, "INCOME");
 
       setTransactions((p) => [...created, ...p]);
@@ -644,6 +663,13 @@ export default function TransactionsPage() {
                       onChange={handleFileChange} />
                   </div>
 
+                  <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                    <input type="checkbox" checked={importReverse}
+                      onChange={(e) => setImportReverse(e.target.checked)} />
+                    Reverse sign
+                    <span className="text-gray-400">— flip all amounts if this file's convention is inverted</span>
+                  </label>
+
                   {importFormat && (
                     <p className="text-xs text-gray-400">
                       Detected format: <span className="font-medium text-gray-600 dark:text-gray-300">{importFormat}</span>
@@ -654,6 +680,40 @@ export default function TransactionsPage() {
                       )}
                     </p>
                   )}
+
+                  {/* Balance preview — shows current vs predicted balance after selected imports apply */}
+                  {importAccountId && importRows.length > 0 && (() => {
+                    const tgt = accounts.find((a) => a.id === importAccountId);
+                    if (!tgt) return null;
+                    const delta = importRows
+                      .filter((r) => r.selected && !r.duplicate)
+                      .reduce((s, r) => s + effectiveAmount(r.amount), 0);
+                    const currentBal   = tgt.currentBalance ?? 0;
+                    const predictedBal = currentBal + delta;
+                    const cur = tgt.currency ?? "USD";
+                    return (
+                      <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-400">Current balance</span>
+                          <span className="tabular-nums font-medium" style={{ color: amountColor(currentBal) }}>
+                            {fmtCurrency(currentBal, cur)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-gray-400">Net change</span>
+                          <span className="tabular-nums font-medium" style={{ color: amountColor(delta) }}>
+                            {fmtCurrency(delta, cur, true)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm pt-1 border-t border-gray-200 dark:border-gray-700">
+                          <span className="text-gray-500 dark:text-gray-400 font-medium">Predicted balance</span>
+                          <span className="tabular-nums font-bold" style={{ color: amountColor(predictedBal) }}>
+                            {fmtCurrency(predictedBal, cur)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {importRows.length > 0 && (
                     <>
@@ -690,8 +750,8 @@ export default function TransactionsPage() {
                                   {row.duplicate && <span className="ml-1 text-amber-500">(dup)</span>}
                                 </td>
                                 <td className="px-2 py-1 text-right tabular-nums font-medium"
-                                  style={{ color: amountColor(row.amount) }}>
-                                  {fmtCurrency(row.amount, "USD", true)}
+                                  style={{ color: amountColor(effectiveAmount(row.amount)) }}>
+                                  {fmtCurrency(effectiveAmount(row.amount), "USD", true)}
                                 </td>
                               </tr>
                             ))}

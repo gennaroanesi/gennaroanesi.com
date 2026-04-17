@@ -105,9 +105,10 @@ export default function FinanceDashboard() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {activeAccounts.map((acc) => (
-                    <div
+                    <a
                       key={acc.id}
-                      className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface px-4 py-3 flex flex-col gap-1"
+                      href={`/finance/transactions?account=${acc.id}`}
+                      className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface px-4 py-3 flex flex-col gap-1 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{acc.name}</span>
@@ -136,7 +137,7 @@ export default function FinanceDashboard() {
                         );
                       })()}
                       {acc.notes && <p className="text-[11px] text-gray-400 truncate">{acc.notes}</p>}
-                    </div>
+                    </a>
                   ))}
                 </div>
               )}

@@ -360,10 +360,12 @@ const BANK_FORMATS: BankFormat[] = [
     parse:  (row) => {
       const date = toIso(row["Transaction Date"] ?? "");
       if (!date) return null;
-      const raw         = parseAmt(row["Amount"] ?? "0");
-      const amount      = -raw; // Chase: negative = expense
+      // Chase CSV uses the same convention for checking and credit cards:
+      // negative = money leaving you (debit/purchase), positive = money coming in (deposit/payment).
+      // Matches our app convention, no flip needed.
+      const amount      = parseAmt(row["Amount"] ?? "0");
       const description = row["Description"]?.trim() ?? "";
-      return { date, description, amount, category: row["Category"]?.trim() ?? "", hash: importHash(date, raw, description) };
+      return { date, description, amount, category: row["Category"]?.trim() ?? "", hash: importHash(date, amount, description) };
     },
   },
   {
@@ -383,8 +385,11 @@ const BANK_FORMATS: BankFormat[] = [
     parse:  (row) => {
       const date = toIso(row["Date"] ?? "");
       if (!date) return null;
+      // NOTE: Amex historically exports charges as positive (opposite of Chase).
+      // Flipping to match our convention (negative = money leaving). If import
+      // produces opposite-signed results, remove the minus here — see TODO.
       const raw         = parseAmt(row["Amount"] ?? "0");
-      const amount      = -raw; // Amex: positive = charge
+      const amount      = -raw;
       const description = row["Description"]?.trim() ?? "";
       return { date, description, amount, category: row["Category"]?.trim() ?? "", hash: importHash(date, raw, description) };
     },
