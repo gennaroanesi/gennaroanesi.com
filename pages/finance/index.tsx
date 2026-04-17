@@ -47,11 +47,9 @@ export default function FinanceDashboard() {
 
   const activeAccounts = accounts.filter((a) => a.active !== false);
 
-  const netWorth = activeAccounts.reduce((sum, a) => {
-    const bal = a.currentBalance ?? 0;
-    // Credit accounts: positive balance = you owe money → subtract from net worth
-    return a.type === "CREDIT" ? sum - bal : sum + bal;
-  }, 0);
+  // Sign convention: balances are stored as-is (credit owed = negative, assets = positive),
+  // so a simple sum gives net worth.
+  const netWorth = activeAccounts.reduce((sum, a) => sum + (a.currentBalance ?? 0), 0);
 
   const today = todayIso();
   const in30  = addMonths(today, 1);
@@ -120,7 +118,9 @@ export default function FinanceDashboard() {
                         {fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}
                       </span>
                       {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 && (() => {
-                        const util = Math.min(1, (acc.currentBalance ?? 0) / (acc.creditLimit ?? 1));
+                        // currentBalance is negative when money is owed; flip to positive for utilization
+                        const owed = Math.max(0, -(acc.currentBalance ?? 0));
+                        const util = Math.min(1, owed / (acc.creditLimit ?? 1));
                         const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
                         return (
                           <div className="flex flex-col gap-1">

@@ -359,13 +359,18 @@ export default function TransactionsPage() {
                   style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
                 >
                   {acc.name}:
-                  {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 ? (
-                    <span className="tabular-nums">
-                      {" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")} /{" "}
-                      {fmtCurrency(acc.creditLimit, acc.currency ?? "USD")}{" "}
-                      ({Math.round(Math.min(1, (acc.currentBalance ?? 0) / (acc.creditLimit ?? 1)) * 100)}%)
-                    </span>
-                  ) : (
+                  {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 ? (() => {
+                    // currentBalance is negative when money is owed; flip sign for utilization
+                    const owed = Math.max(0, -(acc.currentBalance ?? 0));
+                    const util = Math.min(1, owed / (acc.creditLimit ?? 1));
+                    return (
+                      <span className="tabular-nums">
+                        {" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")} /{" "}
+                        {fmtCurrency(acc.creditLimit, acc.currency ?? "USD")}{" "}
+                        ({Math.round(util * 100)}%)
+                      </span>
+                    );
+                  })() : (
                     <span className="tabular-nums">{" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}</span>
                   )}
                 </button>
@@ -576,12 +581,13 @@ export default function TransactionsPage() {
                       <input type="number" step="0.01" min={0} className={inputCls} placeholder="5000.00"
                         value={accDraft.creditLimit ?? ""}
                         onChange={(e) => setAccDraft((d) => ({ ...d, creditLimit: parseFloat(e.target.value) || null as any }))} />
-                      {(accDraft.creditLimit ?? 0) > 0 && (accDraft.currentBalance ?? 0) > 0 && (() => {
-                        const util = Math.min(1, (accDraft.currentBalance ?? 0) / (accDraft.creditLimit ?? 1));
+                      {(accDraft.creditLimit ?? 0) > 0 && (accDraft.currentBalance ?? 0) < 0 && (() => {
+                        const owed = -(accDraft.currentBalance ?? 0);
+                        const util = Math.min(1, owed / (accDraft.creditLimit ?? 1));
                         const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
                         return (
                           <p className="text-[10px] mt-1" style={{ color }}>
-                            {Math.round(util * 100)}% utilization · {fmtCurrency((accDraft.creditLimit ?? 0) - (accDraft.currentBalance ?? 0))} available
+                            {Math.round(util * 100)}% utilization · {fmtCurrency((accDraft.creditLimit ?? 0) - owed)} available
                           </p>
                         );
                       })()}
