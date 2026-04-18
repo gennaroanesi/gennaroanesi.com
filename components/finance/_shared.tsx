@@ -17,6 +17,8 @@ export type AccountRecord     = Schema["financeAccount"]["type"];
 export type TransactionRecord = Schema["financeTransaction"]["type"];
 export type RecurringRecord   = Schema["financeRecurring"]["type"];
 export type GoalRecord        = Schema["financeSavingsGoal"]["type"];
+export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
+export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
 
 // ── Enums / constants ─────────────────────────────────────────────────────────
 
@@ -31,6 +33,18 @@ export type  TxStatus    = (typeof TX_STATUSES)[number];
 
 export const CADENCES    = ["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"] as const;
 export type  Cadence     = (typeof CADENCES)[number];
+
+export const ASSET_TYPES = ["STOCK", "ETF", "MUTUAL_FUND", "CRYPTO", "BOND", "OTHER"] as const;
+export type  AssetType   = (typeof ASSET_TYPES)[number];
+
+export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
+  STOCK:       "Stock",
+  ETF:         "ETF",
+  MUTUAL_FUND: "Mutual Fund",
+  CRYPTO:      "Crypto",
+  BOND:        "Bond",
+  OTHER:       "Other",
+};
 
 export const FINANCE_COLOR = "#10b981";
 
@@ -199,6 +213,115 @@ export function isRecurrenceLive(rec: RecurringRecord): boolean {
   if (rec.active === false) return false;
   if (rec.endDate && rec.endDate < todayIso()) return false;
   return true;
+}
+
+// ── Holdings ───────────────────────────────────────────────────────────────────────────────
+
+/** Quote lookup by (UPPERCASE) ticker. */
+export type QuoteMap = Map<string, TickerQuoteRecord>;
+
+export function buildQuoteMap(quotes: TickerQuoteRecord[]): QuoteMap {
+  const m: QuoteMap = new Map();
+  for (const q of quotes) {
+    if (q.ticker) m.set(q.ticker.toUpperCase(), q);
+  }
+  return m;
+}
+
+/**
+ * Aggregated view of one ticker across all its lots in an account.
+ * - totalQty:     summed across lots
+ * - totalCost:    summed if all lots have a cost basis; null if any lot missing
+ * - marketValue:  quote.price * totalQty (null if no quote)
+ * - gainLoss / gainLossPct: null unless both totalCost and marketValue are known
+ */
+export type TickerAggregate = {
+  ticker:       string;
+  assetType:    AssetType | null;
+  lots:         HoldingLotRecord[];
+  totalQty:     number;
+  totalCost:    number | null;
+  price:        number | null;
+  fetchedAt:    string | null;
+  marketValue:  number | null;
+  gainLoss:     number | null;
+  gainLossPct:  number | null;
+};
+
+/** Aggregate a set of lots for one ticker, joined with a quote map. */
+export function tickerAggregate(
+  ticker: string,
+  lots: HoldingLotRecord[],
+  quotes: QuoteMap,
+): TickerAggregate {
+  const tickerUpper = ticker.toUpperCase();
+  const myLots = lots.filter((l) => (l.ticker ?? "").toUpperCase() === tickerUpper);
+  const totalQty = myLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
+  const anyMissingCost = myLots.some((l) => l.costBasis == null);
+  const totalCost = anyMissingCost
+    ? null
+    : myLots.reduce((s, l) => s + (l.costBasis ?? 0), 0);
+  const quote = quotes.get(tickerUpper) ?? null;
+  const price = quote?.price ?? null;
+  const fetchedAt = quote?.fetchedAt ?? null;
+  const marketValue = price != null ? price * totalQty : null;
+  const gainLoss = marketValue != null && totalCost != null ? marketValue - totalCost : null;
+  const gainLossPct = gainLoss != null && totalCost != null && totalCost !== 0
+    ? gainLoss / totalCost
+    : null;
+  // assetType: take the first lot's value; if lots disagree, first wins (user error)
+  const assetType = (myLots.find((l) => l.assetType)?.assetType ?? null) as AssetType | null;
+
+  return {
+    ticker: tickerUpper,
+    assetType,
+    lots: myLots,
+    totalQty,
+    totalCost,
+    price,
+    fetchedAt,
+    marketValue,
+    gainLoss,
+    gainLossPct,
+  };
+}
+
+/** Distinct tickers across a set of lots (uppercase). */
+export function uniqueTickers(lots: HoldingLotRecord[]): string[] {
+  const s = new Set<string>();
+  for (const l of lots) {
+    if (l.ticker) s.add(l.ticker.toUpperCase());
+  }
+  return Array.from(s).sort();
+}
+
+/**
+ * Total value of an account including holdings.
+ * For non-brokerage accounts this is just `currentBalance`.
+ * For brokerage accounts it's `currentBalance` (cash) + Σ(lot qty * quote price).
+ * Lots with no quote contribute 0 — UI should surface unpriced tickers.
+ */
+export function accountTotalValue(
+  acc: AccountRecord,
+  lots: HoldingLotRecord[] = [],
+  quotes: QuoteMap = new Map(),
+): number {
+  const cash = acc.currentBalance ?? 0;
+  if (acc.type !== "BROKERAGE") return cash;
+  const myLots = lots.filter((l) => l.accountId === acc.id);
+  const holdingsValue = myLots.reduce((s, l) => {
+    const q = quotes.get((l.ticker ?? "").toUpperCase());
+    if (!q?.price) return s;
+    return s + (l.quantity ?? 0) * q.price;
+  }, 0);
+  return cash + holdingsValue;
+}
+
+/** Whether a quote is stale (older than N hours; default 24). */
+export function isQuoteStale(q: TickerQuoteRecord | null | undefined, hours = 24): boolean {
+  if (!q?.fetchedAt) return true;
+  const ageMs = Date.now() - new Date(q.fetchedAt).getTime();
+  return ageMs > hours * 3600 * 1000;
 }
 
 /** Months remaining from today to a target date */

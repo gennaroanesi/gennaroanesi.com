@@ -9,12 +9,14 @@
 const ENVIRONMENTS = {
   sandbox: {
     region:     "us-east-1",
-    clientId:   "1gqivvp8d9uh2vqnv6v0ehuoj4",
-    appsyncUrl: "https://xaictck6irbbzfa6n5lsayukwq.appsync-api.us-east-1.amazonaws.com/graphql",
-    apiKey:     "da2-c2f4tfsjjrcvxa6h2m2sroluqu",
+    userPoolId: "us-east-1_567Wg1eE0",
+    clientId:   "14jdsru65a6be94lj26r2mm259",
+    appsyncUrl: "https://vaqkgteemrdfroauddnr2mp4dm.appsync-api.us-east-1.amazonaws.com/graphql",
+    apiKey:     "da2-if6ng6dys5dmlkdtadjzjgljci",
   },
   prod: {
     region:     "us-east-1",
+    userPoolId: "us-east-1_ifc6gPJmc",
     clientId:   "2cra2mdgp22rh7813g3aq26k20",
     appsyncUrl: "https://cdglsrrdm5fhrnu6wge6533jyy.appsync-api.us-east-1.amazonaws.com/graphql",
     apiKey:     "da2-d22ry4q5efes7hcycitl2fxhlm",

@@ -386,3 +386,535 @@ Map<accountId, number> }`. Easy to unit-test; no side effects.
 7. Surplus badge on account chips in Transactions page
 8. Deprecate `currentAmount` writes (keep read path for manual-override mode)
 
+### Brokerage holdings & live prices
+
+`financeAccount.currentBalance` is a flat scalar, which doesn't fit brokerage
+accounts. A brokerage's total value = cash balance + Σ(lots × current price). Holdings
+need their own model with per-lot tracking and live prices.
+
+#### Status
+
+**✅ v1 complete** (schema + shared helpers + quotes API + account detail UI + dashboard):
+- Per-lot model `financeHoldingLot` deployed
+- Separate `financeTickerQuote` model (PK=ticker) for price cache
+- `yahoo-finance2` ^3.14.0 integrated via `/api/quotes` server route
+- Account detail page `/finance/accounts/[id].tsx` with holdings table grouped by ticker,
+  expandable lot rows, add/edit/delete lot flow, and global "Refresh prices" button
+- Dashboard account cards link to `/finance/accounts/{id}` and show cash + positions
+  breakdown for brokerage; net worth uses `accountTotalValue` including positions
+
+**⏳ Pending**:
+- Statement/positions CSV import for lots (Schwab)
+- Cron-based price refresh (Lambda + EventBridge)
+- BUY/SELL transaction flow (compound cash + lot adjustment in one action)
+- Retirement accounts as a new account type (see separate section below)
+
+#### Mental model
+
+- For brokerage accounts, `currentBalance` means **cash only** (uninvested money)
+- Each purchase of a ticker creates one `financeHoldingLot` record (accountId, ticker,
+  quantity, optional costBasis, optional purchaseDate)
+- `financeTickerQuote` has one row per distinct ticker (PK = ticker) holding
+  `price`, `currency`, `fetchedAt`, `source`
+- Total account value = cash + Σ(lot.quantity × tickerQuote.price)
+- Net worth uses total account value (cash + positions), not just cash
+
+#### Schema (as-built)
+
+```ts
+financeHoldingLot: a.model({
+  accountId:    a.id().required(),
+  ticker:       a.string().required(),
+  assetType:    a.enum(["STOCK", "ETF", "MUTUAL_FUND", "CRYPTO", "BOND", "OTHER"]),
+  quantity:     a.float().required(),
+  costBasis:    a.float(),      // total $ paid for THIS lot (optional)
+  purchaseDate: a.date(),       // optional, distinguishes lots
+  notes:        a.string(),
+}).secondaryIndexes((index) => [index("accountId"), index("ticker")])
+
+financeTickerQuote: a.model({
+  ticker:    a.string().required(),
+  price:     a.float(),
+  currency:  a.string(),
+  fetchedAt: a.datetime(),
+  source:    a.string(),
+}).identifier(["ticker"])
+```
+
+#### Key helpers in `components/finance/_shared.tsx`
+
+- `buildQuoteMap(quotes)` — `Map<ticker, TickerQuoteRecord>` for O(1) lookup
+- `tickerAggregate(ticker, lots, quotes)` — `{ totalQty, totalCost, price, marketValue,
+  gainLoss, gainLossPct, lots, fetchedAt }`. `totalCost` is null if any lot missing cost
+  basis (so aggregate gain/loss goes null too — honest handling of partial data)
+- `uniqueTickers(lots)` — distinct uppercase tickers
+- `accountTotalValue(acc, lots, quotes)` — cash + Σ(lot qty × quote price) for
+  brokerage/retirement; just cash otherwise. Lots without quotes contribute 0
+- `isQuoteStale(q, hours=24)`
+
+#### Price feeds (Yahoo Finance)
+
+Unofficial but reliable, free, works for stocks/ETFs/mutual funds (including Schwab funds
+like SWPPX, SWISX). Uses `yahoo-finance2` ^3.14.0 via `new YahooFinance()`.
+
+v1 (done): manual "Refresh prices" button on the account detail page. Global refresh —
+fetches all tickers across all brokerage accounts in one batched API call, upserts each
+ticker's quote row.
+v2: Lambda + EventBridge cron, every 15 min during market hours, once daily on weekends.
+
+#### Pending follow-ons
+
+**Schwab CSV import for lots**
+- Schwab's positions CSV is aggregated (one row per ticker with average cost basis) —
+  doesn't give per-lot data. Needs transactions CSV instead for true lot tracking.
+- For v2: import flow reads Schwab transactions CSV, creates one lot per BUY action,
+  collapses DIVIDEND/REINVEST into new lots or separate income transactions.
+
+**BUY/SELL transaction flow (v3)**
+- New transaction types `BUY` / `SELL` that atomically adjust cash + lot in one action
+- Realized gain/loss on SELL using FIFO or average cost basis (user pref)
+- Dividends/interest as regular income transactions to the cash side
+
+**Cron price refresh**
+- Lambda + EventBridge, every 15 min during market hours, once daily weekends
+- Upserts `financeTickerQuote` rows for all held tickers. Independent of UI
+
+**Race condition in refresh upsert** (minor)
+- Current pattern: `update`-then-catch-fallback-`create`. If two refreshes fire
+  simultaneously, both could fail update + both try create. Rare; not worth solving
+  until it bites
+
+**Account filter chip on Transactions page**
+- Currently opens the account edit panel. Should probably link to
+  `/finance/accounts/{id}` now that the detail page exists
+
+#### Open questions (still relevant)
+
+- **FX**: non-USD tickers need FX rates. Punt — all USD for now
+- **Options/complex instruments**: out of scope. `quantity` is float but assumed
+  shares, not contracts
+- **Dividends/reinvestment**: v1 treats as manual quantity bumps + income tx. v3
+  automates
+- **Stale price handling**: > 24h flagged on account page; no special styling yet
+  for > 1 week. Could improve
+- **Holdings on savings/checking**: UI only shows the holdings section for BROKERAGE
+  and (future) RETIREMENT types. Schema doesn't enforce — integrity is UI-only
+
+### Retirement accounts (401k, IRA, etc.)
+
+Retirement accounts are structurally identical to brokerage accounts — cash + holdings,
+value moves with market prices. Reuse the brokerage infrastructure with a new account
+type so retirement balances contribute to net worth without duplicating code.
+
+#### Mental model
+
+- A 401k, IRA, Roth IRA, HSA, etc. is a brokerage account with a different tax wrapper
+- Same lot model, same quote system, same refresh flow, same detail UI
+- The only new thing is an account type tag and (optional) a retirement-subtype field
+- Cash balance usually 0 in practice (401k providers auto-invest contributions) but
+  the field remains for completeness
+
+#### Schema changes
+
+**Add `RETIREMENT` to `ACCOUNT_TYPES`** enum in `_shared.tsx` and the amplify schema.
+
+**Optional**: add a `retirementType` field to `financeAccount`:
+```ts
+retirementType: a.enum(["401K", "TRAD_IRA", "ROTH_IRA", "HSA", "SEP_IRA", "OTHER"])
+```
+Purely informational — drives labels on the account card, not math. Nullable; only
+populated for RETIREMENT-type accounts.
+
+#### UI changes
+
+- Account badge gets a "Retirement" label with the same emerald styling
+- Account detail page shows the same holdings section for RETIREMENT as for BROKERAGE
+  (extend the existing `isBrokerage` check to `isBrokerageOrRetirement`)
+- `accountTotalValue(...)` includes RETIREMENT in the cash+positions branch
+- Dashboard card shows cash + positions breakdown for RETIREMENT same as brokerage
+- If `retirementType` is set, append it to the badge: "Retirement · 401K"
+
+#### Net worth math
+
+Retirement accounts contribute their full value (cash + positions) to net worth.
+The money is yours; it's just locked until retirement age. Don't discount for taxes —
+the app tracks pre-tax balances because that's what the provider shows.
+
+#### Open questions
+
+- **Employer match tracking**: could live as a separate lot with `notes: "employer
+  match"`, or ignored entirely. Start by ignoring; revisit if tracking vesting matters
+- **Vested vs unvested**: if vesting schedules become important, add a
+  `vestedPercent` field to lots and a `vestingDate`. Out of scope for v1
+- **Contribution limits / year-to-date contributed**: not net-worth-relevant, belongs
+  in a tax-planning view if ever built. Skip
+- **Rollovers** (401k → IRA): handled as a TRANSFER between two RETIREMENT accounts.
+  Existing transfer logic works since both are accounts. The lots themselves would
+  need to be moved/recreated — manual step for now
+
+#### Build order
+
+1. Add `RETIREMENT` to `ACCOUNT_TYPES` in `_shared.tsx` and schema
+2. Add `retirementType` field to `financeAccount` model (nullable enum)
+3. Update `accountTotalValue(...)` branch to include RETIREMENT
+4. Update account detail page to show holdings section for RETIREMENT
+5. Update dashboard card rendering (cash + positions for RETIREMENT too)
+6. Update `ACCOUNT_TYPE_LABELS` and badge display
+7. Add `retirementType` dropdown on the account edit form (only shown when type=RETIREMENT)
+
+### Assets (house, car, collectibles)
+
+Non-financial holdings whose value depends on appraisal/market, not transactions.
+Contribute to net worth; don't have a ledger. Purely a scalar that the user updates
+manually (v1; future: Zestimate API, KBB, etc.).
+
+#### Mental model
+
+- An asset has a name, type, purchase value, current value, and optionally a link to
+  an active loan that finances it
+- Net worth sums `currentValue` across active assets (loans subtract separately — see
+  Loans section below)
+- Assets do NOT contribute to savings-goal allocation. They're illiquid and shouldn't
+  absorb cash intended for emergency funds etc.
+
+#### Schema
+
+```ts
+financeAsset: a.model({
+  name:          a.string().required(),     // "Primary home", "2019 Honda Civic"
+  type:          a.enum(["REAL_ESTATE", "VEHICLE", "COLLECTIBLE", "OTHER"]),
+  purchaseValue: a.float(),                   // original cost (optional)
+  currentValue:  a.float().required(),        // current estimated value
+  purchaseDate:  a.date(),                    // optional
+  notes:         a.string(),                  // "appraised 2024-03", "VIN: xxxx"
+  active:        a.boolean().default(true),   // sold/disposed = inactive
+})
+```
+
+No GSIs needed — the table will stay small (realistically < 20 rows).
+
+#### UI changes
+
+**New "Assets" tab** in the finance layout sidebar, between Goals and (future) Loans.
+
+**`/finance/assets` page**:
+- Grid of asset cards: name, type badge, current value, gain/loss since purchase
+  (when purchase value known), linked loan (when present) with equity calculation
+- Add/edit/delete flow similar to accounts
+- For an asset linked to a loan: show `currentValue − loanBalance = equity`
+
+**Dashboard**:
+- New "Assets" section below or next to account cards, showing total asset value and
+  individual cards with current value. Collapsible if many assets
+- Net worth formula updates to include `Σ active_assets.currentValue`
+
+**`fetchAll` in dashboard** needs to pull `financeAsset` records.
+
+#### Helpers
+
+```ts
+// Total value of active assets
+totalAssetValue(assets: AssetRecord[]): number
+
+// Equity on an asset given linked loans
+assetEquity(asset: AssetRecord, loans: LoanRecord[]): number
+  // = asset.currentValue + Σ(loans where assetId = asset.id && active).currentBalance
+  // (loans stored with negative currentBalance, so + works)
+```
+
+#### Net worth formula update
+
+```
+netWorth =
+    Σ accounts.totalValue (existing calc, covers brokerage/retirement lots)
+  + Σ active_assets.currentValue
+  + Σ active_loans.currentBalance     // already negative, so effectively subtracted
+```
+
+Credit cards remain negative `financeAccount` balances. Loans are separate.
+
+#### Open questions
+
+- **Depreciation of vehicles**: no automation. User updates `currentValue` manually
+  when they feel like it. Could later wire up KBB/Edmunds API for VIN-based estimates
+- **Real estate**: Zillow Zestimate has a public API but TOS is sketchy. Manual for v1
+- **Collectibles tracked in inventory**: separate system (`inventoryItem` etc.). Don't
+  merge — those have sale prices, not appraised value. If a guitar becomes valuable
+  enough to matter for net worth (> $5k), add it as a standalone asset; otherwise it
+  stays in inventory only
+- **Multiple owners**: out of scope. If the house is jointly owned with Cris, record
+  the full value and handle the split externally
+- **Asset not contributing to net worth**: a boolean `includeInNetWorth` flag? Skip
+  for v1 — `active: false` covers the "sold" case, which is the common one
+
+#### Build order
+
+1. Schema: add `financeAsset` model
+2. Shared types + helpers: `AssetRecord`, `totalAssetValue`, `assetEquity` (stub
+  until loans land)
+3. Assets page `/finance/assets` with CRUD
+4. Finance layout: add "Assets" nav item
+5. Dashboard: fetch assets, show section, include in net worth
+6. Linked loan display (after loans land)
+
+### Loans (mortgage, auto, student)
+
+Loans need more structure than accounts because a payment splits into principal /
+interest / escrow — a single ledger transaction can't express this. Hybrid approach:
+a loan is backed by a `financeAccount` (type LOAN) for ledger integration, plus a
+separate `financeLoan` record for structured metadata and payment breakdowns.
+
+**Key insight from Gennaro's existing tracking spreadsheet**: real payments are highly
+irregular. Total payment amounts vary month-to-month ($1,745 → $2,000 → $1,800 → $1,300
+→ $1,250 → $1,800 → $2,000...) with ad-hoc extra principal contributions. The bank
+reports the actual principal/interest split per payment; we should NOT try to
+auto-compute it from theoretical amortization. Users enter what the bank tells them.
+
+#### Mental model
+
+- Every loan has:
+  - A `financeAccount` with `type: LOAN` and `currentBalance` (negative = owed)
+  - A `financeLoan` record with structured metadata (rate, term, original amount,
+    linked asset) referencing the account via `accountId`
+- A payment generates three linked records:
+  - EXPENSE transaction on the paying account (e.g. checking) for `totalAmount`
+  - INCOME transaction on the loan account for `principalAmount` (positive, since it
+    moves balance toward zero)
+  - `financeLoanPayment` record linking the two and carrying interest/escrow breakdown
+- Interest is neither lost nor double-counted: it's the delta between the two
+  transactions, captured as metadata on the payment record. Year-to-date interest for
+  tax prep = `Σ loan_payments.interestAmount filtered by year`
+- Loan balance is derived from `originalAmount − Σ payments.principalAmount`, cached
+  on the loan as `currentBalance` for cheap reads, recomputed on every payment
+  insert/edit/delete. A "Reconcile" button recomputes from scratch if it ever drifts
+
+#### Schema
+
+**New `LOAN` account type**:
+```ts
+// In ACCOUNT_TYPES and financeAccount.type enum
+"LOAN"
+```
+
+**New `financeLoan` model**:
+```ts
+financeLoan: a.model({
+  name:           a.string().required(),        // "Primary mortgage", "Civic auto loan"
+  type:           a.enum(["MORTGAGE", "AUTO", "STUDENT", "PERSONAL", "HELOC", "OTHER"]),
+  accountId:      a.id().required(),             // FK → financeAccount.id (type=LOAN)
+  originalAmount: a.float().required(),          // positive; what was borrowed
+  currentBalance: a.float().required(),          // cached: originalAmount − Σ principal paid
+  interestRate:   a.float(),                     // annual APR, decimal (0.0675). Informational
+  termMonths:     a.integer(),                   // informational (for reference amortization)
+  startDate:      a.date(),
+  assetId:        a.id(),                        // FK → financeAsset.id (optional)
+  notes:          a.string(),
+  active:         a.boolean().default(true),
+}).secondaryIndexes((index) => [index("accountId"), index("assetId")])
+```
+
+Notes:
+- `monthlyPayment` dropped — real payments vary too much to be a stable field. For
+  display ("Typical payment: $2,000"), compute as median of last N payments or show
+  the last payment amount
+- `interestRate` and `termMonths` remain for informational display and for the
+  **reference amortization** feature ("if you'd paid the minimum, you'd be at $X
+  balance today" vs actual)
+- `currentBalance` is a cached derived value, not an independent source of truth.
+  Store it for O(1) reads from dashboard; recompute on write
+
+**New `financeLoanPayment` model**:
+```ts
+financeLoanPayment: a.model({
+  loanId:          a.id().required(),
+  date:            a.date().required(),
+  totalAmount:     a.float().required(),         // what came out of checking (positive)
+  principalAmount: a.float().required(),         // reduced the loan balance (from bank statement)
+  interestAmount:  a.float().required(),         // informational (from bank statement)
+  escrowAmount:    a.float(),                    // optional (mortgage: taxes + insurance)
+  fromAccountId:   a.id().required(),            // FK → financeAccount.id (paying account)
+  expenseTxId:     a.id(),                       // FK → financeTransaction.id (checking side)
+  loanTxId:        a.id(),                       // FK → financeTransaction.id (loan side)
+  notes:           a.string(),
+}).secondaryIndexes((index) => [index("loanId"), index("date")])
+```
+
+The `expenseTxId` / `loanTxId` FKs let us navigate between views (click a loan payment
+→ see the two ledger transactions) and let payment deletion cascade-delete both
+transactions.
+
+#### Payment flow
+
+**Recording a payment** (new panel on loan detail page):
+1. User enters all fields manually from their bank statement:
+   - Date, paying account
+   - Total amount
+   - Principal amount (from statement)
+   - Interest amount (from statement)
+   - Escrow amount (optional, mortgage only)
+2. Validation: `principal + interest + (escrow ≓ 0) ≈ total`. If the check fails by
+   more than $1, warn the user ("These don't add up — check your statement"). Allow
+   proceeding anyway — rounding errors and fees occasionally cause minor drift
+3. On save:
+   - Create EXPENSE transaction on `fromAccountId` for `-totalAmount`
+     (description: "Loan payment: {loan.name}", category: "Loan")
+   - Create INCOME transaction on `loan.accountId` for `+principalAmount`
+     (description: "Principal: {loan.name}", category: "Loan")
+   - Create `financeLoanPayment` with both tx IDs
+   - Update `loan.currentBalance -= principalAmount`
+   - Update `loan.accountId` account's `currentBalance` to match (both sides of the
+     ledger move)
+4. If the transactions or payment record fails to create, roll back the others
+   (client-side orchestration). AWS doesn't give us real transactions across models;
+   best we can do is "try-all-then-cleanup" — acceptable for a personal app
+
+**No auto-computed principal/interest split.** The bank's split is authoritative and
+varies based on actual balance, fees, date of payment. Any schedule we compute will
+be wrong most months. Don't pretend.
+
+**Recurring payment support** — optional, integrates with existing `financeRecurring`:
+- User can mark a loan payment recurring for the "typical" amount, but recurring only
+  creates the EXPENSE side (from checking). When the bank statement arrives, user
+  edits the auto-posted transaction into a proper loan payment with the real split.
+- Alternatively, skip recurring for loans entirely — user manually records each
+  payment when the statement arrives. Simpler and aligns with the "bank tells us the
+  split" principle
+
+#### CSV import for payment history
+
+Critical for v1 because Gennaro has 40+ rows of existing payment history in a
+spreadsheet. Without import, loan rollout means hours of manual data entry.
+
+**Import flow**:
+- On loan detail page: "Import payment history" button
+- CSV expected columns (case-insensitive, flexible header matching):
+  `date, payment | total, principal, interest, escrow (optional)`
+- Preview table shows parsed rows with any validation warnings
+- On confirm: create one `financeLoanPayment` per row, PLUS the two linked ledger
+  transactions per row (same as manual entry)
+- Dedup: hash(loanId + date + totalAmount) as `importHash` on the payment record.
+  Re-importing the same CSV is a no-op
+- Recompute `loan.currentBalance` and `loan.accountId` balance at the end as
+  `originalAmount − Σ principal` (don't trust row-by-row drift)
+
+**Important**: historical imports may predate the checking account's existence in
+this system. Let the user pick a paying account, or create a special "Historical"
+account for payments made before migration. Transactions on the Historical account
+don't affect net worth (mark it inactive or filter it out).
+
+#### Reference amortization view
+
+Motivating display: "If you'd paid the minimum only, you'd owe $X today. You actually
+owe $Y. You've saved $Z in interest by paying extra."
+
+Pure computed function `referenceAmortization(loan)` in `_shared.tsx`:
+```ts
+// Given originalAmount, interestRate, termMonths, startDate, produces:
+// [{ installmentNumber, scheduledDate, scheduledPayment, scheduledPrincipal,
+//    scheduledInterest, scheduledBalance }]
+// Stops at termMonths or when balance hits 0
+```
+
+On loan detail page, side-by-side comparison:
+- Actual (from `financeLoanPayment` records): current balance, payments made,
+  interest paid to date
+- Reference (from `referenceAmortization`): what the balance would be if paying
+  minimum since `startDate`
+- Delta: principal ahead of schedule, interest saved
+
+If `interestRate` or `termMonths` is null, skip the reference view — can't compute
+
+#### UI changes
+
+**New "Loans" tab** in the finance sidebar.
+
+**`/finance/loans` page**:
+- List of loan cards: name, type badge, current balance, rate, last payment amount,
+  linked asset (when present), progress bar (principal paid / original)
+- Quick "Record payment" button per loan
+- Add/edit/delete loan flow
+
+**`/finance/loans/[id]` page** (detail):
+- Header: current balance, original amount, rate, term, payoff date projection
+  (based on current payment rate)
+- Reference amortization comparison (if rate + term are set)
+- Payment history: all `financeLoanPayment` records, newest first, with:
+  - Date, total, principal, interest, escrow (if any)
+  - Running balance column (computed left-to-right from oldest to newest, not stored)
+  - YTD interest total at the top (current calendar year)
+- Record new payment button
+- Import payment history button
+
+**Account detail for LOAN accounts** (`/finance/accounts/[id]` already exists):
+- Shows ledger transactions as usual. Works out of the box
+- Add a "This is a loan" card at the top with summary metadata if a `financeLoan`
+  points to this account. Click-through to `/finance/loans/[id]`
+
+**Dashboard**:
+- New "Loans" section (or combined "Debts" with credit cards?) showing total debt,
+  principal paid this year, YTD interest, upcoming payment dates if using recurring
+- Net worth formula already handles this since loan accounts have negative balances
+
+**Assets page**:
+- Asset cards linked to a loan show equity: `currentValue + loanBalance = equity`
+  (loan balance already negative)
+
+#### Net worth formula (final)
+
+```
+netWorth =
+    Σ active_accounts.totalValue   // includes LOAN accounts (negative)
+  + Σ active_assets.currentValue
+```
+
+No separate loan subtraction needed — LOAN accounts carry negative balances and are
+already summed in the first term. Clean.
+
+#### Open questions
+
+- **Split mismatch > $1**: warn, don't block. Rounding errors are real; let the user
+  proceed with a note. Track in a "split discrepancy" counter on the loan if we
+  want to flag persistent issues
+- **Extra principal payments**: naturally supported — user just enters a principal
+  amount larger than typical for that month. No special UI needed
+- **Fixed vs variable rate**: `interestRate` is a single float. For variable rate
+  loans, user updates it when it changes. Don't track rate history for v1. Reference
+  amortization only accurate for fixed-rate loans; note this in UI
+- **Rate changes on variable loans**: the reference amortization would need to
+  recompute. Skip — variable rate users won't rely on the reference view
+- **Prepaid interest / points at closing**: out of scope — those happen before v1
+  starts tracking, user just enters the post-closing balance as `originalAmount`
+- **Loans without an account?**: could model as a loan without an accountId, pure
+  metadata. Not worth the complexity — every loan gets a LOAN-type account
+- **Credit cards vs loans**: credit cards stay as CREDIT accounts with no
+  `financeLoan` backing record. Structurally similar (revolving debt) but categorically
+  different — no fixed term, no amortization, balance fluctuates with spending
+- **Deleting a loan**: should we delete the backing account too? Propose a confirmation:
+  "Delete loan + close the linked account? The account has N transactions." Soft-delete
+  both (set active=false) is safer than hard delete
+- **Asset / loan 1:N**: one asset could have multiple loans (HELOC + mortgage on same
+  house). `financeLoan.assetId` is a FK, so many loans → one asset works naturally.
+  Equity calc sums all loans for that asset
+- **Loan payoff**: when `currentBalance` hits 0, suggest marking `active: false`. Don't
+  auto-inactivate — user might want to keep a $0-balance loan visible briefly
+- **Balance drift**: cached `currentBalance` can drift from Σ payments if bugs creep
+  in. Add a "Reconcile" button that recomputes from `originalAmount − Σ principal`
+  and updates both the loan and its linked account
+
+#### Build order
+
+1. Schema: add `LOAN` to ACCOUNT_TYPES, add `financeLoan` and `financeLoanPayment` models
+2. Shared helpers: `totalLoanBalance`, `assetEquity` (update to use real loan data),
+   `referenceAmortization(loan)` pure function
+3. Loans page `/finance/loans` with CRUD
+4. Loan detail page `/finance/loans/[id]` with payment history + YTD interest + running balance
+5. Record payment flow: user enters all amounts manually, two transactions + loan
+   payment record orchestrated client-side, split validation warning
+6. **CSV import for payment history** (critical to onboard existing spreadsheet data)
+7. Reference amortization comparison view (principal ahead, interest saved)
+8. Loan-linked asset display on Assets page (equity calc)
+9. "This is a loan" summary card on LOAN-type account detail page
+10. Reconcile button (recompute balance from Σ payments)
+11. Recurring payment integration (optional — may skip in favor of manual entry)
+
+

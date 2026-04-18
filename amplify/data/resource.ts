@@ -529,6 +529,44 @@ const schema = a.schema({
       notes: a.string(),
     })
     .authorization((allow) => [allow.group("admins")]),
+
+  // ── Holding Lot ─────────────────────────────────────────────────────────────
+  // One record per purchase lot of a ticker in a brokerage account.
+  // Aggregated per ticker in the UI via tickerAggregate().
+  // Account total value = currentBalance (cash) + Σ(lot.quantity * quote.price).
+  financeHoldingLot: a
+    .model({
+      accountId: a.id().required(),          // FK → financeAccount.id (must be type=BROKERAGE)
+      ticker: a.string().required(),         // "VOO", "AAPL", "SWPPX"
+      assetType: a.enum([
+        "STOCK",
+        "ETF",
+        "MUTUAL_FUND",
+        "CRYPTO",
+        "BOND",
+        "OTHER",
+      ]),
+      quantity: a.float().required(),        // # of shares/units in this lot
+      costBasis: a.float(),                  // total $ paid for this lot (optional)
+      purchaseDate: a.date(),                // when this lot was acquired (optional)
+      notes: a.string(),
+    })
+    .secondaryIndexes((index) => [index("accountId"), index("ticker")])
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Ticker Quote ───────────────────────────────────────────────────────────
+  // Last known market price per ticker. Single row per ticker (PK = ticker).
+  // Refresh loop upserts these; lot records join in memory for market value.
+  financeTickerQuote: a
+    .model({
+      ticker: a.string().required(),         // PK
+      price: a.float(),
+      currency: a.string(),
+      fetchedAt: a.datetime(),
+      source: a.string(),                    // "yahoo" for now
+    })
+    .identifier(["ticker"])
+    .authorization((allow) => [allow.group("admins")]),
   // ── Task ──────────────────────────────────────────────────────────────────
   // Actionable items for the household agent. Structured (vs. PARA notes which
   // are freeform markdown). Notifications fire on overdue/upcoming tasks.

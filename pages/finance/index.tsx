@@ -1,12 +1,14 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
+  HoldingLotRecord, TickerQuoteRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
   amountColor, goalPctColor, isRecurrenceLive,
+  accountTotalValue, buildQuoteMap,
   AccountBadge,
   type Cadence,
 } from "@/components/finance/_shared";
@@ -18,21 +20,34 @@ export default function FinanceDashboard() {
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
+  const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
+  const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: accs }, { data: txs }, { data: recs }, { data: gls }] = await Promise.all([
+      const [
+        { data: accs },
+        { data: txs },
+        { data: recs },
+        { data: gls },
+        { data: lotRecs },
+        { data: quoteRecs },
+      ] = await Promise.all([
         client.models.financeAccount.list({ limit: 200 }),
         client.models.financeTransaction.list({ limit: 500 }),
         client.models.financeRecurring.list({ limit: 200 }),
         client.models.financeSavingsGoal.list({ limit: 100 }),
+        client.models.financeHoldingLot.list({ limit: 500 }),
+        client.models.financeTickerQuote.list({ limit: 500 }),
       ]);
       setAccounts(accs ?? []);
       setTransactions(txs ?? []);
       setRecurrings(recs ?? []);
       setGoals(gls ?? []);
+      setLots(lotRecs ?? []);
+      setQuotes(quoteRecs ?? []);
     } finally {
       setLoading(false);
     }
@@ -47,9 +62,14 @@ export default function FinanceDashboard() {
 
   const activeAccounts = accounts.filter((a) => a.active !== false);
 
-  // Sign convention: balances are stored as-is (credit owed = negative, assets = positive),
-  // so a simple sum gives net worth.
-  const netWorth = activeAccounts.reduce((sum, a) => sum + (a.currentBalance ?? 0), 0);
+  const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
+
+  // Net worth uses total account value (cash + positions for brokerage).
+  // Sign convention: credit owed = negative, assets = positive.
+  const netWorth = activeAccounts.reduce(
+    (sum, a) => sum + accountTotalValue(a, lots, quoteMap),
+    0,
+  );
 
   const today = todayIso();
   const in30  = addMonths(today, 1);
@@ -104,41 +124,54 @@ export default function FinanceDashboard() {
                 <p className="text-sm text-gray-400">No accounts yet — <a href="/finance/transactions" className="underline" style={{ color: FINANCE_COLOR }}>add one</a>.</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {activeAccounts.map((acc) => (
-                    <a
-                      key={acc.id}
-                      href={`/finance/transactions?account=${acc.id}`}
-                      className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface px-4 py-3 flex flex-col gap-1 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{acc.name}</span>
-                        <AccountBadge type={acc.type} />
-                      </div>
-                      <span
-                        className="text-xl font-bold tabular-nums"
-                        style={{ color: (acc.currentBalance ?? 0) >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                  {activeAccounts.map((acc) => {
+                    const totalValue = accountTotalValue(acc, lots, quoteMap);
+                    const isBrokerage = acc.type === "BROKERAGE";
+                    const positionsValue = isBrokerage ? totalValue - (acc.currentBalance ?? 0) : 0;
+                    return (
+                      <a
+                        key={acc.id}
+                        href={`/finance/accounts/${acc.id}`}
+                        className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface px-4 py-3 flex flex-col gap-1 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
                       >
-                        {fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}
-                      </span>
-                      {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 && (() => {
-                        // currentBalance is negative when money is owed; flip to positive for utilization
-                        const owed = Math.max(0, -(acc.currentBalance ?? 0));
-                        const util = Math.min(1, owed / (acc.creditLimit ?? 1));
-                        const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
-                        return (
-                          <div className="flex flex-col gap-1">
-                            <div className="h-1 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${util * 100}%`, backgroundColor: color }} />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{acc.name}</span>
+                          <AccountBadge type={acc.type} />
+                        </div>
+                        <span
+                          className="text-xl font-bold tabular-nums"
+                          style={{ color: totalValue >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                        >
+                          {fmtCurrency(totalValue, acc.currency ?? "USD")}
+                        </span>
+                        {isBrokerage && (
+                          <p className="text-[11px] text-gray-400 tabular-nums">
+                            Cash {fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}
+                            {positionsValue !== 0 && (
+                              <> · Positions {fmtCurrency(positionsValue, acc.currency ?? "USD")}</>
+                            )}
+                          </p>
+                        )}
+                        {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 && (() => {
+                          // currentBalance is negative when money is owed; flip to positive for utilization
+                          const owed = Math.max(0, -(acc.currentBalance ?? 0));
+                          const util = Math.min(1, owed / (acc.creditLimit ?? 1));
+                          const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
+                          return (
+                            <div className="flex flex-col gap-1">
+                              <div className="h-1 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${util * 100}%`, backgroundColor: color }} />
+                              </div>
+                              <p className="text-[10px]" style={{ color }}>
+                                {Math.round(util * 100)}% of {fmtCurrency(acc.creditLimit, acc.currency ?? "USD")} limit
+                              </p>
                             </div>
-                            <p className="text-[10px]" style={{ color }}>
-                              {Math.round(util * 100)}% of {fmtCurrency(acc.creditLimit, acc.currency ?? "USD")} limit
-                            </p>
-                          </div>
-                        );
-                      })()}
-                      {acc.notes && <p className="text-[11px] text-gray-400 truncate">{acc.notes}</p>}
-                    </a>
-                  ))}
+                          );
+                        })()}
+                        {acc.notes && <p className="text-[11px] text-gray-400 truncate">{acc.notes}</p>}
+                      </a>
+                    );
+                  })}
                 </div>
               )}
             </section>

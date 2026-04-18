@@ -25,6 +25,7 @@
     "@aws-sdk/client-dynamodb": "^3.782.0",
     "@aws-sdk/client-ses": "^3.1000.0",
     "@aws-sdk/client-sns": "^3.782.0",
+    "@aws-sdk/credential-providers": "^3.1000.0",
     "@aws-sdk/lib-dynamodb": "^3.782.0",
     "@heroui/avatar": "^2.2.13",
     "@heroui/button": "2.2.17",
@@ -82,7 +83,8 @@
     "slugify": "^1.6.6",
     "uuid": "^10.0.0",
     "xlsx": "^0.18.5",
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "yahoo-finance2": "^3.14.0"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.14.3",
