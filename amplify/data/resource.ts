@@ -477,10 +477,13 @@ const schema = a.schema({
         "CHECKING",
         "SAVINGS",
         "BROKERAGE",
+        "RETIREMENT",
         "CREDIT",
         "CASH",
         "OTHER",
       ]),
+      // Only populated when type=RETIREMENT; informational only.
+      retirementType: a.enum(["_401K", "TRAD_IRA", "ROTH_IRA", "HSA", "SEP_IRA", "OTHER"]),
       currentBalance: a.float().required().default(0),
       currency: a.string().default("USD"),
       notes: a.string(),

@@ -22,8 +22,28 @@ export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
 
 // ── Enums / constants ─────────────────────────────────────────────────────────
 
-export const ACCOUNT_TYPES = ["CHECKING", "SAVINGS", "BROKERAGE", "CREDIT", "CASH", "OTHER"] as const;
+export const ACCOUNT_TYPES = ["CHECKING", "SAVINGS", "BROKERAGE", "RETIREMENT", "CREDIT", "CASH", "OTHER"] as const;
 export type  AccountType   = (typeof ACCOUNT_TYPES)[number];
+
+export const RETIREMENT_TYPES = ["_401K", "TRAD_IRA", "ROTH_IRA", "HSA", "SEP_IRA", "OTHER"] as const;
+export type  RetirementType   = (typeof RETIREMENT_TYPES)[number];
+
+export const RETIREMENT_TYPE_LABELS: Record<RetirementType, string> = {
+  _401K:    "401(k)",
+  TRAD_IRA: "Traditional IRA",
+  ROTH_IRA: "Roth IRA",
+  HSA:      "HSA",
+  SEP_IRA:  "SEP-IRA",
+  OTHER:    "Other",
+};
+
+/** Account types that hold positions (cash + holdings lots). Both brokerage and retirement */
+export const INVESTED_ACCOUNT_TYPES: AccountType[] = ["BROKERAGE", "RETIREMENT"];
+
+/** Does this account type hold holdings lots? (brokerage + retirement) */
+export function isInvestedAccount(type: string | null | undefined): boolean {
+  return type === "BROKERAGE" || type === "RETIREMENT";
+}
 
 export const TX_TYPES    = ["INCOME", "EXPENSE", "TRANSFER"] as const;
 export type  TxType      = (typeof TX_TYPES)[number];
@@ -49,12 +69,13 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
 export const FINANCE_COLOR = "#10b981";
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
-  CHECKING:  "Checking",
-  SAVINGS:   "Savings",
-  BROKERAGE: "Brokerage",
-  CREDIT:    "Credit Card",
-  CASH:      "Cash",
-  OTHER:     "Other",
+  CHECKING:   "Checking",
+  SAVINGS:    "Savings",
+  BROKERAGE:  "Brokerage",
+  RETIREMENT: "Retirement",
+  CREDIT:     "Credit Card",
+  CASH:       "Cash",
+  OTHER:      "Other",
 };
 
 export const CADENCE_LABELS: Record<Cadence, string> = {
@@ -297,8 +318,8 @@ export function uniqueTickers(lots: HoldingLotRecord[]): string[] {
 
 /**
  * Total value of an account including holdings.
- * For non-brokerage accounts this is just `currentBalance`.
- * For brokerage accounts it's `currentBalance` (cash) + Σ(lot qty * quote price).
+ * For non-invested accounts this is just `currentBalance`.
+ * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(lot qty * quote price).
  * Lots with no quote contribute 0 — UI should surface unpriced tickers.
  */
 export function accountTotalValue(
@@ -307,7 +328,7 @@ export function accountTotalValue(
   quotes: QuoteMap = new Map(),
 ): number {
   const cash = acc.currentBalance ?? 0;
-  if (acc.type !== "BROKERAGE") return cash;
+  if (!isInvestedAccount(acc.type)) return cash;
   const myLots = lots.filter((l) => l.accountId === acc.id);
   const holdingsValue = myLots.reduce((s, l) => {
     const q = quotes.get((l.ticker ?? "").toUpperCase());

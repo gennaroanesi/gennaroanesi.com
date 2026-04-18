@@ -7,6 +7,7 @@ import {
   AccountRecord, TransactionRecord,
   ACCOUNT_TYPES, TX_TYPES, TX_STATUSES, FINANCE_COLOR,
   ACCOUNT_TYPE_LABELS,
+  RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, isInvestedAccount,
   fmtCurrency, fmtDate, todayIso, importHash, amountColor,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
@@ -231,6 +232,7 @@ export default function TransactionsPage() {
         const { data: newAcc } = await client.models.financeAccount.create({
           name:           accDraft.name!,
           type:           (accDraft.type ?? "CHECKING") as any,
+          retirementType: (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
           currentBalance: accDraft.currentBalance ?? 0,
           currency:       accDraft.currency ?? "USD",
           notes:          accDraft.notes ?? null,
@@ -242,6 +244,7 @@ export default function TransactionsPage() {
           id:             panel.acc.id,
           name:           accDraft.name!,
           type:           (accDraft.type ?? "CHECKING") as any,
+          retirementType: (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
           currentBalance: accDraft.currentBalance ?? 0,
           currency:       accDraft.currency ?? "USD",
           notes:          accDraft.notes ?? null,
@@ -585,13 +588,30 @@ export default function TransactionsPage() {
                         onChange={(e) => setAccDraft((d) => ({ ...d, currency: e.target.value.toUpperCase() }))} />
                     </div>
                   </div>
+                  {(accDraft.type ?? "CHECKING") === "RETIREMENT" && (
+                    <div>
+                      <label className={labelCls}>Retirement Type</label>
+                      <select className={inputCls} value={accDraft.retirementType ?? ""}
+                        onChange={(e) => setAccDraft((d) => ({ ...d, retirementType: (e.target.value || null) as any }))}>
+                        <option value="">— unspecified —</option>
+                        {RETIREMENT_TYPES.map((rt) => (
+                          <option key={rt} value={rt}>{RETIREMENT_TYPE_LABELS[rt]}</option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Optional, for display only</p>
+                    </div>
+                  )}
                   <div>
-                    <label className={labelCls}>Current Balance</label>
+                    <label className={labelCls}>
+                      {isInvestedAccount(accDraft.type) ? "Cash Balance" : "Current Balance"}
+                    </label>
                     <input type="number" step="0.01" className={inputCls} placeholder="0.00"
                       value={accDraft.currentBalance ?? ""}
                       onChange={(e) => setAccDraft((d) => ({ ...d, currentBalance: parseFloat(e.target.value) || 0 }))} />
                     <p className="text-[10px] text-gray-400 mt-0.5">
-                      {panel.kind === "new-acc" ? "Opening balance" : "Direct override — use sparingly"}
+                      {isInvestedAccount(accDraft.type)
+                        ? "Uninvested cash only. Positions are tracked as lots on the account page."
+                        : panel.kind === "new-acc" ? "Opening balance" : "Direct override — use sparingly"}
                     </p>
                   </div>
                   {(accDraft.type ?? "CHECKING") === "CREDIT" && (

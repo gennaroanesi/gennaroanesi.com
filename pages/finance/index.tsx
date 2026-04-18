@@ -8,7 +8,7 @@ import {
   FINANCE_COLOR, CADENCE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
   amountColor, goalPctColor, isRecurrenceLive,
-  accountTotalValue, buildQuoteMap,
+  accountTotalValue, buildQuoteMap, isInvestedAccount,
   AccountBadge,
   type Cadence,
 } from "@/components/finance/_shared";
@@ -126,8 +126,8 @@ export default function FinanceDashboard() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {activeAccounts.map((acc) => {
                     const totalValue = accountTotalValue(acc, lots, quoteMap);
-                    const isBrokerage = acc.type === "BROKERAGE";
-                    const positionsValue = isBrokerage ? totalValue - (acc.currentBalance ?? 0) : 0;
+                    const invested = isInvestedAccount(acc.type);
+                    const positionsValue = invested ? totalValue - (acc.currentBalance ?? 0) : 0;
                     return (
                       <a
                         key={acc.id}
@@ -144,7 +144,7 @@ export default function FinanceDashboard() {
                         >
                           {fmtCurrency(totalValue, acc.currency ?? "USD")}
                         </span>
-                        {isBrokerage && (
+                        {invested && (
                           <p className="text-[11px] text-gray-400 tabular-nums">
                             Cash {fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}
                             {positionsValue !== 0 && (
