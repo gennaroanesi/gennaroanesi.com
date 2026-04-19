@@ -4,7 +4,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
-  HoldingLotRecord, TickerQuoteRecord, AssetRecord,
+  HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   PHYSICAL_ASSET_TYPE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
@@ -26,6 +26,7 @@ export default function FinanceDashboard() {
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [assets,       setAssets]       = useState<AssetRecord[]>([]);
+  const [loans,        setLoans]        = useState<LoanRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
 
   const fetchAll = useCallback(async () => {
@@ -39,6 +40,7 @@ export default function FinanceDashboard() {
         lotRecs,
         quoteRecs,
         assetRecs,
+        loanRecs,
       ] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
@@ -47,6 +49,7 @@ export default function FinanceDashboard() {
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeAsset),
+        listAll(client.models.financeLoan),
       ]);
       setAccounts(accs);
       setTransactions(txs);
@@ -55,6 +58,7 @@ export default function FinanceDashboard() {
       setLots(lotRecs);
       setQuotes(quoteRecs);
       setAssets(assetRecs);
+      setLoans(loanRecs);
     } finally {
       setLoading(false);
     }
@@ -79,6 +83,22 @@ export default function FinanceDashboard() {
 
   const activeAssets = useMemo(() => assets.filter((a) => a.active !== false), [assets]);
   const assetsTotal  = useMemo(() => totalAssetValue(assets), [assets]);
+
+  // Sum of loan balances keyed by the asset they're secured against. Multiple loans
+  // on one asset (e.g. mortgage + HELOC) sum together; assets with no loan are absent.
+  const loanOwedByAssetId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of loans) {
+      if (!l.assetId) continue;
+      m.set(l.assetId, (m.get(l.assetId) ?? 0) + (l.currentBalance ?? 0));
+    }
+    return m;
+  }, [loans]);
+
+  // Total loan debt tied to assets — used so net worth subtracts it exactly once
+  // (assets contribute their full value; loan accounts are their own line already via activeAccounts).
+  // Note: we don't subtract owed here because loan accounts already carry a negative currentBalance
+  // in activeAccounts — subtracting again would double-count the debt.
 
   // Net worth uses total account value (cash + positions for brokerage/retirement)
   // plus active asset values. Sign convention: credit owed = negative, assets = positive.
@@ -222,6 +242,9 @@ export default function FinanceDashboard() {
                   {activeAssets.map((asset) => {
                     const gain = assetGainLoss(asset);
                     const label = PHYSICAL_ASSET_TYPE_LABELS[(asset.type ?? "OTHER") as keyof typeof PHYSICAL_ASSET_TYPE_LABELS];
+                    const owed = loanOwedByAssetId.get(asset.id) ?? 0;
+                    const hasLoan = owed > 0;
+                    const equity = (asset.currentValue ?? 0) - owed;
                     return (
                       <a
                         key={asset.id}
@@ -243,6 +266,18 @@ export default function FinanceDashboard() {
                         >
                           {fmtCurrency(asset.currentValue)}
                         </span>
+                        {hasLoan && (
+                          <div className="flex flex-col gap-0.5 pt-1 border-t border-gray-100 dark:border-gray-700 mt-0.5">
+                            <p className="text-[11px] text-gray-400 tabular-nums flex justify-between gap-2">
+                              <span>Owed</span>
+                              <span className="font-semibold" style={{ color: "#ef4444" }}>{fmtCurrency(owed)}</span>
+                            </p>
+                            <p className="text-[11px] text-gray-400 tabular-nums flex justify-between gap-2">
+                              <span>Equity</span>
+                              <span className="font-semibold" style={{ color: amountColor(equity) }}>{fmtCurrency(equity)}</span>
+                            </p>
+                          </div>
+                        )}
                         {gain != null && (
                           <p className="text-[11px] tabular-nums" style={{ color: amountColor(gain) }}>
                             {fmtCurrency(gain, "USD", true)} since purchase

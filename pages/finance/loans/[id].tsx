@@ -23,7 +23,19 @@ type PanelState =
   | { kind: "edit-posted"; payment: LoanPaymentRecord }
   | { kind: "extra" }
   | { kind: "correction";  delta: number }
+  | { kind: "edit-loan" }
   | null;
+
+// Editable loan metadata — only the fields that make sense to change after creation.
+// Principal / interest rate / term / start date are deliberately NOT editable: changing
+// them would invalidate the generated payment schedule and drive balance drift.
+type LoanMetaDraft = {
+  name:            string;   // lives on financeAccount.name (the ledger account)
+  lender:          string;
+  assetId:         string;   // "" = none
+  escrowAccountId: string;   // "" = none
+  notes:           string;
+};
 
 // Side panel draft, matches financeLoanPayment fields but with strings for inputs
 type PaymentDraft = {
@@ -68,6 +80,12 @@ export default function LoanDetailPage() {
   // Lender-stated balance (for correction banner). Local-only UI field.
   const [lenderBalance, setLenderBalance] = useState<number | "">("");
 
+  // Editable-loan draft + list of assets (for the picker in the edit panel)
+  const [loanMetaDraft, setLoanMetaDraft] = useState<LoanMetaDraft>({
+    name: "", lender: "", assetId: "", escrowAccountId: "", notes: "",
+  });
+  const [assets, setAssets] = useState<AssetRecord[]>([]);
+
   // Bulk-post selection (set of payment IDs selected on the scheduled table)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -86,6 +104,7 @@ export default function LoanDetailPage() {
       ]);
       setLoan(ln ?? null);
       setAccounts(accs);
+      setAssets(ass);
       if (ln?.accountId) setAccount(accs.find((a) => a.id === ln.accountId) ?? null);
       if (ln?.assetId)   setAsset(ass.find((a) => a.id === ln.assetId) ?? null);
       setPayments(pays.filter((p) => p.loanId === loanId));
@@ -644,6 +663,57 @@ export default function LoanDetailPage() {
     setPanel({ kind: "correction", delta });
   }
 
+  function openEditLoan() {
+    if (!loan || !account) return;
+    setLoanMetaDraft({
+      name:            account.name ?? "",
+      lender:          loan.lender ?? "",
+      assetId:         loan.assetId ?? "",
+      escrowAccountId: loan.escrowAccountId ?? "",
+      notes:           loan.notes ?? "",
+    });
+    setPanel({ kind: "edit-loan" });
+  }
+
+  async function handleSaveLoanMeta() {
+    if (!loan || !account) return;
+    if (!loanMetaDraft.name.trim()) { alert("Name is required"); return; }
+    setSaving(true);
+    try {
+      // 1. Update the ledger account's name (that's what renders in the UI header)
+      await client.models.financeAccount.update({
+        id:   account.id,
+        name: loanMetaDraft.name.trim(),
+      });
+
+      // 2. Update the loan metadata
+      await client.models.financeLoan.update({
+        id:              loan.id,
+        lender:          loanMetaDraft.lender.trim() || null,
+        assetId:         loanMetaDraft.assetId || null,
+        escrowAccountId: loanMetaDraft.escrowAccountId || null,
+        notes:           loanMetaDraft.notes.trim() || null,
+      });
+
+      // 3. Refresh local state
+      setAccount((a) => a ? ({ ...a, name: loanMetaDraft.name.trim() } as AccountRecord) : a);
+      setLoan((l) => l ? ({
+        ...l,
+        lender:          loanMetaDraft.lender.trim() || null,
+        assetId:         loanMetaDraft.assetId || null,
+        escrowAccountId: loanMetaDraft.escrowAccountId || null,
+        notes:           loanMetaDraft.notes.trim() || null,
+      } as LoanRecord) : l);
+      setAsset(loanMetaDraft.assetId ? assets.find((a) => a.id === loanMetaDraft.assetId) ?? null : null);
+      setPanel(null);
+    } catch (err: any) {
+      console.error("[loan-edit] save failed:", err);
+      alert(`Failed: ${err?.message ?? String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // ── Selection helpers ──────────────────────────────────────────────────────
 
   function toggleSelect(id: string) {
@@ -709,6 +779,12 @@ export default function LoanDetailPage() {
                 {loan.lender && <span className="text-xs text-gray-400">· {loan.lender}</span>}
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={openEditLoan}
+                  className="px-3 py-1.5 rounded text-xs font-semibold border border-gray-300 dark:border-darkBorder text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                >
+                  Edit loan
+                </button>
                 <button
                   onClick={openExtra}
                   className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
@@ -969,11 +1045,76 @@ export default function LoanDetailPage() {
                 {panel.kind === "post"          ? `Post Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
                  panel.kind === "edit-posted"   ? `Edit Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
                  panel.kind === "extra"         ? "Extra Payment" :
+                 panel.kind === "edit-loan"     ? "Edit Loan" :
                                                   "Balance Correction"}
               </h2>
               <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+              {panel.kind === "edit-loan" ? (
+                // ── Edit loan metadata form ───────────────────────────────
+                // Principal / rate / term / start date are deliberately omitted —
+                // changing them would invalidate the generated payment schedule.
+                <>
+                  <p className="text-[11px] text-gray-400">
+                    Principal, rate, term, and start date are locked — changing them would invalidate
+                    the payment schedule. To correct those, delete and recreate the loan.
+                  </p>
+
+                  <div>
+                    <label className={labelCls}>Name *</label>
+                    <input type="text" className={inputCls} placeholder="Primary mortgage…"
+                      value={loanMetaDraft.name}
+                      onChange={(e) => setLoanMetaDraft((d) => ({ ...d, name: e.target.value }))} />
+                  </div>
+
+                  <div>
+                    <label className={labelCls}>Lender</label>
+                    <input type="text" className={inputCls} placeholder="optional"
+                      value={loanMetaDraft.lender}
+                      onChange={(e) => setLoanMetaDraft((d) => ({ ...d, lender: e.target.value }))} />
+                  </div>
+
+                  <div>
+                    <label className={labelCls}>Linked Asset</label>
+                    <select className={inputCls} value={loanMetaDraft.assetId}
+                      onChange={(e) => setLoanMetaDraft((d) => ({ ...d, assetId: e.target.value }))}>
+                      <option value="">— none —</option>
+                      {assets.filter((a) => a.active !== false).map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Links loan to a house/car so equity shows on the asset page.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className={labelCls}>Escrow Account</label>
+                    <select className={inputCls} value={loanMetaDraft.escrowAccountId}
+                      onChange={(e) => setLoanMetaDraft((d) => ({ ...d, escrowAccountId: e.target.value }))}>
+                      <option value="">— none —</option>
+                      {accounts.filter((a) => a.type === "SAVINGS" && a.active !== false).map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Not yet wired to balance. Reserved for a future escrow-sweep feature.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className={labelCls}>Notes</label>
+                    <textarea className={inputCls} rows={2} placeholder="Loan number, terms, refinance history…"
+                      value={loanMetaDraft.notes}
+                      onChange={(e) => setLoanMetaDraft((d) => ({ ...d, notes: e.target.value }))} />
+                  </div>
+
+                  <SaveButton saving={saving} onSave={handleSaveLoanMeta} label="Save" />
+                </>
+              ) : (
+                // ── Payment / correction forms (original body) ─────────────────
+                <>
               {panel.kind === "correction" && (
                 <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
                   This adjusts cached balance by {fmtCurrency(panel.delta, "USD", true)} to match lender.
@@ -989,6 +1130,52 @@ export default function LoanDetailPage() {
 
               {panel.kind !== "correction" && (
                 <>
+                  {/* Auto-calc the current-month interest from actual balance, then autofill principal. */}
+                  {(panel.kind === "post" || panel.kind === "extra") && (() => {
+                    const total = Number(draft.totalAmount);
+                    const escAmt  = draft.escrow === "" ? 0 : Number(draft.escrow);
+                    const feesAmt = draft.fees   === "" ? 0 : Number(draft.fees);
+                    const monthlyRate = (loan.interestRate ?? 0) / 12;
+                    // True interest from current cached balance (not from schedule, which assumes no prepayments)
+                    const trueInterest = Math.round((loan.currentBalance ?? 0) * monthlyRate * 100) / 100;
+                    const impliedPrincipal = Math.round((total - trueInterest - escAmt - feesAmt) * 100) / 100;
+                    const canAuto = isFinite(total) && total > 0;
+
+                    function applyAutoCalc() {
+                      if (!canAuto) return;
+                      setDraft((d) => ({
+                        ...d,
+                        interest:  trueInterest,
+                        principal: impliedPrincipal,
+                      }));
+                    }
+
+                    return (
+                      <div className="rounded-lg bg-gray-50 dark:bg-darkElevated border border-gray-200 dark:border-darkBorder px-3 py-2 text-xs flex flex-col gap-1">
+                        <p className="text-gray-500 dark:text-gray-400">
+                          Balance before payment: <span className="tabular-nums font-semibold text-gray-700 dark:text-gray-200">{fmtCurrency(loan.currentBalance)}</span>
+                          {" · "}
+                          Interest this month: <span className="tabular-nums font-semibold text-gray-700 dark:text-gray-200">{fmtCurrency(trueInterest)}</span>
+                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-gray-400">
+                            {canAuto
+                              ? <>Split a {fmtCurrency(total)} payment → {fmtCurrency(impliedPrincipal)} principal + {fmtCurrency(trueInterest)} interest</>
+                              : <>Enter total to auto-calculate principal</>}
+                          </span>
+                          <button
+                            onClick={applyAutoCalc}
+                            disabled={!canAuto}
+                            className="px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors disabled:opacity-40"
+                            style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                          >
+                            Auto-split
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className={labelCls}>Total *</label>
@@ -1040,6 +1227,44 @@ export default function LoanDetailPage() {
                         fees: e.target.value === "" ? "" : parseFloat(e.target.value),
                       }))} />
                   </div>
+
+                  {/* Live sum indicator — confirms split matches total. Green when balanced, amber when off. */}
+                  {(() => {
+                    const total = Number(draft.totalAmount);
+                    const prin  = Number(draft.principal);
+                    const intr  = Number(draft.interest);
+                    const esc   = draft.escrow === "" ? 0 : Number(draft.escrow);
+                    const fees  = draft.fees   === "" ? 0 : Number(draft.fees);
+                    const allNumeric = [total, prin, intr, esc, fees].every((n) => isFinite(n));
+                    if (!allNumeric || total <= 0) return null;
+                    const sum = prin + intr + esc + fees;
+                    const diff = sum - total;
+                    const matches = Math.abs(diff) < 0.01;
+                    return (
+                      <div
+                        className="rounded-lg border px-3 py-2 flex items-center justify-between text-xs"
+                        style={{
+                          borderColor:     matches ? "#22c55e55" : "#f59e0b55",
+                          backgroundColor: matches ? "#22c55e11" : "#f59e0b11",
+                        }}
+                      >
+                        <span className="text-gray-500 dark:text-gray-400">
+                          Principal + interest{esc || fees ? " + escrow/fees" : ""}
+                        </span>
+                        <span
+                          className="tabular-nums font-semibold"
+                          style={{ color: matches ? "#22c55e" : "#f59e0b" }}
+                        >
+                          {fmtCurrency(sum)}
+                          {!matches && (
+                            <span className="ml-1 text-[11px]">
+                              ({fmtCurrency(diff, "USD", true)} off)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
@@ -1075,6 +1300,8 @@ export default function LoanDetailPage() {
                 } />
               {panel.kind === "edit-posted" && (
                 <DeleteButton saving={saving} onDelete={() => handleDeletePayment(panel.payment)} />
+              )}
+                </>
               )}
             </div>
           </div>
