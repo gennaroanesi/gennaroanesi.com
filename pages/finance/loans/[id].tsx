@@ -1,0 +1,966 @@
+import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useRouter } from "next/router";
+import NextLink from "next/link";
+import { useRequireAuth } from "@/hooks/useRequireAuth";
+import FinanceLayout from "@/layouts/finance";
+import {
+  client,
+  AccountRecord, LoanRecord, LoanPaymentRecord, AssetRecord, TransactionRecord,
+  LOAN_TYPE_LABELS, FINANCE_COLOR,
+  fmtCurrency, fmtDate, todayIso, amountColor,
+  loanProgressPct, computeLoanBalanceFromPayments, remainingScheduled, postedCount, totalInterestPaid,
+  inputCls, labelCls,
+  SaveButton, DeleteButton,
+} from "@/components/finance/_shared";
+
+// Side panel state — for posting, editing, or logging an extra payment
+type PanelState =
+  | { kind: "post";        payment: LoanPaymentRecord }
+  | { kind: "edit-posted"; payment: LoanPaymentRecord }
+  | { kind: "extra" }
+  | { kind: "correction";  delta: number }
+  | null;
+
+// Side panel draft, matches financeLoanPayment fields but with strings for inputs
+type PaymentDraft = {
+  date:        string;
+  totalAmount: number | "";
+  principal:   number | "";
+  interest:    number | "";
+  escrow:      number | "";
+  fees:        number | "";
+  notes:       string;
+};
+
+function draftFromPayment(p: LoanPaymentRecord): PaymentDraft {
+  return {
+    date:        p.date ?? todayIso(),
+    totalAmount: p.totalAmount ?? 0,
+    principal:   p.principal ?? 0,
+    interest:    p.interest ?? 0,
+    escrow:      p.escrow ?? "",
+    fees:        p.fees ?? "",
+    notes:       p.notes ?? "",
+  };
+}
+
+export default function LoanDetailPage() {
+  const { authState } = useRequireAuth();
+  const router = useRouter();
+  const loanId = typeof router.query.id === "string" ? router.query.id : "";
+
+  const [loan,         setLoan]         = useState<LoanRecord | null>(null);
+  const [account,      setAccount]      = useState<AccountRecord | null>(null);
+  const [asset,        setAsset]        = useState<AssetRecord | null>(null);
+  const [payments,     setPayments]     = useState<LoanPaymentRecord[]>([]);
+  const [accounts,     setAccounts]     = useState<AccountRecord[]>([]); // all, for checking account picker
+  const [loading,      setLoading]      = useState(true);
+  const [saving,       setSaving]       = useState(false);
+  const [panel,        setPanel]        = useState<PanelState>(null);
+  const [draft,        setDraft]        = useState<PaymentDraft>({
+    date: todayIso(), totalAmount: "", principal: "", interest: "", escrow: "", fees: "", notes: "",
+  });
+
+  // Lender-stated balance (for correction banner). Local-only UI field.
+  const [lenderBalance, setLenderBalance] = useState<number | "">("");
+
+  // Bulk-post selection (set of payment IDs selected on the scheduled table)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Checking account picker (for posting). Default = first CHECKING account.
+  const [checkingAccountId, setCheckingAccountId] = useState<string>("");
+
+  const fetchAll = useCallback(async () => {
+    if (!loanId) return;
+    setLoading(true);
+    try {
+      const [{ data: ln }, { data: accs }, { data: pays }, { data: ass }] = await Promise.all([
+        client.models.financeLoan.get({ id: loanId }),
+        client.models.financeAccount.list({ limit: 200 }),
+        client.models.financeLoanPayment.list({ limit: 2000 }),
+        client.models.financeAsset.list({ limit: 200 }),
+      ]);
+      setLoan(ln ?? null);
+      setAccounts(accs ?? []);
+      if (ln?.accountId) setAccount((accs ?? []).find((a) => a.id === ln.accountId) ?? null);
+      if (ln?.assetId)   setAsset((ass ?? []).find((a) => a.id === ln.assetId) ?? null);
+      setPayments((pays ?? []).filter((p) => p.loanId === loanId));
+      // Default checking picker to first checking account
+      if (!checkingAccountId) {
+        const firstChecking = (accs ?? []).find((a) => a.type === "CHECKING" && a.active !== false);
+        if (firstChecking) setCheckingAccountId(firstChecking.id);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [loanId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (authState !== "authenticated" || !router.isReady) return;
+    fetchAll();
+  }, [authState, router.isReady, fetchAll]);
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+
+  const postedPayments = useMemo(
+    () => payments.filter((p) => p.status === "POSTED").sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
+    [payments],
+  );
+  const scheduledPayments = useMemo(() => remainingScheduled(payments), [payments]);
+
+  const computedBalance = useMemo(
+    () => loan ? computeLoanBalanceFromPayments(loan.originalPrincipal ?? 0, payments) : 0,
+    [loan, payments],
+  );
+
+  // Drift between cached balance (on loan record) and computed-from-payments
+  const cachedVsComputedDrift = loan ? (loan.currentBalance ?? 0) - computedBalance : 0;
+
+  // Drift between cached balance and lender-stated balance (for correction banner)
+  const cachedVsLenderDrift = lenderBalance !== "" && loan
+    ? (loan.currentBalance ?? 0) - Number(lenderBalance)
+    : null;
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Recalculate cached balance on the loan record = originalPrincipal − Σ(POSTED payment.principal).
+   * Re-fetches payments from the server (rather than relying on React state, which is
+   * async and stale right after a batch of mutations) and writes the new balance to
+   * both the loan record and the linked account ledger (−balance = amount owed).
+   */
+  async function recalcCachedBalance(): Promise<number> {
+    if (!loan) return 0;
+    // Fetch the freshest payment list — state may not have caught up after a batch
+    const { data: freshPays } = await client.models.financeLoanPayment.list({ limit: 2000 });
+    const myPays = (freshPays ?? []).filter((p) => p.loanId === loan.id);
+    const newBal = computeLoanBalanceFromPayments(loan.originalPrincipal ?? 0, myPays);
+
+    await client.models.financeLoan.update({
+      id:             loan.id,
+      currentBalance: newBal,
+    });
+    // Also update the account ledger to match (−balance = owed)
+    if (loan.accountId) {
+      await client.models.financeAccount.update({
+        id:             loan.accountId,
+        currentBalance: -newBal,
+      });
+    }
+    setLoan((l) => l ? ({ ...l, currentBalance: newBal } as LoanRecord) : l);
+    setAccount((a) => a ? ({ ...a, currentBalance: -newBal } as AccountRecord) : a);
+    setPayments(myPays);
+    return newBal;
+  }
+
+  /**
+   * Post a single scheduled payment: create the 2 linked transactions,
+   * flip status to POSTED, write split from the draft (may differ from scheduled).
+   * Also adjusts the linked checking account's balance by −totalAmount.
+   * Returns the updated LoanPaymentRecord.
+   */
+  async function postPayment(
+    payment: LoanPaymentRecord,
+    values: {
+      date: string;
+      totalAmount: number;
+      principal: number;
+      interest: number;
+      escrow: number | null;
+      fees: number | null;
+      notes: string | null;
+    },
+  ): Promise<LoanPaymentRecord | null> {
+    if (!loan || !account) return null;
+    if (!checkingAccountId) {
+      alert("No checking account selected. Pick one above the scheduled table.");
+      return null;
+    }
+
+    const { date, totalAmount, principal, interest, escrow, fees, notes } = values;
+
+    // 1. Expense transaction on checking (money leaves your pocket)
+    const { data: checkingTx } = await client.models.financeTransaction.create({
+      accountId:   checkingAccountId,
+      amount:      -totalAmount,
+      type:        "EXPENSE" as any,
+      category:    "Loan payment",
+      description: `${account.name} payment${payment.sequenceNumber ? ` #${payment.sequenceNumber}` : ""}`,
+      date,
+      status:      "POSTED" as any,
+      goalId:      null,
+      toAccountId: null,
+      importHash:  null,
+    });
+
+    // 2. Income transaction on loan account (principal reduces the debt — balance moves toward zero)
+    const { data: loanTx } = await client.models.financeTransaction.create({
+      accountId:   account.id,
+      amount:      principal,
+      type:        "INCOME" as any,
+      category:    "Loan principal",
+      description: `Principal payment${payment.sequenceNumber ? ` #${payment.sequenceNumber}` : ""}`,
+      date,
+      status:      "POSTED" as any,
+      goalId:      null,
+      toAccountId: null,
+      importHash:  null,
+    });
+
+    // 3. Adjust the checking account's balance by −totalAmount (read–modify–write)
+    const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
+    if (chk) {
+      await client.models.financeAccount.update({
+        id:             checkingAccountId,
+        currentBalance: (chk.currentBalance ?? 0) - totalAmount,
+      });
+    }
+
+    // 4. Update the payment record: status POSTED + split + transaction FKs
+    const { data: updated } = await client.models.financeLoanPayment.update({
+      id:                 payment.id,
+      status:             "POSTED" as any,
+      date,
+      totalAmount,
+      principal,
+      interest,
+      escrow:             escrow ?? null,
+      fees:               fees ?? null,
+      notes:              notes ?? null,
+      transactionId:      checkingTx?.id ?? null,
+      loanTransactionId:  loanTx?.id ?? null,
+    });
+
+    return updated ?? null;
+  }
+
+  async function handleSingleSave() {
+    if (!panel) return;
+    if (panel.kind !== "post" && panel.kind !== "edit-posted" && panel.kind !== "extra" && panel.kind !== "correction") return;
+
+    // Validate
+    const total = Number(draft.totalAmount);
+    const prin  = Number(draft.principal);
+    const intr  = Number(draft.interest);
+
+    if (panel.kind === "correction") {
+      // Correction is principal-only
+      if (!isFinite(prin) || prin === 0) { alert("Enter a non-zero correction amount"); return; }
+    } else {
+      if (!isFinite(total) || total < 0) { alert("Enter a valid total"); return; }
+      if (!isFinite(prin)  || prin  < 0) { alert("Enter a valid principal"); return; }
+      if (!isFinite(intr)  || intr  < 0) { alert("Enter a valid interest"); return; }
+      // Sanity-check the split vs total (allow small escrow/fees delta)
+      const escAmt  = draft.escrow === "" ? 0 : Number(draft.escrow);
+      const feesAmt = draft.fees   === "" ? 0 : Number(draft.fees);
+      const sum = prin + intr + escAmt + feesAmt;
+      if (Math.abs(sum - total) > 0.01) {
+        if (!confirm(`Principal + interest${escAmt || feesAmt ? " + escrow/fees" : ""} (${fmtCurrency(sum)}) doesn't match total (${fmtCurrency(total)}). Save anyway?`)) return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      if (panel.kind === "post") {
+        // Post a scheduled payment
+        const updated = await postPayment(panel.payment, {
+          date: draft.date,
+          totalAmount: total,
+          principal: prin,
+          interest: intr,
+          escrow: draft.escrow === "" ? null : Number(draft.escrow),
+          fees: draft.fees === "" ? null : Number(draft.fees),
+          notes: draft.notes.trim() || null,
+        });
+        if (updated) {
+          setPayments((p) => p.map((x) => x.id === updated.id ? updated : x));
+        }
+      } else if (panel.kind === "edit-posted") {
+        // Edit an already-posted payment: update the 2 transactions + payment record
+        // For simplicity, re-create the transactions if date/amount/principal changed
+        const old = panel.payment;
+        if (old.transactionId) await client.models.financeTransaction.delete({ id: old.transactionId });
+        if (old.loanTransactionId) await client.models.financeTransaction.delete({ id: old.loanTransactionId });
+
+        const updated = await postPayment(old, {
+          date: draft.date,
+          totalAmount: total,
+          principal: prin,
+          interest: intr,
+          escrow: draft.escrow === "" ? null : Number(draft.escrow),
+          fees: draft.fees === "" ? null : Number(draft.fees),
+          notes: draft.notes.trim() || null,
+        });
+        if (updated) setPayments((p) => p.map((x) => x.id === updated.id ? updated : x));
+      } else if (panel.kind === "extra") {
+        // Create a brand-new POSTED payment (ad-hoc extra)
+        if (!loan || !account) return;
+        if (!checkingAccountId) { alert("No checking account selected"); return; }
+
+        // Transactions
+        const { data: checkingTx } = await client.models.financeTransaction.create({
+          accountId:   checkingAccountId,
+          amount:      -total,
+          type:        "EXPENSE" as any,
+          category:    "Loan payment",
+          description: `${account.name} extra payment`,
+          date:        draft.date,
+          status:      "POSTED" as any,
+          goalId: null, toAccountId: null, importHash: null,
+        });
+        const { data: loanTx } = await client.models.financeTransaction.create({
+          accountId:   account.id,
+          amount:      prin,
+          type:        "INCOME" as any,
+          category:    "Loan principal",
+          description: "Extra principal payment",
+          date:        draft.date,
+          status:      "POSTED" as any,
+          goalId: null, toAccountId: null, importHash: null,
+        });
+        // Adjust the checking account balance by −total
+        const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
+        if (chk) {
+          await client.models.financeAccount.update({
+            id:             checkingAccountId,
+            currentBalance: (chk.currentBalance ?? 0) - total,
+          });
+        }
+        const { data: newPay } = await client.models.financeLoanPayment.create({
+          loanId:           loan.id,
+          status:           "POSTED" as any,
+          date:             draft.date,
+          sequenceNumber:   null,
+          totalAmount:      total,
+          principal:        prin,
+          interest:         intr,
+          escrow:           draft.escrow === "" ? null : Number(draft.escrow),
+          fees:             draft.fees   === "" ? null : Number(draft.fees),
+          isCorrection:     false,
+          isExtraPayment:   true,
+          transactionId:    checkingTx?.id ?? null,
+          loanTransactionId: loanTx?.id ?? null,
+          notes:            draft.notes.trim() || null,
+        });
+        if (newPay) setPayments((p) => [...p, newPay]);
+      } else if (panel.kind === "correction") {
+        // Correction: principal-only delta, no transactions
+        if (!loan) return;
+        const { data: newPay } = await client.models.financeLoanPayment.create({
+          loanId:           loan.id,
+          status:           "POSTED" as any,
+          date:             draft.date,
+          sequenceNumber:   null,
+          totalAmount:      0,
+          principal:        prin,
+          interest:         0,
+          escrow:           null,
+          fees:             null,
+          isCorrection:     true,
+          isExtraPayment:   false,
+          transactionId:    null,
+          loanTransactionId: null,
+          notes:            (draft.notes.trim() || "Reconciliation correction"),
+        });
+        if (newPay) setPayments((p) => [...p, newPay]);
+        setLenderBalance("");  // clear the banner input
+      }
+
+      // Recompute cached loan + account balance from the fresh payment list
+      await recalcCachedBalance();
+      setPanel(null);
+    } catch (err: any) {
+      console.error("[loan-payment] save failed:", err);
+      alert(`Failed: ${err?.message ?? String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeletePayment(payment: LoanPaymentRecord) {
+    if (!confirm("Delete this payment? This also removes its linked transactions.")) return;
+    setSaving(true);
+    try {
+      if (payment.transactionId) {
+        // Reverse the checking-side expense before deleting the transaction record
+        try {
+          const { data: tx } = await client.models.financeTransaction.get({ id: payment.transactionId });
+          if (tx) {
+            const { data: chk } = await client.models.financeAccount.get({ id: tx.accountId ?? "" });
+            if (chk) {
+              await client.models.financeAccount.update({
+                id:             chk.id,
+                // tx.amount is already negative for an expense; subtracting it reverses the effect
+                currentBalance: (chk.currentBalance ?? 0) - (tx.amount ?? 0),
+              });
+            }
+          }
+        } catch {}
+        try { await client.models.financeTransaction.delete({ id: payment.transactionId }); } catch {}
+      }
+      if (payment.loanTransactionId) {
+        try { await client.models.financeTransaction.delete({ id: payment.loanTransactionId }); } catch {}
+      }
+      await client.models.financeLoanPayment.delete({ id: payment.id });
+      setPayments((p) => p.filter((x) => x.id !== payment.id));
+      await recalcCachedBalance();
+      setPanel(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Bulk post ──────────────────────────────────────────────────────────────
+
+  async function handleBulkPost() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Post ${selectedIds.size} payment${selectedIds.size === 1 ? "" : "s"} using their scheduled amounts?`)) return;
+
+    setSaving(true);
+    try {
+      const toPost = scheduledPayments.filter((p) => selectedIds.has(p.id));
+      for (const payment of toPost) {
+        await postPayment(payment, {
+          date:        payment.date ?? todayIso(),
+          totalAmount: payment.totalAmount ?? 0,
+          principal:   payment.principal ?? 0,
+          interest:    payment.interest ?? 0,
+          escrow:      payment.escrow ?? null,
+          fees:        payment.fees ?? null,
+          notes:       payment.notes ?? null,
+        });
+      }
+      setSelectedIds(new Set());
+      // Recompute cached loan + account balance after the batch
+      await recalcCachedBalance();
+    } catch (err: any) {
+      console.error("[bulk-post] failed:", err);
+      alert(`Bulk post failed: ${err?.message ?? String(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Recalculate from transactions (audit button) ──────────────────────────
+
+  async function handleRecalcFromTransactions() {
+    if (!loan || !account) return;
+    // Fetch ALL posted INCOME transactions on the loan account — those represent principal flows
+    const { data: txs } = await client.models.financeTransaction.list({ limit: 2000 });
+    const loanIncome = (txs ?? [])
+      .filter((t) => t.accountId === account.id && t.status === "POSTED" && t.type === "INCOME")
+      .reduce((s, t) => s + (t.amount ?? 0), 0);
+
+    const balanceFromTx = (loan.originalPrincipal ?? 0) - loanIncome;
+    const balanceFromPayments = computeLoanBalanceFromPayments(loan.originalPrincipal ?? 0, payments);
+
+    const msg = [
+      `From loan account transactions: ${fmtCurrency(balanceFromTx)}`,
+      `From payment records: ${fmtCurrency(balanceFromPayments)}`,
+      `Cached on loan record: ${fmtCurrency(loan.currentBalance ?? 0)}`,
+      ``,
+      Math.abs(balanceFromTx - balanceFromPayments) < 0.01
+        ? "✓ Transactions and payment records agree."
+        : `⚠ Drift of ${fmtCurrency(Math.abs(balanceFromTx - balanceFromPayments))} between sources — see console.`,
+    ].join("\n");
+
+    console.log("[loan-audit]", { balanceFromTx, balanceFromPayments, cached: loan.currentBalance });
+    alert(msg);
+  }
+
+  // ── Side panel openers ─────────────────────────────────────────────────────
+
+  function openPost(p: LoanPaymentRecord) {
+    setDraft(draftFromPayment(p));
+    setPanel({ kind: "post", payment: p });
+  }
+  function openEditPosted(p: LoanPaymentRecord) {
+    setDraft(draftFromPayment(p));
+    setPanel({ kind: "edit-posted", payment: p });
+  }
+  function openExtra() {
+    setDraft({
+      date: todayIso(),
+      totalAmount: "", principal: "", interest: 0,
+      escrow: "", fees: "", notes: "",
+    });
+    setPanel({ kind: "extra" });
+  }
+  function openCorrection(delta: number) {
+    // Principal-only correction to reconcile cached balance with lender
+    setDraft({
+      date: todayIso(),
+      totalAmount: 0,
+      principal: delta,           // positive = reduces balance further; negative = increases
+      interest: 0,
+      escrow: "", fees: "",
+      notes: `Reconcile with lender-stated balance`,
+    });
+    setPanel({ kind: "correction", delta });
+  }
+
+  // ── Selection helpers ──────────────────────────────────────────────────────
+
+  function toggleSelect(id: string) {
+    setSelectedIds((p) => {
+      const next = new Set(p);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function selectAllScheduled() {
+    setSelectedIds(new Set(scheduledPayments.map((p) => p.id)));
+  }
+  function selectThroughToday() {
+    const today = todayIso();
+    setSelectedIds(new Set(scheduledPayments.filter((p) => (p.date ?? "") <= today).map((p) => p.id)));
+  }
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  if (authState !== "authenticated") return null;
+  if (!router.isReady || loading) {
+    return <FinanceLayout><div className="px-4 py-5 md:px-8 md:py-6"><p className="text-sm text-gray-400 animate-pulse">Loading…</p></div></FinanceLayout>;
+  }
+  if (!loan || !account) {
+    return (
+      <FinanceLayout>
+        <div className="px-4 py-5 md:px-8 md:py-6">
+          <p className="text-sm text-gray-400">
+            Loan not found. <NextLink href="/finance/loans" className="underline" style={{ color: FINANCE_COLOR }}>Back to loans</NextLink>
+          </p>
+        </div>
+      </FinanceLayout>
+    );
+  }
+
+  const pct = loanProgressPct(loan);
+  const interestPaid = totalInterestPaid(payments);
+
+  return (
+    <FinanceLayout>
+      <div className="flex h-full">
+        <div className="flex-1 px-4 py-5 md:px-6 overflow-auto">
+
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
+            <NextLink href="/finance/loans" className="hover:underline">Loans</NextLink>
+            <span>›</span>
+            <span>{account.name}</span>
+          </div>
+
+          {/* Header */}
+          <div className="flex flex-col gap-3 mb-5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-purple dark:text-rose">{account.name}</h1>
+                <span
+                  className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                >
+                  {LOAN_TYPE_LABELS[(loan.loanType ?? "OTHER") as keyof typeof LOAN_TYPE_LABELS]}
+                </span>
+                {loan.lender && <span className="text-xs text-gray-400">· {loan.lender}</span>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openExtra}
+                  className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
+                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                >
+                  + Extra payment
+                </button>
+                <button
+                  onClick={handleRecalcFromTransactions}
+                  className="px-3 py-1.5 rounded text-xs font-semibold border border-gray-300 dark:border-darkBorder text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                >
+                  Recalc audit
+                </button>
+              </div>
+            </div>
+
+            {/* Balance + progress */}
+            <div className="flex items-baseline gap-6 flex-wrap">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Owed</p>
+                <p className="text-2xl font-bold tabular-nums" style={{ color: "#ef4444" }}>
+                  {fmtCurrency(loan.currentBalance)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Original</p>
+                <p className="text-base font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                  {fmtCurrency(loan.originalPrincipal)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Rate / Term</p>
+                <p className="text-base font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                  {((loan.interestRate ?? 0) * 100).toFixed(3)}% · {loan.termMonths}mo
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Payments</p>
+                <p className="text-base font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                  {postedCount(payments)} of {loan.termMonths} · {fmtCurrency(interestPaid)} interest
+                </p>
+              </div>
+              {asset && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Equity</p>
+                  <p className="text-base font-semibold tabular-nums" style={{ color: amountColor((asset.currentValue ?? 0) - (loan.currentBalance ?? 0)) }}>
+                    {fmtCurrency((asset.currentValue ?? 0) - (loan.currentBalance ?? 0))}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="h-2 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{ width: `${pct * 100}%`, backgroundColor: FINANCE_COLOR }}
+              />
+            </div>
+          </div>
+
+          {/* ── Drift warning (cached vs computed) ────────────────────── */}
+          {Math.abs(cachedVsComputedDrift) > 0.01 && (
+            <div className="mb-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-xs">
+              <div className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
+                Cached balance differs from posted payments
+              </div>
+              <p className="text-amber-600 dark:text-amber-300">
+                Cached: {fmtCurrency(loan.currentBalance)} · From payments: {fmtCurrency(computedBalance)}.
+                {" "}Likely cause: payment edit or deletion without a balance refresh.
+              </p>
+            </div>
+          )}
+
+          {/* ── Correction banner ─────────────────────────────────────── */}
+          <div className="mb-4 rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-4 py-3 flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[180px]">
+              <label className={labelCls}>Lender-stated balance</label>
+              <input
+                type="number"
+                step="0.01"
+                className={inputCls}
+                placeholder="From your latest statement"
+                value={lenderBalance}
+                onChange={(e) => setLenderBalance(e.target.value === "" ? "" : parseFloat(e.target.value))}
+              />
+            </div>
+            {cachedVsLenderDrift != null && Math.abs(cachedVsLenderDrift) > 0.01 && (
+              <>
+                <div className="text-xs">
+                  <p className="text-gray-400">Drift</p>
+                  <p
+                    className="font-semibold tabular-nums"
+                    style={{ color: cachedVsLenderDrift > 0 ? "#ef4444" : "#22c55e" }}
+                  >
+                    {fmtCurrency(cachedVsLenderDrift, "USD", true)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => openCorrection(cachedVsLenderDrift)}
+                  className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
+                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                >
+                  Add correction
+                </button>
+              </>
+            )}
+            {cachedVsLenderDrift != null && Math.abs(cachedVsLenderDrift) <= 0.01 && (
+              <span className="text-xs text-green-500">✓ Matches lender</span>
+            )}
+          </div>
+
+          {/* ── Checking account picker ──────────────────────────────── */}
+          <div className="mb-4 flex items-center gap-2 text-xs">
+            <span className="text-gray-400">Post payments from:</span>
+            <select
+              className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-700 dark:text-gray-300"
+              value={checkingAccountId}
+              onChange={(e) => setCheckingAccountId(e.target.value)}
+            >
+              <option value="">— select account —</option>
+              {accounts.filter((a) => a.type === "CHECKING" && a.active !== false).map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* ── Posted payments table ─────────────────────────────────── */}
+          <section className="mb-6">
+            <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium mb-2">
+              Posted · {postedPayments.length}
+            </h2>
+            {postedPayments.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">No payments posted yet.</p>
+            ) : (
+              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
+                    <tr>
+                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
+                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">#</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Total</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Principal</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Interest</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Escrow</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {postedPayments.map((p) => (
+                      <tr
+                        key={p.id}
+                        onClick={() => openEditPosted(p)}
+                        className="hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors"
+                      >
+                        <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400 text-xs">
+                          {fmtDate(p.date)}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-400 hidden sm:table-cell">
+                          {p.isCorrection    ? <span style={{ color: "#f59e0b" }}>correction</span> :
+                           p.isExtraPayment  ? <span style={{ color: FINANCE_COLOR }}>extra</span>  :
+                           p.sequenceNumber  ? `#${p.sequenceNumber}` : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtCurrency(p.totalAmount)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums font-semibold" style={{ color: FINANCE_COLOR }}>
+                          {fmtCurrency(p.principal)}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                          {p.interest != null ? fmtCurrency(p.interest) : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-right tabular-nums text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                          {p.escrow != null ? fmtCurrency(p.escrow) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* ── Scheduled payments table (+ bulk actions) ───────────── */}
+          {scheduledPayments.length > 0 && (
+            <section>
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
+                  Scheduled · {scheduledPayments.length}
+                </h2>
+                <div className="flex items-center gap-2 text-xs">
+                  <button onClick={selectThroughToday} className="underline" style={{ color: FINANCE_COLOR }}>
+                    Select through today
+                  </button>
+                  <button onClick={selectAllScheduled} className="underline text-gray-400">
+                    Select all
+                  </button>
+                  {selectedIds.size > 0 && (
+                    <>
+                      <button onClick={clearSelection} className="underline text-gray-400">
+                        Clear ({selectedIds.size})
+                      </button>
+                      <button
+                        onClick={handleBulkPost}
+                        disabled={saving || !checkingAccountId}
+                        className="px-3 py-1 rounded font-semibold disabled:opacity-50 transition-opacity"
+                        style={{ backgroundColor: FINANCE_COLOR, color: "#fff" }}
+                      >
+                        {saving ? "Posting…" : `Post ${selectedIds.size} selected`}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
+                    <tr>
+                      <th className="px-3 py-2 w-6" />
+                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
+                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">#</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Total</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Principal</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Interest</th>
+                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {scheduledPayments.slice(0, 120).map((p) => {
+                      const selected = selectedIds.has(p.id);
+                      const overdue = (p.date ?? "") < todayIso();
+                      return (
+                        <tr
+                          key={p.id}
+                          className={`transition-colors ${selected ? "bg-emerald-50 dark:bg-emerald-900/10" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                        >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleSelect(p.id)}
+                            />
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap text-xs">
+                            <span className={overdue ? "text-amber-500 font-semibold" : "text-gray-500 dark:text-gray-400"}>
+                              {fmtDate(p.date)}
+                              {overdue && <span className="ml-1 text-[10px]">· overdue</span>}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-xs text-gray-400 hidden sm:table-cell">#{p.sequenceNumber ?? "—"}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{fmtCurrency(p.totalAmount)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-semibold" style={{ color: FINANCE_COLOR }}>
+                            {fmtCurrency(p.principal)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                            {fmtCurrency(p.interest)}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              onClick={() => openPost(p)}
+                              className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
+                              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                            >
+                              Post
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {scheduledPayments.length > 120 && (
+                  <div className="px-4 py-2 text-center text-xs text-gray-400 bg-gray-50 dark:bg-darkElevated">
+                    Showing first 120 of {scheduledPayments.length} scheduled
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* ── Side panel ───────────────────────────────────────────────── */}
+        {panel && (
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
+              <h2 className="text-base font-semibold dark:text-rose text-purple">
+                {panel.kind === "post"          ? `Post Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
+                 panel.kind === "edit-posted"   ? `Edit Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
+                 panel.kind === "extra"         ? "Extra Payment" :
+                                                  "Balance Correction"}
+              </h2>
+              <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+              {panel.kind === "correction" && (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  This adjusts cached balance by {fmtCurrency(panel.delta, "USD", true)} to match lender.
+                  Stored as a principal-only record (no transactions).
+                </div>
+              )}
+
+              <div>
+                <label className={labelCls}>Date *</label>
+                <input type="date" className={inputCls} value={draft.date}
+                  onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+              </div>
+
+              {panel.kind !== "correction" && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={labelCls}>Total *</label>
+                      <input type="number" step="0.01" className={inputCls}
+                        value={draft.totalAmount}
+                        onChange={(e) => setDraft((d) => ({
+                          ...d,
+                          totalAmount: e.target.value === "" ? "" : parseFloat(e.target.value),
+                        }))} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Principal *</label>
+                      <input type="number" step="0.01" className={inputCls}
+                        value={draft.principal}
+                        onChange={(e) => setDraft((d) => ({
+                          ...d,
+                          principal: e.target.value === "" ? "" : parseFloat(e.target.value),
+                        }))} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={labelCls}>Interest *</label>
+                      <input type="number" step="0.01" className={inputCls}
+                        value={draft.interest}
+                        onChange={(e) => setDraft((d) => ({
+                          ...d,
+                          interest: e.target.value === "" ? "" : parseFloat(e.target.value),
+                        }))} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Escrow</label>
+                      <input type="number" step="0.01" className={inputCls} placeholder="optional"
+                        value={draft.escrow}
+                        onChange={(e) => setDraft((d) => ({
+                          ...d,
+                          escrow: e.target.value === "" ? "" : parseFloat(e.target.value),
+                        }))} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={labelCls}>Fees</label>
+                    <input type="number" step="0.01" className={inputCls} placeholder="optional"
+                      value={draft.fees}
+                      onChange={(e) => setDraft((d) => ({
+                        ...d,
+                        fees: e.target.value === "" ? "" : parseFloat(e.target.value),
+                      }))} />
+                  </div>
+                </>
+              )}
+
+              {panel.kind === "correction" && (
+                <div>
+                  <label className={labelCls}>Correction Amount *</label>
+                  <input type="number" step="0.01" className={inputCls}
+                    value={draft.principal}
+                    onChange={(e) => setDraft((d) => ({
+                      ...d,
+                      principal: e.target.value === "" ? "" : parseFloat(e.target.value),
+                    }))} />
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    Positive = reduces owed balance (lender says you owe less).
+                    Negative = increases owed balance.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className={labelCls}>Notes</label>
+                <input type="text" className={inputCls} placeholder="optional"
+                  value={draft.notes}
+                  onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
+              </div>
+
+              <SaveButton saving={saving} onSave={handleSingleSave}
+                label={
+                  panel.kind === "post"         ? "Post Payment" :
+                  panel.kind === "edit-posted"  ? "Save" :
+                  panel.kind === "extra"        ? "Log Extra Payment" :
+                                                  "Save Correction"
+                } />
+              {panel.kind === "edit-posted" && (
+                <DeleteButton saving={saving} onDelete={() => handleDeletePayment(panel.payment)} />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </FinanceLayout>
+  );
+}

@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  AssetRecord,
+  AssetRecord, LoanRecord,
   PHYSICAL_ASSET_TYPES, PHYSICAL_ASSET_TYPE_LABELS, FINANCE_COLOR,
   fmtCurrency, fmtDate, amountColor,
   totalAssetValue, assetGainLoss, assetGainLossPct,
@@ -22,6 +22,7 @@ export default function AssetsPage() {
   const router = useRouter();
 
   const [assets,  setAssets]  = useState<AssetRecord[]>([]);
+  const [loans,   setLoans]   = useState<LoanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
   const [panel,   setPanel]   = useState<PanelState>(null);
@@ -30,8 +31,12 @@ export default function AssetsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await client.models.financeAsset.list({ limit: 200 });
-      setAssets(data ?? []);
+      const [{ data: ass }, { data: lns }] = await Promise.all([
+        client.models.financeAsset.list({ limit: 200 }),
+        client.models.financeLoan.list({ limit: 100 }),
+      ]);
+      setAssets(ass ?? []);
+      setLoans(lns ?? []);
     } finally {
       setLoading(false);
     }
@@ -161,6 +166,9 @@ export default function AssetsPage() {
                     {grouped[groupType].map((asset) => {
                       const gain    = assetGainLoss(asset);
                       const gainPct = assetGainLossPct(asset);
+                      const linkedLoan = loans.find((l) => l.assetId === asset.id);
+                      const loanBalance = linkedLoan?.currentBalance ?? 0;
+                      const equity = linkedLoan ? (asset.currentValue ?? 0) - loanBalance : null;
                       return (
                         <div
                           key={asset.id}
@@ -183,6 +191,18 @@ export default function AssetsPage() {
                           >
                             {fmtCurrency(asset.currentValue)}
                           </span>
+
+                          {/* Equity (when linked to a loan) */}
+                          {linkedLoan && (
+                            <div className="flex items-center justify-between text-[11px] tabular-nums border-t border-gray-100 dark:border-gray-700 pt-1.5">
+                              <span className="text-gray-400">
+                                Owed {fmtCurrency(loanBalance)}
+                              </span>
+                              <span className="font-semibold" style={{ color: amountColor(equity ?? 0) }}>
+                                Equity {fmtCurrency(equity)}
+                              </span>
+                            </div>
+                          )}
 
                           {/* Purchase value + gain/loss */}
                           {asset.purchaseValue != null && (
