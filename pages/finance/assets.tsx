@@ -10,6 +10,7 @@ import {
   totalAssetValue, assetGainLoss, assetGainLossPct,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState,
+  listAll,
 } from "@/components/finance/_shared";
 
 type PanelState =
@@ -31,12 +32,12 @@ export default function AssetsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: ass }, { data: lns }] = await Promise.all([
-        client.models.financeAsset.list({ limit: 200 }),
-        client.models.financeLoan.list({ limit: 100 }),
+      const [ass, lns] = await Promise.all([
+        listAll(client.models.financeAsset),
+        listAll(client.models.financeLoan),
       ]);
-      setAssets(ass ?? []);
-      setLoans(lns ?? []);
+      setAssets(ass);
+      setLoans(lns);
     } finally {
       setLoading(false);
     }

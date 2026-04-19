@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import FinanceLayout from "@/layouts/finance";
@@ -13,7 +13,11 @@ import {
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
   parseBankCsv, type ParsedTransaction,
   type AccountType, type TxType, type TxStatus,
+  listAll,
 } from "@/components/finance/_shared";
+import {
+  ColDef, DataTable, SearchInput, TableControls, useTableControls,
+} from "@/components/common/table";
 
 // ── Panel state ───────────────────────────────────────────────────────────────
 
@@ -65,12 +69,12 @@ export default function TransactionsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: accs }, { data: txs }] = await Promise.all([
-        client.models.financeAccount.list({ limit: 200 }),
-        client.models.financeTransaction.list({ limit: 1000 }),
+      const [accs, txs] = await Promise.all([
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeTransaction),
       ]);
-      setAccounts(accs ?? []);
-      setTransactions(txs ?? []);
+      setAccounts(accs);
+      setTransactions(txs);
     } finally {
       setLoading(false);
     }
@@ -87,7 +91,12 @@ export default function TransactionsPage() {
       openNewTx();
       router.replace("/finance/transactions", undefined, { shallow: true });
     }
-  }, [router.isReady, router.query.new]);
+    // Convenience hook for the Accounts page's "+ New Account" button — deep-links into the existing account panel.
+    if (router.query["new-acc"] === "1") {
+      openNewAcc();
+      router.replace("/finance/transactions", undefined, { shallow: true });
+    }
+  }, [router.isReady, router.query.new, router.query["new-acc"]]);
 
   // Preselect account filter from ?account= query param
   useEffect(() => {
@@ -175,8 +184,8 @@ export default function TransactionsPage() {
 
         setTransactions((p) => p.map((t) => t.id === prev.id ? { ...t, ...txDraft } as TransactionRecord : t));
         // Refetch accounts to get updated balances
-        const { data: accs } = await client.models.financeAccount.list({ limit: 200 });
-        setAccounts(accs ?? []);
+        const accs = await listAll(client.models.financeAccount);
+        setAccounts(accs);
       }
 
       setPanel(null);
@@ -194,8 +203,8 @@ export default function TransactionsPage() {
       if (tx.status === "POSTED") await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
       await client.models.financeTransaction.delete({ id: tx.id });
       setTransactions((p) => p.filter((t) => t.id !== tx.id));
-      const { data: accs } = await client.models.financeAccount.list({ limit: 200 });
-      setAccounts(accs ?? []);
+      const accs = await listAll(client.models.financeAccount);
+      setAccounts(accs);
       setPanel(null);
     } finally {
       setSaving(false);
@@ -237,6 +246,8 @@ export default function TransactionsPage() {
           currency:       accDraft.currency ?? "USD",
           notes:          accDraft.notes ?? null,
           active:         accDraft.active ?? true,
+          favorite:       accDraft.favorite ?? false,
+          creditLimit:    accDraft.creditLimit ?? null,
         });
         if (newAcc) setAccounts((p) => [...p, newAcc]);
       } else if (panel?.kind === "edit-acc") {
@@ -249,6 +260,8 @@ export default function TransactionsPage() {
           currency:       accDraft.currency ?? "USD",
           notes:          accDraft.notes ?? null,
           active:         accDraft.active ?? true,
+          favorite:       accDraft.favorite ?? false,
+          creditLimit:    accDraft.creditLimit ?? null,
         });
         setAccounts((p) => p.map((a) => a.id === panel.acc.id ? { ...a, ...accDraft } as AccountRecord : a));
       }
@@ -328,8 +341,8 @@ export default function TransactionsPage() {
       await adjustBalance(importAccountId, delta, null, "INCOME");
 
       setTransactions((p) => [...created, ...p]);
-      const { data: accs } = await client.models.financeAccount.list({ limit: 200 });
-      setAccounts(accs ?? []);
+      const accs = await listAll(client.models.financeAccount);
+      setAccounts(accs);
       setPanel(null);
     } finally {
       setSaving(false);
@@ -338,11 +351,83 @@ export default function TransactionsPage() {
 
   // ── Filtered transactions ─────────────────────────────────────────────────
 
-  const filtered = transactions
-    .filter((t) => !filterAccount || t.accountId === filterAccount)
-    .filter((t) => !filterStatus  || t.status    === filterStatus)
-    .filter((t) => !filterType    || t.type      === filterType)
-    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+  // Base filtered list: dropdowns act as filters first; search + sort run on top.
+  const filtered = useMemo(
+    () => transactions
+      .filter((t) => !filterAccount || t.accountId === filterAccount)
+      .filter((t) => !filterStatus  || t.status    === filterStatus)
+      .filter((t) => !filterType    || t.type      === filterType),
+    [transactions, filterAccount, filterStatus, filterType],
+  );
+
+  // Quick account lookup for columns
+  const accountById = useMemo(() => {
+    const m = new Map<string, AccountRecord>();
+    for (const a of accounts) m.set(a.id, a);
+    return m;
+  }, [accounts]);
+
+  const txColumns: ColDef<TransactionRecord>[] = useMemo(() => [
+    {
+      key: "date",
+      label: "Date",
+      sortValue: (t) => t.date ?? "",
+      render: (t) => <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(t.date)}</span>,
+    },
+    {
+      key: "description",
+      label: "Description",
+      sortValue: (t) => (t.description ?? "").toLowerCase(),
+      searchValue: (t) => `${t.description ?? ""} ${t.category ?? ""}`,
+      render: (t) => <span className="text-gray-800 dark:text-gray-200 block max-w-[200px] truncate">{t.description || "—"}</span>,
+    },
+    {
+      key: "category",
+      label: "Category",
+      sortValue: (t) => (t.category ?? "").toLowerCase(),
+      mobileHidden: true,
+      render: (t) => <span className="text-gray-400 text-xs">{t.category || "—"}</span>,
+    },
+    {
+      key: "account",
+      label: "Account",
+      sortValue: (t) => accountById.get(t.accountId ?? "")?.name?.toLowerCase() ?? "",
+      searchValue: (t) => accountById.get(t.accountId ?? "")?.name ?? "",
+      mobileHidden: true,
+      render: (t) => <AccountBadge type={accountById.get(t.accountId ?? "")?.type} />,
+    },
+    {
+      key: "status",
+      label: "Status",
+      sortValue: (t) => t.status ?? "",
+      align: "center",
+      mobileHidden: true,
+      render: (t) => <StatusBadge status={t.status} />,
+    },
+    {
+      key: "amount",
+      label: "Amount",
+      sortValue: (t) => t.amount ?? 0,
+      align: "right",
+      render: (t) => {
+        const acc = accountById.get(t.accountId ?? "");
+        return (
+          <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(t.amount ?? 0) }}>
+            {fmtCurrency(t.amount, acc?.currency ?? "USD", true)}
+          </span>
+        );
+      },
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [accountById]);
+
+  const txCtl = useTableControls(filtered, {
+    defaultSortKey: "date",
+    defaultSortDir: "desc",
+    getSortValue: (row, key) => txColumns.find((c) => c.key === key)?.sortValue?.(row),
+    getSearchText: (row) => txColumns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" "),
+    initialPageSize: 100,
+  });
 
   if (authState !== "authenticated") return null;
 
@@ -400,8 +485,8 @@ export default function TransactionsPage() {
             </div>
           )}
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2 mb-4">
+          {/* Filters + search */}
+          <div className="flex flex-wrap gap-2 mb-4 items-center">
             <select className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300"
               value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
               <option value="">All accounts</option>
@@ -420,6 +505,9 @@ export default function TransactionsPage() {
               <option value="EXPENSE">Expense</option>
               <option value="TRANSFER">Transfer</option>
             </select>
+            <div className="ml-auto">
+              <SearchInput value={txCtl.search} onChange={txCtl.setSearch} placeholder="Search description, category, account…" />
+            </div>
           </div>
 
           {/* Table */}
@@ -429,38 +517,24 @@ export default function TransactionsPage() {
             <EmptyState label="transactions" onAdd={openNewTx} />
           ) : (
             <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
-                    <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Description</th>
-                    <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Category</th>
-                    <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Account</th>
-                    <th className="px-4 py-2 text-center text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Status</th>
-                    <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {filtered.map((tx) => {
-                    const acc = accounts.find((a) => a.id === tx.accountId);
-                    return (
-                      <tr key={tx.id}
-                        onClick={() => openEditTx(tx)}
-                        className="hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors">
-                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(tx.date)}</td>
-                        <td className="px-4 py-2 text-gray-800 dark:text-gray-200 max-w-[200px] truncate">{tx.description || "—"}</td>
-                        <td className="px-4 py-2 text-gray-400 text-xs hidden sm:table-cell">{tx.category || "—"}</td>
-                        <td className="px-4 py-2 hidden md:table-cell"><AccountBadge type={acc?.type} /></td>
-                        <td className="px-4 py-2 text-center hidden md:table-cell"><StatusBadge status={tx.status} /></td>
-                        <td className="px-4 py-2 text-right tabular-nums font-semibold whitespace-nowrap"
-                          style={{ color: amountColor(tx.amount ?? 0) }}>
-                          {fmtCurrency(tx.amount, acc?.currency ?? "USD", true)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <DataTable
+                rows={txCtl.paged}
+                columns={txColumns}
+                sortKey={txCtl.sortKey}
+                sortDir={txCtl.sortDir}
+                onSort={txCtl.handleSort}
+                onRowClick={openEditTx}
+                emptyMessage={txCtl.search ? "No matches" : "No transactions"}
+              />
+              <TableControls
+                page={txCtl.page}
+                totalPages={txCtl.totalPages}
+                totalItems={txCtl.totalItems}
+                totalUnfiltered={txCtl.totalUnfiltered}
+                pageSize={txCtl.pageSize}
+                setPage={txCtl.setPage}
+                setPageSize={txCtl.setPageSize}
+              />
             </div>
           )}
         </div>
@@ -642,6 +716,12 @@ export default function TransactionsPage() {
                     <input type="checkbox" checked={accDraft.active ?? true}
                       onChange={(e) => setAccDraft((d) => ({ ...d, active: e.target.checked }))} />
                     Active
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                    <input type="checkbox" checked={accDraft.favorite ?? false}
+                      onChange={(e) => setAccDraft((d) => ({ ...d, favorite: e.target.checked }))} />
+                    <span className="mr-1" style={{ color: "#f59e0b" }}>★</span> Favorite
+                    <span className="text-[10px] text-gray-400">(pin to dashboard)</span>
                   </label>
                   <SaveButton saving={saving} onSave={handleSaveAcc}
                     label={panel.kind === "new-acc" ? "Create Account" : "Save"} />

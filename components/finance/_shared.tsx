@@ -11,6 +11,64 @@ import type { Schema } from "@/amplify/data/resource";
 
 export const client = generateClient<Schema>();
 
+// ── Pagination helper ────────────────────────────────────────────────────
+
+/**
+ * Page through an Amplify `list()` call until all records are retrieved.
+ *
+ * Amplify's `list()` returns a `nextToken` when more records exist beyond the
+ * requested `limit` (default 100 server-side per page). A single call with
+ * `limit: 5000` does NOT return the newest 5000 — DynamoDB returns records in
+ * internal storage order (hash-distributed), so you'd get an arbitrary subset
+ * and any records past that page would silently disappear from the UI.
+ *
+ * This helper paginates through every page and returns the full list. Client-
+ * side sort + filter then operates on the complete set.
+ *
+ * Safety cap: stops at 50 pages (~5000 records @ 100/page) to prevent runaway
+ * loops if something goes wrong server-side. For personal-finance scale this is
+ * multiple years of runway; if you ever hit it, time to migrate to a GSI-backed
+ * query.
+ *
+ * Usage:
+ *   const txs = await listAll(client.models.financeTransaction);
+ *   const accs = await listAll(client.models.financeAccount);
+ */
+export async function listAll<T>(
+  model: {
+    list: (args: { limit?: number; nextToken?: string | null }) => Promise<{
+      data: T[] | null;
+      nextToken?: string | null;
+      errors?: any[];
+    }>;
+  },
+  opts: { pageSize?: number; maxPages?: number } = {},
+): Promise<T[]> {
+  const pageSize = opts.pageSize ?? 1000;
+  const maxPages = opts.maxPages ?? 50;
+
+  const out: T[] = [];
+  let nextToken: string | null | undefined = null;
+  let pages = 0;
+
+  do {
+    const res: any = await model.list({ limit: pageSize, nextToken });
+    if (res?.errors?.length) {
+      console.error("[listAll] errors:", res.errors);
+      throw new Error(res.errors[0]?.message ?? "list failed");
+    }
+    if (res?.data?.length) out.push(...res.data);
+    nextToken = res?.nextToken ?? null;
+    pages++;
+    if (pages >= maxPages) {
+      console.warn(`[listAll] hit safety cap of ${maxPages} pages — result may be truncated`);
+      break;
+    }
+  } while (nextToken);
+
+  return out;
+}
+
 // ── Record types ──────────────────────────────────────────────────────────────
 
 export type AccountRecord     = Schema["financeAccount"]["type"];
@@ -392,6 +450,128 @@ export function isQuoteStale(q: TickerQuoteRecord | null | undefined, hours = 24
 /** Whether a quote is a manual override (source === "manual"). Refresh should skip these. */
 export function isQuoteManual(q: TickerQuoteRecord | null | undefined): boolean {
   return q?.source === "manual";
+}
+
+/**
+ * Result summary of a bulk price refresh.
+ * Used by the UI on both the account detail page and the prices page.
+ */
+export type RefreshPricesResult = {
+  attempted:      number;
+  created:        number;
+  updated:        number;
+  skippedManual:  number;
+  skippedNoPrice: number;
+  failed:         number;
+  /** Human-readable summary, e.g. "Updated 12 · 2 manual · 1 not on Yahoo". Empty if nothing happened. */
+  message:        string;
+  /** Error string if the whole batch failed before any writes. Null on success (even with per-ticker failures). */
+  fatal:          string | null;
+};
+
+/**
+ * Refresh all tickers currently held in any lot, via /api/quotes (Yahoo proxy).
+ * - Skips tickers with a manual override (source="manual"): their price is user-managed.
+ * - Skips tickers where Yahoo returns null (e.g. 401(k) trust funds not listed): preserves existing quote.
+ * - Creates quote rows for brand-new tickers, updates existing rows in place.
+ *
+ * Shared by the account detail page "Refresh prices" button and the dedicated
+ * Refresh all on the Prices page. Both pages show the same summary message.
+ *
+ * Caller is responsible for refetching the quotes list afterward and updating UI state.
+ */
+export async function refreshAllQuotes(): Promise<RefreshPricesResult> {
+  const empty: RefreshPricesResult = {
+    attempted: 0, created: 0, updated: 0, skippedManual: 0, skippedNoPrice: 0, failed: 0,
+    message: "", fatal: null,
+  };
+
+  // 1. Gather every ticker held across all brokerage/retirement accounts
+  const allLots = await listAll(client.models.financeHoldingLot);
+  const allTickers = uniqueTickers(allLots);
+  if (allTickers.length === 0) {
+    return { ...empty, message: "No tickers to refresh" };
+  }
+
+  // 2. Ask /api/quotes for live prices (one batch request)
+  let quoteResults: Record<string, { price: number | null; currency?: string; error?: string }> = {};
+  try {
+    const res = await fetch("/api/quotes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers: allTickers }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { ...empty, attempted: allTickers.length, fatal: `/api/quotes failed: ${res.status} ${text}` };
+    }
+    const body = await res.json();
+    quoteResults = body.quotes ?? {};
+  } catch (err: any) {
+    return { ...empty, attempted: allTickers.length, fatal: err?.message ?? String(err) };
+  }
+
+  // 3. Load existing quotes to distinguish create vs update, and to spot manual overrides
+  const existingQuotes = await listAll(client.models.financeTickerQuote);
+  const existingMap = new Map(
+    existingQuotes.map((q) => [(q.ticker ?? "").toUpperCase(), q]),
+  );
+
+  const now = new Date().toISOString();
+  let created = 0, updated = 0, skippedManual = 0, skippedNoPrice = 0, failed = 0;
+
+  for (const ticker of allTickers) {
+    const existing = existingMap.get(ticker);
+
+    // Manual overrides are user-managed — never touch them
+    if (isQuoteManual(existing)) { skippedManual++; continue; }
+
+    const q = quoteResults[ticker];
+    if (!q)              { failed++;         continue; }
+    // Yahoo returned null price (e.g. trust funds, delisted tickers). Preserve existing record.
+    if (q.price == null) { skippedNoPrice++;  continue; }
+
+    const payload = {
+      ticker,
+      price:     q.price,
+      currency:  q.currency ?? "USD",
+      fetchedAt: now,
+      source:    "yahoo",
+    };
+
+    try {
+      if (existing) {
+        const { errors } = await client.models.financeTickerQuote.update(payload);
+        if (errors?.length) throw new Error(errors[0].message);
+        updated++;
+      } else {
+        const { errors } = await client.models.financeTickerQuote.create(payload);
+        if (errors?.length) throw new Error(errors[0].message);
+        created++;
+      }
+    } catch (err: any) {
+      console.error(`[refreshAllQuotes] failed to upsert ${ticker}:`, err?.message ?? err);
+      failed++;
+    }
+  }
+
+  // 4. Build status message
+  const parts: string[] = [];
+  if (created + updated > 0) parts.push(`Updated ${created + updated}`);
+  if (skippedManual > 0)     parts.push(`${skippedManual} manual`);
+  if (skippedNoPrice > 0)    parts.push(`${skippedNoPrice} not on Yahoo`);
+  if (failed > 0)            parts.push(`${failed} failed`);
+
+  return {
+    attempted: allTickers.length,
+    created,
+    updated,
+    skippedManual,
+    skippedNoPrice,
+    failed,
+    message: parts.join(" · ") || "Nothing to update",
+    fatal: null,
+  };
 }
 
 // ── Physical assets ─────────────────────────────────────────────────────────────────

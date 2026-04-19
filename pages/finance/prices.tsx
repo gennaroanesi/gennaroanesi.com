@@ -9,9 +9,24 @@ import {
   uniqueTickers, isQuoteStale, isQuoteManual,
   inputCls, labelCls,
   SaveButton,
+  listAll, refreshAllQuotes,
 } from "@/components/finance/_shared";
+import {
+  ColDef, DataTable, SearchInput, TableControls, useTableControls,
+} from "@/components/common/table";
 
 type EditState = { ticker: string; price: number | ""; currency: string } | null;
+
+// Row type for the prices table: we denormalize ticker+quote+lot-count into one object
+// so columns can have clean sortValue/searchValue functions that don't need closures.
+type PriceRow = {
+  id:        string;   // === ticker (uppercase); DataTable requires an id
+  ticker:    string;
+  quote:     TickerQuoteRecord | undefined;
+  lotCount:  number;
+  /** Sort rank for the default "smart" ordering. 0=manual, 1=stale, 2=fresh, 3=unpriced. */
+  smartRank: number;
+};
 
 export default function PricesPage() {
   const { authState } = useRequireAuth();
@@ -21,16 +36,18 @@ export default function PricesPage() {
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
   const [edit,       setEdit]       = useState<EditState>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: lotRecs }, { data: quoteRecs }] = await Promise.all([
-        client.models.financeHoldingLot.list({ limit: 500 }),
-        client.models.financeTickerQuote.list({ limit: 500 }),
+      const [lotRecs, quoteRecs] = await Promise.all([
+        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeTickerQuote),
       ]);
-      setLots(lotRecs ?? []);
-      setQuotes(quoteRecs ?? []);
+      setLots(lotRecs);
+      setQuotes(quoteRecs);
     } finally {
       setLoading(false);
     }
@@ -42,13 +59,6 @@ export default function PricesPage() {
   }, [authState, fetchData]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
-
-  // Union of tickers used in lots + tickers that have quotes (in case of orphan quotes)
-  const allTickers = useMemo(() => {
-    const fromLots   = uniqueTickers(lots);
-    const fromQuotes = quotes.map((q) => (q.ticker ?? "").toUpperCase()).filter(Boolean);
-    return Array.from(new Set([...fromLots, ...fromQuotes])).sort();
-  }, [lots, quotes]);
 
   const quoteByTicker = useMemo(() => {
     const m = new Map<string, TickerQuoteRecord>();
@@ -65,21 +75,27 @@ export default function PricesPage() {
     return m;
   }, [lots]);
 
-  // Sort: manual overrides first, then stale yahoo, then fresh yahoo, then unpriced
-  const sorted = useMemo(() => {
-    const rankFor = (t: string): number => {
-      const q = quoteByTicker.get(t);
-      if (!q)                           return 3;  // no quote yet
-      if (isQuoteManual(q))             return 0;  // manual override
-      if (isQuoteStale(q))              return 1;  // stale yahoo
-      return 2;                                    // fresh yahoo
+  // Union of tickers used in lots + orphan quotes
+  const allTickers = useMemo(() => {
+    const fromLots   = uniqueTickers(lots);
+    const fromQuotes = quotes.map((q) => (q.ticker ?? "").toUpperCase()).filter(Boolean);
+    return Array.from(new Set([...fromLots, ...fromQuotes])).sort();
+  }, [lots, quotes]);
+
+  // Build denormalized rows for the table
+  const rows: PriceRow[] = useMemo(() => allTickers.map((ticker) => {
+    const quote = quoteByTicker.get(ticker);
+    const manual = isQuoteManual(quote);
+    const stale  = quote ? isQuoteStale(quote) : true;
+    const smartRank = !quote ? 3 : manual ? 0 : stale ? 1 : 2;
+    return {
+      id: ticker,
+      ticker,
+      quote,
+      lotCount: lotCountByTicker.get(ticker) ?? 0,
+      smartRank,
     };
-    return [...allTickers].sort((a, b) => {
-      const ra = rankFor(a); const rb = rankFor(b);
-      if (ra !== rb) return ra - rb;
-      return a.localeCompare(b);
-    });
-  }, [allTickers, quoteByTicker]);
+  }), [allTickers, quoteByTicker, lotCountByTicker]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -112,7 +128,6 @@ export default function PricesPage() {
       } else {
         await client.models.financeTickerQuote.create(payload);
       }
-      // Optimistic: reflect in local state without refetch
       setQuotes((prev) => {
         const without = prev.filter((q) => (q.ticker ?? "").toUpperCase() !== edit.ticker);
         return [...without, { ...payload } as TickerQuoteRecord];
@@ -129,8 +144,7 @@ export default function PricesPage() {
     if (!existing) return;
     setSaving(true);
     try {
-      // Flip source back to yahoo. Price is left in place as a reasonable starting value.
-      // Next refresh will overwrite it with live data.
+      // Flip source back to yahoo. Price is left in place as a starting value; next refresh will overwrite.
       await client.models.financeTickerQuote.update({
         ticker,
         price:     existing.price ?? 0,
@@ -150,6 +164,146 @@ export default function PricesPage() {
     }
   }
 
+  // Bulk refresh every non-manual ticker. Delegates to the shared helper so this page
+  // stays in sync with the account-detail "Refresh prices" button.
+  async function handleRefreshAll() {
+    setRefreshMsg(null);
+    setRefreshing(true);
+    try {
+      const result = await refreshAllQuotes();
+      if (result.fatal) {
+        setRefreshMsg(`Error: ${result.fatal}`);
+        return;
+      }
+      const fresh = await listAll(client.models.financeTickerQuote);
+      setQuotes(fresh);
+      setRefreshMsg(result.message);
+      if (result.failed === 0 && result.skippedNoPrice === 0) {
+        setTimeout(() => setRefreshMsg(null), 3000);
+      }
+    } catch (err: any) {
+      console.error("[prices:refresh] unhandled error:", err);
+      setRefreshMsg(`Error: ${err?.message ?? String(err)}`);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  // ── Columns ────────────────────────────────────────────────────────────────
+
+  const columns: ColDef<PriceRow>[] = useMemo(() => [
+    {
+      key: "ticker",
+      label: "Ticker",
+      sortValue: (r) => r.ticker,
+      searchValue: (r) => r.ticker,
+      render: (r) => <p className="font-semibold text-gray-800 dark:text-gray-100">{r.ticker}</p>,
+    },
+    {
+      key: "price",
+      label: "Price",
+      sortValue: (r) => r.quote?.price ?? null,
+      align: "right",
+      render: (r) => {
+        const cur = r.quote?.currency ?? "USD";
+        return r.quote?.price != null
+          ? <span className="tabular-nums font-semibold text-gray-800 dark:text-gray-100">{fmtCurrency(r.quote.price, cur)}</span>
+          : <span className="text-gray-400">—</span>;
+      },
+    },
+    {
+      key: "source",
+      label: "Source",
+      // Sort by smart rank so clicking Source gives you "manual → yahoo → no-quote"
+      sortValue: (r) => r.smartRank,
+      searchValue: (r) => !r.quote ? "no quote" : isQuoteManual(r.quote) ? "manual" : "yahoo",
+      align: "center",
+      mobileHidden: true,
+      render: (r) => {
+        if (!r.quote) return <span className="text-[10px] text-gray-400">no quote</span>;
+        if (isQuoteManual(r.quote)) return (
+          <span
+            className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
+            style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+          >Manual</span>
+        );
+        return (
+          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+            Yahoo
+          </span>
+        );
+      },
+    },
+    {
+      key: "fetchedAt",
+      label: "Last update",
+      sortValue: (r) => r.quote?.fetchedAt ?? null,
+      mobileHidden: true,
+      render: (r) => {
+        if (!r.quote?.fetchedAt) return <span className="text-gray-400">—</span>;
+        const manual = isQuoteManual(r.quote);
+        const stale  = isQuoteStale(r.quote);
+        return (
+          <span className={stale && !manual ? "text-amber-500 text-xs" : "text-gray-500 dark:text-gray-400 text-xs"}>
+            {fmtDate(r.quote.fetchedAt.slice(0, 10))}
+            {stale && !manual && <span className="ml-1">· stale</span>}
+          </span>
+        );
+      },
+    },
+    {
+      key: "lots",
+      label: "Lots",
+      sortValue: (r) => r.lotCount,
+      align: "right",
+      mobileHidden: true,
+      render: (r) => <span className="tabular-nums text-xs text-gray-500 dark:text-gray-400">{r.lotCount}</span>,
+    },
+    {
+      key: "actions",
+      label: "",
+      align: "right",
+      render: (r) => {
+        const manual = isQuoteManual(r.quote);
+        return (
+          <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => openEdit(r.ticker)}
+              className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
+              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+            >
+              {manual ? "Edit" : "Override"}
+            </button>
+            {manual && (
+              <button
+                onClick={() => clearOverride(r.ticker)}
+                disabled={saving}
+                className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [saving]);
+
+  // Virtual "smart" sort column: not rendered but used as default ordering.
+  // When the user hasn't clicked any header, we sort by smartRank then ticker.
+  const ctl = useTableControls(rows, {
+    defaultSortKey: "__smart",
+    defaultSortDir: "asc",
+    getSortValue: (row, key) => {
+      if (key === "__smart") return row.smartRank * 1000 + row.ticker.charCodeAt(0); // tie-break alphabetically
+      return columns.find((c) => c.key === key)?.sortValue?.(row);
+    },
+    getSearchText: (row) =>
+      columns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" "),
+    initialPageSize: 100,
+  });
+
   if (authState !== "authenticated") return null;
 
   return (
@@ -165,6 +319,20 @@ export default function PricesPage() {
                   {allTickers.length} ticker{allTickers.length === 1 ? "" : "s"}
                 </span>
               )}
+            </div>
+            <div className="flex items-center gap-2">
+              {refreshMsg && (
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">{refreshMsg}</span>
+              )}
+              <button
+                onClick={handleRefreshAll}
+                disabled={refreshing || allTickers.length === 0}
+                className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors disabled:opacity-50"
+                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+              >
+                {refreshing ? "Refreshing…" : "Refresh all"}
+              </button>
+              <SearchInput value={ctl.search} onChange={ctl.setSearch} placeholder="Search ticker, source…" />
             </div>
           </div>
 
@@ -184,88 +352,23 @@ export default function PricesPage() {
             </div>
           ) : (
             <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Ticker</th>
-                    <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Price</th>
-                    <th className="px-4 py-2 text-center text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Source</th>
-                    <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Last update</th>
-                    <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Lots</th>
-                    <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {sorted.map((ticker) => {
-                    const q        = quoteByTicker.get(ticker);
-                    const manual   = isQuoteManual(q);
-                    const stale    = q ? isQuoteStale(q) : true;
-                    const lotCount = lotCountByTicker.get(ticker) ?? 0;
-                    const cur      = q?.currency ?? "USD";
-                    return (
-                      <tr key={ticker} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                        <td className="px-4 py-2">
-                          <p className="font-semibold text-gray-800 dark:text-gray-100">{ticker}</p>
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums font-semibold text-gray-800 dark:text-gray-100">
-                          {q?.price != null ? fmtCurrency(q.price, cur) : <span className="text-gray-400">—</span>}
-                        </td>
-                        <td className="px-4 py-2 text-center hidden sm:table-cell">
-                          {!q ? (
-                            <span className="text-[10px] text-gray-400">no quote</span>
-                          ) : manual ? (
-                            <span
-                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
-                              style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
-                            >
-                              Manual
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
-                            >
-                              Yahoo
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-left text-xs hidden md:table-cell">
-                          {q?.fetchedAt ? (
-                            <span className={stale && !manual ? "text-amber-500" : "text-gray-500 dark:text-gray-400"}>
-                              {fmtDate(q.fetchedAt.slice(0, 10))}
-                              {stale && !manual && <span className="ml-1">· stale</span>}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-xs text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-                          {lotCount}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => openEdit(ticker)}
-                              className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
-                              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
-                            >
-                              {manual ? "Edit" : "Override"}
-                            </button>
-                            {manual && (
-                              <button
-                                onClick={() => clearOverride(ticker)}
-                                disabled={saving}
-                                className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-                              >
-                                Clear
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <DataTable
+                rows={ctl.paged}
+                columns={columns}
+                sortKey={ctl.sortKey}
+                sortDir={ctl.sortDir}
+                onSort={ctl.handleSort}
+                emptyMessage={ctl.search ? "No matches" : "No tickers"}
+              />
+              <TableControls
+                page={ctl.page}
+                totalPages={ctl.totalPages}
+                totalItems={ctl.totalItems}
+                totalUnfiltered={ctl.totalUnfiltered}
+                pageSize={ctl.pageSize}
+                setPage={ctl.setPage}
+                setPageSize={ctl.setPageSize}
+              />
             </div>
           )}
         </div>

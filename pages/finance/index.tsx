@@ -12,6 +12,7 @@ import {
   accountTotalValue, buildQuoteMap, isInvestedAccount,
   totalAssetValue, assetGainLoss,
   AccountBadge,
+  listAll,
   type Cadence,
 } from "@/components/finance/_shared";
 
@@ -31,29 +32,29 @@ export default function FinanceDashboard() {
     setLoading(true);
     try {
       const [
-        { data: accs },
-        { data: txs },
-        { data: recs },
-        { data: gls },
-        { data: lotRecs },
-        { data: quoteRecs },
-        { data: assetRecs },
+        accs,
+        txs,
+        recs,
+        gls,
+        lotRecs,
+        quoteRecs,
+        assetRecs,
       ] = await Promise.all([
-        client.models.financeAccount.list({ limit: 200 }),
-        client.models.financeTransaction.list({ limit: 500 }),
-        client.models.financeRecurring.list({ limit: 200 }),
-        client.models.financeSavingsGoal.list({ limit: 100 }),
-        client.models.financeHoldingLot.list({ limit: 500 }),
-        client.models.financeTickerQuote.list({ limit: 500 }),
-        client.models.financeAsset.list({ limit: 200 }),
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeTransaction),
+        listAll(client.models.financeRecurring),
+        listAll(client.models.financeSavingsGoal),
+        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeTickerQuote),
+        listAll(client.models.financeAsset),
       ]);
-      setAccounts(accs ?? []);
-      setTransactions(txs ?? []);
-      setRecurrings(recs ?? []);
-      setGoals(gls ?? []);
-      setLots(lotRecs ?? []);
-      setQuotes(quoteRecs ?? []);
-      setAssets(assetRecs ?? []);
+      setAccounts(accs);
+      setTransactions(txs);
+      setRecurrings(recs);
+      setGoals(gls);
+      setLots(lotRecs);
+      setQuotes(quoteRecs);
+      setAssets(assetRecs);
     } finally {
       setLoading(false);
     }
@@ -67,6 +68,12 @@ export default function FinanceDashboard() {
   // ── Derived data ───────────────────────────────────────────────────────────
 
   const activeAccounts = accounts.filter((a) => a.active !== false);
+
+  // Dashboard grid shows favorites only when any exist; otherwise falls back to all
+  // active accounts so new users see something before starring anything.
+  const favoriteAccounts = useMemo(() => activeAccounts.filter((a) => a.favorite), [activeAccounts]);
+  const dashboardAccounts = favoriteAccounts.length > 0 ? favoriteAccounts : activeAccounts;
+  const usingFavorites = favoriteAccounts.length > 0;
 
   const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
 
@@ -118,21 +125,31 @@ export default function FinanceDashboard() {
 
             {/* ── Net Worth + Account Balances ─────────────────────────── */}
             <section>
-              <div className="flex items-baseline gap-3 mb-3">
-                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Net Worth</h2>
-                <span
-                  className="text-2xl font-bold tabular-nums"
-                  style={{ color: netWorth >= 0 ? FINANCE_COLOR : "#ef4444" }}
-                >
-                  {fmtCurrency(netWorth)}
-                </span>
+              <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+                <div className="flex items-baseline gap-3">
+                  <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Net Worth</h2>
+                  <span
+                    className="text-2xl font-bold tabular-nums"
+                    style={{ color: netWorth >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                  >
+                    {fmtCurrency(netWorth)}
+                  </span>
+                  {usingFavorites && (
+                    <span className="text-[11px] text-gray-400">
+                      Showing {favoriteAccounts.length} favorite{favoriteAccounts.length === 1 ? "" : "s"} of {activeAccounts.length}
+                    </span>
+                  )}
+                </div>
+                <a href="/finance/accounts" className="text-xs font-semibold" style={{ color: FINANCE_COLOR }}>
+                  {usingFavorites ? "View all accounts →" : "Manage accounts →"}
+                </a>
               </div>
 
               {activeAccounts.length === 0 ? (
                 <p className="text-sm text-gray-400">No accounts yet — <a href="/finance/transactions" className="underline" style={{ color: FINANCE_COLOR }}>add one</a>.</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {activeAccounts.map((acc) => {
+                  {dashboardAccounts.map((acc) => {
                     const totalValue = accountTotalValue(acc, lots, quoteMap);
                     const invested = isInvestedAccount(acc.type);
                     const positionsValue = invested ? totalValue - (acc.currentBalance ?? 0) : 0;

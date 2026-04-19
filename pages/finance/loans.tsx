@@ -11,6 +11,7 @@ import {
   loanProgressPct, priceMonthlyPayment, amortize, addMonthsIso,
   inputCls, labelCls,
   SaveButton, EmptyState,
+  listAll,
 } from "@/components/finance/_shared";
 
 type PanelState = { kind: "new" } | null;
@@ -63,16 +64,16 @@ export default function LoansPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: ls }, { data: accs }, { data: ass }, { data: pays }] = await Promise.all([
-        client.models.financeLoan.list({ limit: 100 }),
-        client.models.financeAccount.list({ limit: 200 }),
-        client.models.financeAsset.list({ limit: 200 }),
-        client.models.financeLoanPayment.list({ limit: 2000 }),
+      const [ls, accs, ass, pays] = await Promise.all([
+        listAll(client.models.financeLoan),
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeAsset),
+        listAll(client.models.financeLoanPayment),
       ]);
-      setLoans(ls ?? []);
-      setAccounts(accs ?? []);
-      setAssets(ass ?? []);
-      setPayments(pays ?? []);
+      setLoans(ls);
+      setAccounts(accs);
+      setAssets(ass);
+      setPayments(pays);
     } finally {
       setLoading(false);
     }

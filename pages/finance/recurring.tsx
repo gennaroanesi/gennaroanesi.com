@@ -1,17 +1,21 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  AccountRecord, RecurringRecord, TransactionRecord,
+  AccountRecord, RecurringRecord,
   CADENCES, CADENCE_LABELS, CADENCE_MONTHLY_FACTOR, FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, nextOccurrence, advanceByCadence, amountColor,
   isRecurrenceLive,
   inputCls, labelCls,
-  SaveButton, DeleteButton, EmptyState, StatusBadge,
+  SaveButton, DeleteButton, EmptyState,
+  listAll,
   type Cadence,
 } from "@/components/finance/_shared";
+import {
+  ColDef, DataTable, SearchInput, TableControls, useTableControls,
+} from "@/components/common/table";
 
 type PanelState =
   | { kind: "new" }
@@ -32,12 +36,12 @@ export default function RecurringPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: accs }, { data: recs }] = await Promise.all([
-        client.models.financeAccount.list({ limit: 200 }),
-        client.models.financeRecurring.list({ limit: 500 }),
+      const [accs, recs] = await Promise.all([
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeRecurring),
       ]);
-      setAccounts(accs ?? []);
-      setRecurrings(recs ?? []);
+      setAccounts(accs);
+      setRecurrings(recs);
     } finally {
       setLoading(false);
     }
@@ -165,16 +169,112 @@ export default function RecurringPage() {
     }
   }
 
-  // Live = active AND endDate not passed. Everything else (paused or ended) drops into inactive.
-  const active   = recurrings.filter(isRecurrenceLive)
-    .sort((a, b) => (a.nextDate ?? "").localeCompare(b.nextDate ?? ""));
-  const inactive = recurrings.filter((r) => !isRecurrenceLive(r));
+  // Split live vs inactive once; the live list feeds the sortable table below.
+  const active   = useMemo(() => recurrings.filter(isRecurrenceLive), [recurrings]);
+  const inactive = useMemo(() => recurrings.filter((r) => !isRecurrenceLive(r)), [recurrings]);
 
   const monthlyNet = active.reduce((s, r) => {
     const amt = r.amount ?? 0;
     const factor = CADENCE_MONTHLY_FACTOR[r.cadence as Cadence] ?? 1;
     return s + amt * factor;
   }, 0);
+
+  // Resolve display helpers that are reused as both sort values and search text
+  const accountName = useCallback(
+    (r: RecurringRecord) => accounts.find((a) => a.id === r.accountId)?.name ?? "",
+    [accounts],
+  );
+  const nextDate = useCallback(
+    (r: RecurringRecord) => nextOccurrence(r.nextDate ?? r.startDate ?? todayIso(), r.cadence as Cadence, r.startDate ?? undefined),
+    [],
+  );
+
+  const columns: ColDef<RecurringRecord>[] = useMemo(() => [
+    {
+      key: "description",
+      label: "Description",
+      sortValue: (r) => (r.description ?? "").toLowerCase(),
+      searchValue: (r) => `${r.description ?? ""} ${r.category ?? ""} ${accountName(r)}`,
+      render: (r) => {
+        const acc = accounts.find((a) => a.id === r.accountId);
+        return (
+          <div>
+            <p className="text-gray-800 dark:text-gray-200 font-medium">{r.description}</p>
+            {r.category && <p className="text-[11px] text-gray-400">{r.category}</p>}
+            {acc && <p className="text-[11px] text-gray-400">{acc.name}</p>}
+          </div>
+        );
+      },
+    },
+    {
+      key: "cadence",
+      label: "Cadence",
+      sortValue: (r) => CADENCE_LABELS[r.cadence as Cadence] ?? "",
+      mobileHidden: true,
+      render: (r) => (
+        <span className="text-gray-500 text-xs">{CADENCE_LABELS[r.cadence as Cadence]}</span>
+      ),
+    },
+    {
+      key: "next",
+      label: "Next",
+      sortValue: (r) => nextDate(r),
+      mobileHidden: true,
+      render: (r) => <span className="text-gray-500 text-xs">{fmtDate(nextDate(r))}</span>,
+    },
+    {
+      key: "amount",
+      label: "Amount",
+      sortValue: (r) => r.amount ?? 0,
+      align: "right",
+      render: (r) => {
+        const acc = accounts.find((a) => a.id === r.accountId);
+        return (
+          <span
+            className="tabular-nums font-semibold whitespace-nowrap"
+            style={{ color: amountColor(r.amount ?? 0) }}
+          >
+            {fmtCurrency(r.amount, acc?.currency ?? "USD", true)}
+          </span>
+        );
+      },
+    },
+    {
+      key: "actions",
+      label: "",
+      align: "right",
+      className: "w-36",
+      render: (r) => (
+        <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => handlePostNow(r)}
+            disabled={saving}
+            className="text-[10px] px-2 py-0.5 rounded border transition-colors"
+            style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+            title="Post one occurrence now"
+          >
+            Post
+          </button>
+          <button
+            onClick={() => openEdit(r)}
+            className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            Edit
+          </button>
+        </div>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [accounts, saving, accountName, nextDate]);
+
+  const ctl = useTableControls(active, {
+    defaultSortKey: "next",
+    defaultSortDir: "asc",
+    getSortValue: (row, key) => columns.find((c) => c.key === key)?.sortValue?.(row),
+    getSearchText: (row) =>
+      columns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" "),
+    initialPageSize: 50,
+  });
 
   if (authState !== "authenticated") return null;
 
@@ -204,60 +304,39 @@ export default function RecurringPage() {
           ) : (
             <div className="flex flex-col gap-6">
               {/* Active */}
-              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Description</th>
-                      <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Cadence</th>
-                      <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Next</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Amount</th>
-                      <th className="px-4 py-2 w-20" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {active.map((rec) => {
-                      const acc = accounts.find((a) => a.id === rec.accountId);
-                      return (
-                        <tr key={rec.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                          <td className="px-4 py-2">
-                            <p className="text-gray-800 dark:text-gray-200 font-medium">{rec.description}</p>
-                            {rec.category && <p className="text-[11px] text-gray-400">{rec.category}</p>}
-                            {acc && <p className="text-[11px] text-gray-400">{acc.name}</p>}
-                          </td>
-                          <td className="px-4 py-2 text-gray-500 text-xs hidden sm:table-cell">{CADENCE_LABELS[rec.cadence as Cadence]}</td>
-                          <td className="px-4 py-2 text-gray-500 text-xs hidden md:table-cell">
-                            {fmtDate(nextOccurrence(rec.nextDate ?? rec.startDate ?? todayIso(), rec.cadence as Cadence, rec.startDate ?? undefined))}
-                          </td>
-                          <td className="px-4 py-2 text-right tabular-nums font-semibold whitespace-nowrap"
-                            style={{ color: amountColor(rec.amount ?? 0) }}>
-                            {fmtCurrency(rec.amount, acc?.currency ?? "USD", true)}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <div className="flex gap-1 justify-end">
-                              <button onClick={() => handlePostNow(rec)} disabled={saving}
-                                className="text-[10px] px-2 py-0.5 rounded border transition-colors"
-                                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
-                                title="Post one occurrence now">
-                                Post
-                              </button>
-                              <button onClick={() => openEdit(rec)}
-                                className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors">
-                                Edit
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div>
+                <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                  <p className="text-xs uppercase tracking-widest text-gray-400 font-medium">
+                    Active · {active.length}
+                  </p>
+                  <SearchInput value={ctl.search} onChange={ctl.setSearch} placeholder="Search description, category, account…" />
+                </div>
+                <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                  <DataTable
+                    rows={ctl.paged}
+                    columns={columns}
+                    sortKey={ctl.sortKey}
+                    sortDir={ctl.sortDir}
+                    onSort={ctl.handleSort}
+                    onRowClick={openEdit}
+                    emptyMessage={ctl.search ? "No matches" : "No active recurrences"}
+                  />
+                  <TableControls
+                    page={ctl.page}
+                    totalPages={ctl.totalPages}
+                    totalItems={ctl.totalItems}
+                    totalUnfiltered={ctl.totalUnfiltered}
+                    pageSize={ctl.pageSize}
+                    setPage={ctl.setPage}
+                    setPageSize={ctl.setPageSize}
+                  />
+                </div>
               </div>
 
-              {/* Inactive */}
+              {/* Inactive — kept as-is: typically small, read-only listing */}
               {inactive.length > 0 && (
                 <div>
-                  <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">Inactive</p>
+                  <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">Inactive · {inactive.length}</p>
                   <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden opacity-60">
                     <table className="w-full text-sm">
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">

@@ -12,7 +12,11 @@ import {
   accountTotalValue, buildQuoteMap, tickerAggregate, uniqueTickers, isQuoteStale, isQuoteManual,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
+  listAll, refreshAllQuotes,
 } from "@/components/finance/_shared";
+import {
+  ColDef, DataTable, SearchInput, TableControls, useTableControls, SortIcon,
+} from "@/components/common/table";
 
 type PanelState =
   | { kind: "new-lot" }
@@ -42,17 +46,16 @@ export default function AccountDetailPage() {
     if (!accountId) return;
     setLoading(true);
     try {
-      const [{ data: acc }, { data: txs }, { data: lotRecs }, { data: quoteRecs }] =
-        await Promise.all([
-          client.models.financeAccount.get({ id: accountId }),
-          client.models.financeTransaction.list({ limit: 1000 }),
-          client.models.financeHoldingLot.list({ limit: 500 }),
-          client.models.financeTickerQuote.list({ limit: 500 }),
-        ]);
+      const [{ data: acc }, txs, lotRecs, quoteRecs] = await Promise.all([
+        client.models.financeAccount.get({ id: accountId }),
+        listAll(client.models.financeTransaction),
+        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeTickerQuote),
+      ]);
       setAccount(acc ?? null);
-      setTransactions((txs ?? []).filter((t) => t.accountId === accountId));
-      setLots((lotRecs ?? []).filter((l) => l.accountId === accountId));
-      setQuotes(quoteRecs ?? []);
+      setTransactions(txs.filter((t) => t.accountId === accountId));
+      setLots(lotRecs.filter((l) => l.accountId === accountId));
+      setQuotes(quoteRecs);
     } finally {
       setLoading(false);
     }
@@ -80,10 +83,80 @@ export default function AccountDetailPage() {
     ? aggregates.reduce((s, a) => s + (a.marketValue ?? 0), 0)
     : 0;
 
-  const sortedTxs = useMemo(
-    () => [...transactions].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
-    [transactions],
-  );
+  // Currency code, safe to reference before account loads (used by column defs below).
+  const cur = account?.currency ?? "USD";
+
+  // Holdings table controls (search + sort). Kept next to aggregates because
+  // the table still renders manually below (to support expandable sub-rows per ticker).
+  const holdingsCtl = useTableControls(aggregates, {
+    defaultSortKey: "value",
+    defaultSortDir: "desc",
+    getSortValue: (agg, key) => {
+      switch (key) {
+        case "ticker":     return agg.ticker;
+        case "qty":        return agg.totalQty;
+        case "price":      return agg.price ?? null;
+        case "value":      return agg.marketValue ?? null;
+        case "costBasis":  return agg.totalCost ?? null;
+        case "gainLoss":   return agg.gainLoss ?? null;
+        default:           return null;
+      }
+    },
+    getSearchText: (agg) => `${agg.ticker} ${agg.assetType ?? ""} ${agg.lots.map((l) => l.notes ?? "").join(" ")}`,
+    initialPageSize: 100,
+  });
+
+  // Transactions table controls (search + sort). Default: date desc.
+  const txColumns: ColDef<TransactionRecord>[] = useMemo(() => [
+    {
+      key: "date",
+      label: "Date",
+      sortValue: (t) => t.date ?? "",
+      render: (t) => <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(t.date)}</span>,
+    },
+    {
+      key: "description",
+      label: "Description",
+      sortValue: (t) => (t.description ?? "").toLowerCase(),
+      searchValue: (t) => `${t.description ?? ""} ${t.category ?? ""}`,
+      render: (t) => <span className="text-gray-800 dark:text-gray-200 block max-w-[200px] truncate">{t.description || "—"}</span>,
+    },
+    {
+      key: "category",
+      label: "Category",
+      sortValue: (t) => (t.category ?? "").toLowerCase(),
+      mobileHidden: true,
+      render: (t) => <span className="text-gray-400 text-xs">{t.category || "—"}</span>,
+    },
+    {
+      key: "status",
+      label: "Status",
+      sortValue: (t) => t.status ?? "",
+      align: "center",
+      mobileHidden: true,
+      render: (t) => <StatusBadge status={t.status} />,
+    },
+    {
+      key: "amount",
+      label: "Amount",
+      sortValue: (t) => t.amount ?? 0,
+      align: "right",
+      render: (t) => (
+        <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(t.amount ?? 0) }}>
+          {fmtCurrency(t.amount, cur, true)}
+        </span>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [cur]);
+
+  const txCtl = useTableControls(transactions, {
+    defaultSortKey: "date",
+    defaultSortDir: "desc",
+    getSortValue: (row, key) => txColumns.find((c) => c.key === key)?.sortValue?.(row),
+    getSearchText: (row) => txColumns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" "),
+    initialPageSize: 50,
+  });
 
   // ── Lot CRUD ──────────────────────────────────────────────────────────────
 
@@ -144,110 +217,25 @@ export default function AccountDetailPage() {
     }
   }
 
-  // ── Refresh prices (global: all tickers across all brokerage accounts) ────
+  // ── Refresh prices (delegates to shared helper) ───────────────────
 
   async function handleRefreshPrices() {
-    console.log("[refresh] start");
     setRefreshMsg(null);
     setRefreshing(true);
     try {
-      // Pull all tickers (not just this account's), so a single refresh updates every brokerage
-      const { data: allLots, errors: lotErrors } = await client.models.financeHoldingLot.list({ limit: 500 });
-      if (lotErrors?.length) {
-        console.error("[refresh] error listing lots:", lotErrors);
-        setRefreshMsg(`Error listing lots: ${lotErrors[0].message}`);
+      const result = await refreshAllQuotes();
+      if (result.fatal) {
+        setRefreshMsg(`Error: ${result.fatal}`);
         return;
       }
-      const allTickers = uniqueTickers(allLots ?? []);
-      console.log(`[refresh] found ${allTickers.length} tickers:`, allTickers);
-      if (allTickers.length === 0) {
-        setRefreshMsg("No tickers to refresh");
-        return;
-      }
-
-      console.log(`[refresh] calling /api/quotes with`, allTickers);
-      const res = await fetch("/api/quotes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers: allTickers }),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("[refresh] /api/quotes failed:", res.status, text);
-        setRefreshMsg(`/api/quotes failed: ${res.status}`);
-        return;
-      }
-      const body = await res.json();
-      const quoteResults = body.quotes ?? {};
-      console.log("[refresh] got quotes:", quoteResults);
-      const now = new Date().toISOString();
-
-      // Load existing quotes so we know which to create vs update, and which are manual overrides
-      const { data: existingQuotes } = await client.models.financeTickerQuote.list({ limit: 500 });
-      const existingMap = new Map(
-        (existingQuotes ?? []).map((q) => [(q.ticker ?? "").toUpperCase(), q]),
-      );
-      console.log(`[refresh] ${existingMap.size} existing quotes in db`);
-
-      let created = 0, updated = 0, skippedManual = 0, skippedNoPrice = 0, failed = 0;
-      for (const ticker of allTickers) {
-        const existing = existingMap.get(ticker);
-
-        // Skip tickers the user has manually overridden — their value wins always
-        if (isQuoteManual(existing)) {
-          console.log(`[refresh] skipping ${ticker} (manual override)`);
-          skippedManual++;
-          continue;
-        }
-
-        const q = quoteResults[ticker];
-        if (!q) {
-          console.warn(`[refresh] no quote returned for ${ticker}`);
-          failed++;
-          continue;
-        }
-        if (q.price == null) {
-          // Yahoo returned null price (e.g. trust fund not on Yahoo). Leave existing record alone.
-          console.warn(`[refresh] null price for ${ticker}: ${q.error ?? "(no error)"} — preserving existing quote`);
-          skippedNoPrice++;
-          continue;
-        }
-        const payload = {
-          ticker,
-          price:     q.price,
-          currency:  q.currency ?? "USD",
-          fetchedAt: now,
-          source:    "yahoo",
-        };
-        try {
-          if (existing) {
-            const { errors } = await client.models.financeTickerQuote.update(payload);
-            if (errors?.length) throw new Error(errors[0].message);
-            updated++;
-          } else {
-            const { errors } = await client.models.financeTickerQuote.create(payload);
-            if (errors?.length) throw new Error(errors[0].message);
-            created++;
-          }
-        } catch (err: any) {
-          console.error(`[refresh] failed to upsert ${ticker}:`, err?.message ?? err);
-          failed++;
-        }
-      }
-
-      console.log(`[refresh] done: created=${created} updated=${updated} skippedManual=${skippedManual} skippedNoPrice=${skippedNoPrice} failed=${failed}`);
-
       // Refetch quotes to update the UI
-      const { data: fresh } = await client.models.financeTickerQuote.list({ limit: 500 });
-      setQuotes(fresh ?? []);
-
-      const msgParts: string[] = [];
-      if (created + updated > 0)  msgParts.push(`Updated ${created + updated}`);
-      if (skippedManual > 0)      msgParts.push(`${skippedManual} manual`);
-      if (skippedNoPrice > 0)     msgParts.push(`${skippedNoPrice} not on Yahoo`);
-      if (failed > 0)             msgParts.push(`${failed} failed`);
-      setRefreshMsg(msgParts.join(" · ") || "Nothing to update");
-      if (failed === 0 && skippedNoPrice === 0) setTimeout(() => setRefreshMsg(null), 3000);
+      const fresh = await listAll(client.models.financeTickerQuote);
+      setQuotes(fresh);
+      setRefreshMsg(result.message);
+      // Auto-dismiss success messages (nothing surprising happened)
+      if (result.failed === 0 && result.skippedNoPrice === 0) {
+        setTimeout(() => setRefreshMsg(null), 3000);
+      }
     } catch (err: any) {
       console.error("[refresh] unhandled error:", err);
       setRefreshMsg(`Error: ${err?.message ?? String(err)}`);
@@ -284,7 +272,6 @@ export default function AccountDetailPage() {
   }
 
   const isBrokerage = isInvestedAccount(account.type);
-  const cur = account.currency ?? "USD";
   const anyStale = aggregates.some((a) => isQuoteStale({ fetchedAt: a.fetchedAt } as any));
   const retirementLabel = account.type === "RETIREMENT" && account.retirementType
     ? RETIREMENT_TYPE_LABELS[account.retirementType as keyof typeof RETIREMENT_TYPE_LABELS]
@@ -364,17 +351,22 @@ export default function AccountDetailPage() {
           {/* ── Holdings (brokerage only) ────────────────────────────── */}
           {isBrokerage && (
             <section className="mb-6">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
                   Holdings · {tickers.length} ticker{tickers.length === 1 ? "" : "s"}
                 </h2>
-                <button
-                  onClick={openNewLot}
-                  className="text-xs font-semibold px-3 py-1 rounded border transition-colors"
-                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
-                >
-                  + Add lot
-                </button>
+                <div className="flex items-center gap-2">
+                  {aggregates.length > 0 && (
+                    <SearchInput value={holdingsCtl.search} onChange={holdingsCtl.setSearch} placeholder="Search ticker…" />
+                  )}
+                  <button
+                    onClick={openNewLot}
+                    className="text-xs font-semibold px-3 py-1 rounded border transition-colors"
+                    style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                  >
+                    + Add lot
+                  </button>
+                </div>
               </div>
 
               {aggregates.length === 0 ? (
@@ -384,17 +376,33 @@ export default function AccountDetailPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
                       <tr>
-                        <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Ticker</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Qty</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Price</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Value</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Cost basis</th>
-                        <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Gain/Loss</th>
+                        {([
+                          { key: "ticker",    label: "Ticker",     align: "left"  },
+                          { key: "qty",       label: "Qty",        align: "right" },
+                          { key: "price",     label: "Price",      align: "right", hide: "sm" },
+                          { key: "value",     label: "Value",      align: "right" },
+                          { key: "costBasis", label: "Cost basis", align: "right", hide: "md" },
+                          { key: "gainLoss",  label: "Gain/Loss",  align: "right" },
+                        ] as const).map((col) => {
+                          const alignCls = col.align === "right" ? "text-right" : "text-left";
+                          const hideCls  = (col as any).hide === "sm" ? "hidden sm:table-cell" : (col as any).hide === "md" ? "hidden md:table-cell" : "";
+                          const dir = holdingsCtl.sortKey === col.key ? holdingsCtl.sortDir : null;
+                          return (
+                            <th
+                              key={col.key}
+                              onClick={() => holdingsCtl.handleSort(col.key)}
+                              className={`px-4 py-2 ${alignCls} ${hideCls} text-[10px] uppercase tracking-widest text-gray-400 font-medium cursor-pointer select-none hover:text-gray-600 dark:hover:text-gray-300 transition-colors`}
+                            >
+                              {col.label}
+                              <SortIcon dir={dir} />
+                            </th>
+                          );
+                        })}
                         <th className="px-4 py-2 w-8" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                      {aggregates.map((agg) => {
+                      {holdingsCtl.paged.map((agg) => {
                         const expanded = expandedTicker === agg.ticker;
                         const hasMultipleLots = agg.lots.length > 1;
                         const isManual = isQuoteManual(quoteMap.get(agg.ticker));
@@ -506,6 +514,15 @@ export default function AccountDetailPage() {
                       })}
                     </tbody>
                   </table>
+                  <TableControls
+                    page={holdingsCtl.page}
+                    totalPages={holdingsCtl.totalPages}
+                    totalItems={holdingsCtl.totalItems}
+                    totalUnfiltered={holdingsCtl.totalUnfiltered}
+                    pageSize={holdingsCtl.pageSize}
+                    setPage={holdingsCtl.setPage}
+                    setPageSize={holdingsCtl.setPageSize}
+                  />
                 </div>
               )}
             </section>
@@ -513,56 +530,45 @@ export default function AccountDetailPage() {
 
           {/* ── Transactions ─────────────────────────────────────────── */}
           <section>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
-                Transactions · {sortedTxs.length}
+                Transactions · {transactions.length}
               </h2>
-              <NextLink
-                href={`/finance/transactions?account=${accountId}`}
-                className="text-xs font-semibold"
-                style={{ color: FINANCE_COLOR }}
-              >
-                View all →
-              </NextLink>
+              <div className="flex items-center gap-2">
+                {transactions.length > 0 && (
+                  <SearchInput value={txCtl.search} onChange={txCtl.setSearch} placeholder="Search description, category…" />
+                )}
+                <NextLink
+                  href={`/finance/transactions?account=${accountId}`}
+                  className="text-xs font-semibold"
+                  style={{ color: FINANCE_COLOR }}
+                >
+                  View all →
+                </NextLink>
+              </div>
             </div>
 
-            {sortedTxs.length === 0 ? (
+            {transactions.length === 0 ? (
               <p className="text-sm text-gray-400 py-6 text-center">No transactions on this account yet.</p>
             ) : (
               <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
-                      <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Description</th>
-                      <th className="px-4 py-2 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Category</th>
-                      <th className="px-4 py-2 text-center text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Status</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {sortedTxs.slice(0, 50).map((tx) => (
-                      <tr key={tx.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                        <td className="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(tx.date)}</td>
-                        <td className="px-4 py-2 text-gray-800 dark:text-gray-200 max-w-[200px] truncate">{tx.description || "—"}</td>
-                        <td className="px-4 py-2 text-gray-400 text-xs hidden sm:table-cell">{tx.category || "—"}</td>
-                        <td className="px-4 py-2 text-center hidden md:table-cell"><StatusBadge status={tx.status} /></td>
-                        <td className="px-4 py-2 text-right tabular-nums font-semibold whitespace-nowrap"
-                          style={{ color: amountColor(tx.amount ?? 0) }}>
-                          {fmtCurrency(tx.amount, cur, true)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {sortedTxs.length > 50 && (
-                  <div className="px-4 py-2 text-center text-xs text-gray-400 bg-gray-50 dark:bg-darkElevated">
-                    Showing 50 of {sortedTxs.length} —{" "}
-                    <NextLink href={`/finance/transactions?account=${accountId}`} className="underline" style={{ color: FINANCE_COLOR }}>
-                      view all
-                    </NextLink>
-                  </div>
-                )}
+                <DataTable
+                  rows={txCtl.paged}
+                  columns={txColumns}
+                  sortKey={txCtl.sortKey}
+                  sortDir={txCtl.sortDir}
+                  onSort={txCtl.handleSort}
+                  emptyMessage={txCtl.search ? "No matches" : "No transactions"}
+                />
+                <TableControls
+                  page={txCtl.page}
+                  totalPages={txCtl.totalPages}
+                  totalItems={txCtl.totalItems}
+                  totalUnfiltered={txCtl.totalUnfiltered}
+                  pageSize={txCtl.pageSize}
+                  setPage={txCtl.setPage}
+                  setPageSize={txCtl.setPageSize}
+                />
               </div>
             )}
           </section>

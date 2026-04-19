@@ -11,7 +11,11 @@ import {
   loanProgressPct, computeLoanBalanceFromPayments, remainingScheduled, postedCount, totalInterestPaid,
   inputCls, labelCls,
   SaveButton, DeleteButton,
+  listAll,
 } from "@/components/finance/_shared";
+import {
+  ColDef, DataTable, SearchInput, TableControls, useTableControls,
+} from "@/components/common/table";
 
 // Side panel state — for posting, editing, or logging an extra payment
 type PanelState =
@@ -74,20 +78,20 @@ export default function LoanDetailPage() {
     if (!loanId) return;
     setLoading(true);
     try {
-      const [{ data: ln }, { data: accs }, { data: pays }, { data: ass }] = await Promise.all([
+      const [{ data: ln }, accs, pays, ass] = await Promise.all([
         client.models.financeLoan.get({ id: loanId }),
-        client.models.financeAccount.list({ limit: 200 }),
-        client.models.financeLoanPayment.list({ limit: 2000 }),
-        client.models.financeAsset.list({ limit: 200 }),
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeLoanPayment),
+        listAll(client.models.financeAsset),
       ]);
       setLoan(ln ?? null);
-      setAccounts(accs ?? []);
-      if (ln?.accountId) setAccount((accs ?? []).find((a) => a.id === ln.accountId) ?? null);
-      if (ln?.assetId)   setAsset((ass ?? []).find((a) => a.id === ln.assetId) ?? null);
-      setPayments((pays ?? []).filter((p) => p.loanId === loanId));
+      setAccounts(accs);
+      if (ln?.accountId) setAccount(accs.find((a) => a.id === ln.accountId) ?? null);
+      if (ln?.assetId)   setAsset(ass.find((a) => a.id === ln.assetId) ?? null);
+      setPayments(pays.filter((p) => p.loanId === loanId));
       // Default checking picker to first checking account
       if (!checkingAccountId) {
-        const firstChecking = (accs ?? []).find((a) => a.type === "CHECKING" && a.active !== false);
+        const firstChecking = accs.find((a) => a.type === "CHECKING" && a.active !== false);
         if (firstChecking) setCheckingAccountId(firstChecking.id);
       }
     } finally {
@@ -103,10 +107,151 @@ export default function LoanDetailPage() {
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const postedPayments = useMemo(
-    () => payments.filter((p) => p.status === "POSTED").sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")),
+    () => payments.filter((p) => p.status === "POSTED"),
     [payments],
   );
   const scheduledPayments = useMemo(() => remainingScheduled(payments), [payments]);
+
+  // Columns for the posted payments table
+  const postedColumns: ColDef<LoanPaymentRecord>[] = useMemo(() => [
+    {
+      key: "date",
+      label: "Date",
+      sortValue: (p) => p.date ?? "",
+      render: (p) => <span className="whitespace-nowrap text-gray-500 dark:text-gray-400 text-xs">{fmtDate(p.date)}</span>,
+    },
+    {
+      key: "seq",
+      label: "#",
+      sortValue: (p) => p.sequenceNumber ?? (p.isCorrection ? -2 : p.isExtraPayment ? -1 : 0),
+      searchValue: (p) => p.isCorrection ? "correction" : p.isExtraPayment ? "extra" : `#${p.sequenceNumber ?? ""}`,
+      mobileHidden: true,
+      render: (p) => (
+        <span className="text-xs text-gray-400">
+          {p.isCorrection    ? <span style={{ color: "#f59e0b" }}>correction</span> :
+           p.isExtraPayment  ? <span style={{ color: FINANCE_COLOR }}>extra</span>  :
+           p.sequenceNumber  ? `#${p.sequenceNumber}` : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "total",
+      label: "Total",
+      sortValue: (p) => p.totalAmount ?? 0,
+      align: "right",
+      render: (p) => <span className="tabular-nums">{fmtCurrency(p.totalAmount)}</span>,
+    },
+    {
+      key: "principal",
+      label: "Principal",
+      sortValue: (p) => p.principal ?? 0,
+      align: "right",
+      render: (p) => (
+        <span className="tabular-nums font-semibold" style={{ color: FINANCE_COLOR }}>
+          {fmtCurrency(p.principal)}
+        </span>
+      ),
+    },
+    {
+      key: "interest",
+      label: "Interest",
+      sortValue: (p) => p.interest ?? 0,
+      align: "right",
+      mobileHidden: true,
+      render: (p) => (
+        <span className="tabular-nums text-gray-500 dark:text-gray-400">
+          {p.interest != null ? fmtCurrency(p.interest) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "escrow",
+      label: "Escrow",
+      sortValue: (p) => p.escrow ?? null,
+      align: "right",
+      mobileHidden: true,
+      render: (p) => (
+        <span className="tabular-nums text-gray-500 dark:text-gray-400">
+          {p.escrow != null ? fmtCurrency(p.escrow) : "—"}
+        </span>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
+
+  const postedCtl = useTableControls(postedPayments, {
+    defaultSortKey: "date",
+    defaultSortDir: "desc",
+    getSortValue: (row, key) => postedColumns.find((c) => c.key === key)?.sortValue?.(row),
+    getSearchText: (row) => postedColumns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" ") + " " + (row.notes ?? ""),
+    initialPageSize: 50,
+  });
+
+  // Columns for the scheduled payments table.
+  // Note: the checkbox + Post button are rendered inline in the JSX below,
+  // not via columns, because they depend on component state (selectedIds).
+  const scheduledColumns: ColDef<LoanPaymentRecord>[] = useMemo(() => [
+    {
+      key: "date",
+      label: "Date",
+      sortValue: (p) => p.date ?? "",
+      render: (p) => {
+        const overdue = (p.date ?? "") < todayIso();
+        return (
+          <span className={`whitespace-nowrap text-xs ${overdue ? "text-amber-500 font-semibold" : "text-gray-500 dark:text-gray-400"}`}>
+            {fmtDate(p.date)}
+            {overdue && <span className="ml-1 text-[10px]">· overdue</span>}
+          </span>
+        );
+      },
+    },
+    {
+      key: "seq",
+      label: "#",
+      sortValue: (p) => p.sequenceNumber ?? 0,
+      mobileHidden: true,
+      render: (p) => <span className="text-xs text-gray-400">#{p.sequenceNumber ?? "—"}</span>,
+    },
+    {
+      key: "total",
+      label: "Total",
+      sortValue: (p) => p.totalAmount ?? 0,
+      align: "right",
+      render: (p) => <span className="tabular-nums">{fmtCurrency(p.totalAmount)}</span>,
+    },
+    {
+      key: "principal",
+      label: "Principal",
+      sortValue: (p) => p.principal ?? 0,
+      align: "right",
+      render: (p) => (
+        <span className="tabular-nums font-semibold" style={{ color: FINANCE_COLOR }}>
+          {fmtCurrency(p.principal)}
+        </span>
+      ),
+    },
+    {
+      key: "interest",
+      label: "Interest",
+      sortValue: (p) => p.interest ?? 0,
+      align: "right",
+      mobileHidden: true,
+      render: (p) => (
+        <span className="tabular-nums text-gray-500 dark:text-gray-400">
+          {fmtCurrency(p.interest)}
+        </span>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
+
+  const scheduledCtl = useTableControls(scheduledPayments, {
+    defaultSortKey: "date",
+    defaultSortDir: "asc",   // next due first
+    getSortValue: (row, key) => scheduledColumns.find((c) => c.key === key)?.sortValue?.(row),
+    getSearchText: (row) => scheduledColumns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" ") + ` ${row.sequenceNumber ?? ""}`,
+    initialPageSize: 120,
+  });
 
   const computedBalance = useMemo(
     () => loan ? computeLoanBalanceFromPayments(loan.originalPrincipal ?? 0, payments) : 0,
@@ -132,8 +277,8 @@ export default function LoanDetailPage() {
   async function recalcCachedBalance(): Promise<number> {
     if (!loan) return 0;
     // Fetch the freshest payment list — state may not have caught up after a batch
-    const { data: freshPays } = await client.models.financeLoanPayment.list({ limit: 2000 });
-    const myPays = (freshPays ?? []).filter((p) => p.loanId === loan.id);
+    const freshPays = await listAll(client.models.financeLoanPayment);
+    const myPays = freshPays.filter((p) => p.loanId === loan.id);
     const newBal = computeLoanBalanceFromPayments(loan.originalPrincipal ?? 0, myPays);
 
     await client.models.financeLoan.update({
@@ -446,8 +591,8 @@ export default function LoanDetailPage() {
   async function handleRecalcFromTransactions() {
     if (!loan || !account) return;
     // Fetch ALL posted INCOME transactions on the loan account — those represent principal flows
-    const { data: txs } = await client.models.financeTransaction.list({ limit: 2000 });
-    const loanIncome = (txs ?? [])
+    const txs = await listAll(client.models.financeTransaction);
+    const loanIncome = txs
       .filter((t) => t.accountId === account.id && t.status === "POSTED" && t.type === "INCOME")
       .reduce((s, t) => s + (t.amount ?? 0), 0);
 
@@ -692,53 +837,36 @@ export default function LoanDetailPage() {
 
           {/* ── Posted payments table ─────────────────────────────────── */}
           <section className="mb-6">
-            <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium mb-2">
-              Posted · {postedPayments.length}
-            </h2>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
+                Posted · {postedPayments.length}
+              </h2>
+              {postedPayments.length > 0 && (
+                <SearchInput value={postedCtl.search} onChange={postedCtl.setSearch} placeholder="Search posted…" />
+              )}
+            </div>
             {postedPayments.length === 0 ? (
               <p className="text-sm text-gray-400 py-4 text-center">No payments posted yet.</p>
             ) : (
               <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
-                    <tr>
-                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
-                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">#</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Total</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Principal</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Interest</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Escrow</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {postedPayments.map((p) => (
-                      <tr
-                        key={p.id}
-                        onClick={() => openEditPosted(p)}
-                        className="hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer transition-colors"
-                      >
-                        <td className="px-4 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400 text-xs">
-                          {fmtDate(p.date)}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-gray-400 hidden sm:table-cell">
-                          {p.isCorrection    ? <span style={{ color: "#f59e0b" }}>correction</span> :
-                           p.isExtraPayment  ? <span style={{ color: FINANCE_COLOR }}>extra</span>  :
-                           p.sequenceNumber  ? `#${p.sequenceNumber}` : "—"}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums">{fmtCurrency(p.totalAmount)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums font-semibold" style={{ color: FINANCE_COLOR }}>
-                          {fmtCurrency(p.principal)}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                          {p.interest != null ? fmtCurrency(p.interest) : "—"}
-                        </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                          {p.escrow != null ? fmtCurrency(p.escrow) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable
+                  rows={postedCtl.paged}
+                  columns={postedColumns}
+                  sortKey={postedCtl.sortKey}
+                  sortDir={postedCtl.sortDir}
+                  onSort={postedCtl.handleSort}
+                  onRowClick={openEditPosted}
+                  emptyMessage={postedCtl.search ? "No matches" : "No payments posted yet"}
+                />
+                <TableControls
+                  page={postedCtl.page}
+                  totalPages={postedCtl.totalPages}
+                  totalItems={postedCtl.totalItems}
+                  totalUnfiltered={postedCtl.totalUnfiltered}
+                  pageSize={postedCtl.pageSize}
+                  setPage={postedCtl.setPage}
+                  setPageSize={postedCtl.setPageSize}
+                />
               </div>
             )}
           </section>
@@ -750,7 +878,8 @@ export default function LoanDetailPage() {
                 <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
                   Scheduled · {scheduledPayments.length}
                 </h2>
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-2 text-xs flex-wrap">
+                  <SearchInput value={scheduledCtl.search} onChange={scheduledCtl.setSearch} placeholder="Search scheduled…" />
                   <button onClick={selectThroughToday} className="underline" style={{ color: FINANCE_COLOR }}>
                     Select through today
                   </button>
@@ -764,7 +893,7 @@ export default function LoanDetailPage() {
                       </button>
                       <button
                         onClick={handleBulkPost}
-                        disabled={saving || !checkingAccountId}
+                        disabled={saving}
                         className="px-3 py-1 rounded font-semibold disabled:opacity-50 transition-opacity"
                         style={{ backgroundColor: FINANCE_COLOR, color: "#fff" }}
                       >
@@ -776,67 +905,57 @@ export default function LoanDetailPage() {
               </div>
 
               <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
-                    <tr>
-                      <th className="px-3 py-2 w-6" />
-                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
-                      <th className="px-4 py-2 text-left  text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">#</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Total</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Principal</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden md:table-cell">Interest</th>
-                      <th className="px-4 py-2 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {scheduledPayments.slice(0, 120).map((p) => {
-                      const selected = selectedIds.has(p.id);
-                      const overdue = (p.date ?? "") < todayIso();
-                      return (
-                        <tr
-                          key={p.id}
-                          className={`transition-colors ${selected ? "bg-emerald-50 dark:bg-emerald-900/10" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                <DataTable
+                  rows={scheduledCtl.paged}
+                  columns={[
+                    // Checkbox column (first). Not sortable/searchable — pure UI.
+                    {
+                      key: "_check",
+                      label: "",
+                      className: "w-6",
+                      render: (p) => (
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(p.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelect(p.id)}
+                        />
+                      ),
+                    },
+                    ...scheduledColumns,
+                    // Per-row Post action
+                    {
+                      key: "_action",
+                      label: "Action",
+                      align: "right",
+                      render: (p) => (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openPost(p); }}
+                          className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
+                          style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
                         >
-                          <td className="px-3 py-2">
-                            <input
-                              type="checkbox"
-                              checked={selected}
-                              onChange={() => toggleSelect(p.id)}
-                            />
-                          </td>
-                          <td className="px-4 py-2 whitespace-nowrap text-xs">
-                            <span className={overdue ? "text-amber-500 font-semibold" : "text-gray-500 dark:text-gray-400"}>
-                              {fmtDate(p.date)}
-                              {overdue && <span className="ml-1 text-[10px]">· overdue</span>}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-xs text-gray-400 hidden sm:table-cell">#{p.sequenceNumber ?? "—"}</td>
-                          <td className="px-4 py-2 text-right tabular-nums">{fmtCurrency(p.totalAmount)}</td>
-                          <td className="px-4 py-2 text-right tabular-nums font-semibold" style={{ color: FINANCE_COLOR }}>
-                            {fmtCurrency(p.principal)}
-                          </td>
-                          <td className="px-4 py-2 text-right tabular-nums text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                            {fmtCurrency(p.interest)}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <button
-                              onClick={() => openPost(p)}
-                              className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
-                              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
-                            >
-                              Post
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {scheduledPayments.length > 120 && (
-                  <div className="px-4 py-2 text-center text-xs text-gray-400 bg-gray-50 dark:bg-darkElevated">
-                    Showing first 120 of {scheduledPayments.length} scheduled
-                  </div>
-                )}
+                          Post
+                        </button>
+                      ),
+                    },
+                  ]}
+                  sortKey={scheduledCtl.sortKey}
+                  sortDir={scheduledCtl.sortDir}
+                  onSort={scheduledCtl.handleSort}
+                  rowClassName={(p) =>
+                    selectedIds.has(p.id) ? "bg-emerald-50 dark:bg-emerald-900/10" : ""
+                  }
+                  emptyMessage={scheduledCtl.search ? "No matches" : "No scheduled payments"}
+                />
+                <TableControls
+                  page={scheduledCtl.page}
+                  totalPages={scheduledCtl.totalPages}
+                  totalItems={scheduledCtl.totalItems}
+                  totalUnfiltered={scheduledCtl.totalUnfiltered}
+                  pageSize={scheduledCtl.pageSize}
+                  setPage={scheduledCtl.setPage}
+                  setPageSize={scheduledCtl.setPageSize}
+                />
               </div>
             </section>
           )}

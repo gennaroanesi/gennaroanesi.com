@@ -9,6 +9,7 @@ const FINANCE_COLOR = "#10b981"; // emerald
 
 const NAV_ITEMS = [
   { key: "dashboard",    label: "Dashboard",    href: "/finance" },
+  { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
   { key: "transactions", label: "Transactions", href: "/finance/transactions" },
   { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
   { key: "goals",        label: "Goals",        href: "/finance/goals" },
@@ -18,7 +19,9 @@ const NAV_ITEMS = [
 ];
 
 function activeKey(pathname: string): string {
-  if (pathname === "/finance") return "dashboard";
+  // Match most-specific first — "accounts" appears in /finance/accounts and /finance/accounts/[id]
+  if (pathname === "/finance")           return "dashboard";
+  if (pathname.includes("accounts"))     return "accounts";
   if (pathname.includes("transactions")) return "transactions";
   if (pathname.includes("recurring"))    return "recurring";
   if (pathname.includes("goals"))        return "goals";

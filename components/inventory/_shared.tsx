@@ -14,6 +14,29 @@ import { v4 as uuidv4 } from "uuid";
 import { Tooltip } from "@heroui/tooltip";
 import NextLink from "next/link";
 
+// Generic table primitives (shared across sections) live in common/table.
+// Re-export them from here so every inventory page keeps its existing imports.
+import {
+  thCls as _thCls,
+  tdCls as _tdCls,
+  SortIcon,
+  useTableControls as _useTableControls,
+} from "@/components/common/table";
+
+export type { ColDef, SortDir } from "@/components/common/table";
+export { FilterTypeahead, TableControls } from "@/components/common/table";
+export const thCls = _thCls;
+export const tdCls = _tdCls;
+
+// Inventory pages call useTableControls with only a `getSortValue` signature
+// (legacy, pre-refactor). Wrap the generic hook to preserve that API.
+export function useTableControls<T>(
+  items: T[],
+  getSortValue: (item: T, key: string) => string | number | null | undefined,
+) {
+  return _useTableControls(items, { getSortValue });
+}
+
 const BUCKET_NAME = "gennaroanesi.com";
 
 // ── Re-exported record types ──────────────────────────────────────────────────
@@ -204,10 +227,6 @@ export const inputCls =
   "w-full border rounded px-2 py-1.5 text-sm bg-white text-gray-800 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder";
 export const labelCls =
   "text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1 block";
-export const thCls =
-  "text-left text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 px-3 py-2 font-medium whitespace-nowrap";
-export const tdCls =
-  "px-3 py-2 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -598,319 +617,13 @@ function TrashIcon() {
   );
 }
 
-function SortIcon({ dir }: { dir: "asc" | "desc" | null }) {
-  if (dir === "asc") return (
-    <svg className="w-3 h-3 inline-block ml-1 text-purple dark:text-rose" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-    </svg>
-  );
-  if (dir === "desc") return (
-    <svg className="w-3 h-3 inline-block ml-1 text-purple dark:text-rose" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-    </svg>
-  );
-  return (
-    <svg className="w-3 h-3 inline-block ml-1 opacity-25" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
-    </svg>
-  );
-}
-
-// ── FilterTypeahead ──────────────────────────────────────────────────────────
-// Reusable typeahead filter used throughout the inventory. Pass options derived
-// from your data; selected value is a string or "" for "all". Renders an
-// inline pill when active with an × to clear.
-//
-// RULE: Always use <FilterTypeahead> for inventory filters — never plain <select>.
-
-export function FilterTypeahead({
-  label,
-  placeholder,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  placeholder?: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listRef  = useRef<HTMLUListElement>(null);
-  const [query,  setQuery]  = useState("");
-  const [open,   setOpen]   = useState(false);
-  const [hiIdx,  setHiIdx]  = useState(0);
-
-  // When an external clear happens, reset query
-  useEffect(() => { if (!value) setQuery(""); }, [value]);
-
-  const filtered = query.trim() === ""
-    ? options
-    : options.filter((o) => o.toLowerCase().includes(query.toLowerCase()));
-
-  function select(v: string) {
-    onChange(v);
-    setQuery(v);
-    setOpen(false);
-  }
-
-  function clear(e: React.MouseEvent) {
-    e.stopPropagation();
-    onChange("");
-    setQuery("");
-    inputRef.current?.focus();
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) { setOpen(true); return; }
-    if (e.key === "ArrowDown")  { setHiIdx((i) => Math.min(i + 1, filtered.length - 1)); e.preventDefault(); }
-    else if (e.key === "ArrowUp")    { setHiIdx((i) => Math.max(i - 1, 0)); e.preventDefault(); }
-    else if (e.key === "Enter")      { if (filtered[hiIdx]) select(filtered[hiIdx]); e.preventDefault(); }
-    else if (e.key === "Escape")     { setOpen(false); if (!value) setQuery(""); }
-    else if (e.key === "Backspace" && !query) { onChange(""); }
-  }
-
-  const displayValue = value || query;
-
-  return (
-    <div className="relative">
-      <div className={[
-        "flex items-center gap-1 border rounded px-2 py-1 text-xs bg-white dark:bg-darkElevated border-gray-300 dark:border-darkBorder cursor-text",
-        value ? "border-purple/60 dark:border-rose/60" : "",
-      ].join(" ")} onClick={() => { setOpen(true); inputRef.current?.focus(); }}>
-        {!value && !query && (
-          <span className="text-gray-400 select-none shrink-0">{label}:</span>
-        )}
-        {value ? (
-          <span className="flex items-center gap-1 bg-purple/10 dark:bg-rose/10 text-purple dark:text-rose rounded px-1.5 py-0.5 text-[11px] font-medium shrink-0">
-            <span className="text-gray-400 text-[10px] mr-0.5">{label}:</span>
-            {value}
-            <button onClick={clear} className="ml-0.5 opacity-60 hover:opacity-100 leading-none">×</button>
-          </span>
-        ) : (
-          <input
-            ref={inputRef}
-            type="text"
-            autoComplete="off"
-            className="flex-1 min-w-[60px] bg-transparent outline-none text-gray-700 dark:text-gray-200 text-xs placeholder:text-gray-300"
-            placeholder={placeholder ?? "Type to filter…"}
-            value={query}
-            onFocus={() => { setOpen(true); setHiIdx(0); }}
-            onBlur={() => {
-              setTimeout(() => {
-                if (!listRef.current?.contains(document.activeElement)) setOpen(false);
-              }, 150);
-            }}
-            onChange={(e) => { setQuery(e.target.value); setOpen(true); setHiIdx(0); }}
-            onKeyDown={handleKeyDown}
-          />
-        )}
-        {value && (
-          // hidden input so keyboard still works after selection
-          <input
-            ref={inputRef}
-            type="text"
-            className="w-0 h-0 opacity-0 absolute"
-            onFocus={() => { onChange(""); setQuery(""); setTimeout(() => { setOpen(true); inputRef.current?.focus(); }, 0); }}
-            readOnly
-          />
-        )}
-      </div>
-
-      {open && filtered.length > 0 && (
-        <ul
-          ref={listRef}
-          className="absolute z-50 left-0 right-0 mt-0.5 max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated shadow-lg text-sm"
-        >
-          {filtered.map((opt, idx) => (
-            <li
-              key={opt}
-              onMouseDown={() => select(opt)}
-              onMouseEnter={() => setHiIdx(idx)}
-              className={[
-                "px-3 py-1.5 cursor-pointer transition-colors text-gray-800 dark:text-gray-200",
-                idx === hiIdx ? "bg-gray-100 dark:bg-white/10" : "hover:bg-gray-50 dark:hover:bg-white/5",
-              ].join(" ")}
-            >
-              {opt}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-// ── useTableControls ──────────────────────────────────────────────────────────
-// Sort + pagination state in one hook.
-
-export type SortDir = "asc" | "desc";
-
-export function useTableControls<T>(
-  items: T[],
-  getSortValue: (item: T, key: string) => string | number | null | undefined,
-) {
-  const [sortKey, setSortKey]   = useState<string | null>(null);
-  const [sortDir, setSortDir]   = useState<SortDir>("asc");
-  const [pageSize, setPageSize] = useState(100);
-  const [page, setPage]         = useState(1);
-
-  function handleSort(key: string) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-    setPage(1);
-  }
-
-  const sorted = sortKey
-    ? [...items].sort((a, b) => {
-        const av = getSortValue(a, sortKey) ?? "";
-        const bv = getSortValue(b, sortKey) ?? "";
-        const cmp =
-          typeof av === "number" && typeof bv === "number"
-            ? av - bv
-            : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
-        return sortDir === "asc" ? cmp : -cmp;
-      })
-    : items;
-
-  const totalPages  = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const safePage    = Math.min(page, totalPages);
-  const start       = (safePage - 1) * pageSize;
-  const paged       = sorted.slice(start, start + pageSize);
-
-  // reset to page 1 when items change
-  useEffect(() => { setPage(1); }, [items]);
-
-  return {
-    sorted,
-    paged,
-    sortKey,
-    sortDir,
-    handleSort,
-    page: safePage,
-    setPage,
-    pageSize,
-    setPageSize,
-    totalPages,
-    totalItems: items.length,
-  };
-}
-
-// ── TableControls (pagination bar) ───────────────────────────────────────────
-
-const PAGE_SIZES = [25, 50, 100, 250, 500];
-
-export function TableControls({
-  page, totalPages, totalItems, pageSize,
-  setPage, setPageSize,
-}: {
-  page: number;
-  totalPages: number;
-  totalItems: number;
-  pageSize: number;
-  setPage: (p: number) => void;
-  setPageSize: (n: number) => void;
-}) {
-  const start = Math.min((page - 1) * pageSize + 1, totalItems);
-  const end   = Math.min(page * pageSize, totalItems);
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 border-t border-gray-200 dark:border-darkBorder text-xs text-gray-500 dark:text-gray-400">
-
-      {/* Left: row count info */}
-      <span className="whitespace-nowrap">
-        {totalItems === 0 ? "No items" : `${start}–${end} of ${totalItems}`}
-      </span>
-
-      {/* Center: page buttons */}
-      {totalPages > 1 && (
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setPage(1)}
-            disabled={page === 1}
-            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
-            title="First page"
-          >«</button>
-          <button
-            onClick={() => setPage(page - 1)}
-            disabled={page === 1}
-            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
-          >‹</button>
-
-          {/* page number pills — show up to 7 around current */}
-          {Array.from({ length: totalPages }, (_, i) => i + 1)
-            .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-            .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-              if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push("…");
-              acc.push(p);
-              return acc;
-            }, [])
-            .map((p, i) =>
-              p === "…" ? (
-                <span key={`ellipsis-${i}`} className="px-1">…</span>
-              ) : (
-                <button
-                  key={p}
-                  onClick={() => setPage(p as number)}
-                  className={[
-                    "w-6 h-6 rounded text-center transition-colors",
-                    p === page
-                      ? "bg-purple text-rose dark:bg-rose dark:text-purple font-semibold"
-                      : "hover:bg-gray-100 dark:hover:bg-white/10",
-                  ].join(" ")}
-                >
-                  {p}
-                </button>
-              )
-            )}
-
-          <button
-            onClick={() => setPage(page + 1)}
-            disabled={page === totalPages}
-            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
-          >›</button>
-          <button
-            onClick={() => setPage(totalPages)}
-            disabled={page === totalPages}
-            className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors"
-            title="Last page"
-          >»</button>
-        </div>
-      )}
-
-      {/* Right: page size selector */}
-      <div className="flex items-center gap-1.5 whitespace-nowrap">
-        <span>Rows:</span>
-        <select
-          value={pageSize}
-          onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-          className="border rounded px-1 py-0.5 text-xs bg-white border-gray-300 dark:bg-darkElevated dark:border-darkBorder dark:text-gray-200 cursor-pointer"
-        >
-          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-      </div>
-    </div>
-  );
-}
-
-// ── ColDef ────────────────────────────────────────────────────────────────────
-
-export type ColDef<T> = {
-  key: string;
-  label: string;
-  render: (row: T) => React.ReactNode;
-  /** Return a primitive for sorting. If omitted, column is not sortable. */
-  sortValue?: (row: T) => string | number | null | undefined;
-  className?: string;
-  mobileHidden?: boolean;
-};
-
 // ── InventoryTable ────────────────────────────────────────────────────────────
+//
+// Inventory-specific wrapper: thumbnails column, hardcoded View/Edit/Delete
+// actions with /inventory/item/{id} deep link. Finance uses the plain
+// <DataTable> from components/common/table instead.
+
+import type { ColDef as _ColDef, SortDir as _SortDir } from "@/components/common/table";
 
 export function InventoryTable<
   T extends { id: string; imageKeys?: (string | null)[] | null; name?: string | null }
@@ -926,13 +639,13 @@ export function InventoryTable<
   onSort,
 }: {
   items: T[];
-  columns: ColDef<T>[];
+  columns: _ColDef<T>[];
   thumbnails: Map<string, string>;
   onEdit: (item: T) => void;
   onDelete: (item: T) => void;
   isLoading?: boolean;
   sortKey?: string | null;
-  sortDir?: SortDir;
+  sortDir?: _SortDir;
   onSort?: (key: string) => void;
 }) {
   const DUMMY_ID = "__dummy__";

@@ -489,6 +489,7 @@ const schema = a.schema({
       currency: a.string().default("USD"),
       notes: a.string(),
       active: a.boolean().default(true),
+      favorite: a.boolean().default(false),   // starred on dashboard; unstarred accounts still accessible from /finance/accounts
       creditLimit: a.float(), // CREDIT accounts only
     })
     .authorization((allow) => [allow.group("admins")]),
