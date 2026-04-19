@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
   { key: "goals",        label: "Goals",        href: "/finance/goals" },
   { key: "assets",       label: "Assets",       href: "/finance/assets" },
+  { key: "prices",       label: "Prices",       href: "/finance/prices" },
 ];
 
 function activeKey(pathname: string): string {
@@ -21,6 +22,7 @@ function activeKey(pathname: string): string {
   if (pathname.includes("recurring"))    return "recurring";
   if (pathname.includes("goals"))        return "goals";
   if (pathname.includes("assets"))       return "assets";
+  if (pathname.includes("prices"))       return "prices";
   return "dashboard";
 }
 

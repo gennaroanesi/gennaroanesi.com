@@ -361,6 +361,11 @@ export function isQuoteStale(q: TickerQuoteRecord | null | undefined, hours = 24
   return ageMs > hours * 3600 * 1000;
 }
 
+/** Whether a quote is a manual override (source === "manual"). Refresh should skip these. */
+export function isQuoteManual(q: TickerQuoteRecord | null | undefined): boolean {
+  return q?.source === "manual";
+}
+
 // ── Physical assets ─────────────────────────────────────────────────────────────────
 
 /** Total value of active assets. Inactive (sold) assets contribute 0. */

@@ -9,7 +9,7 @@ import {
   ASSET_TYPES, ASSET_TYPE_LABELS, FINANCE_COLOR,
   RETIREMENT_TYPE_LABELS, isInvestedAccount,
   fmtCurrency, fmtDate, amountColor,
-  accountTotalValue, buildQuoteMap, tickerAggregate, uniqueTickers, isQuoteStale,
+  accountTotalValue, buildQuoteMap, tickerAggregate, uniqueTickers, isQuoteStale, isQuoteManual,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
 } from "@/components/finance/_shared";
@@ -182,13 +182,24 @@ export default function AccountDetailPage() {
       console.log("[refresh] got quotes:", quoteResults);
       const now = new Date().toISOString();
 
-      // Load existing quotes so we know which to create vs update
+      // Load existing quotes so we know which to create vs update, and which are manual overrides
       const { data: existingQuotes } = await client.models.financeTickerQuote.list({ limit: 500 });
-      const existingSet = new Set((existingQuotes ?? []).map((q) => (q.ticker ?? "").toUpperCase()));
-      console.log(`[refresh] ${existingSet.size} existing quotes in db`);
+      const existingMap = new Map(
+        (existingQuotes ?? []).map((q) => [(q.ticker ?? "").toUpperCase(), q]),
+      );
+      console.log(`[refresh] ${existingMap.size} existing quotes in db`);
 
-      let created = 0, updated = 0, failed = 0;
+      let created = 0, updated = 0, skippedManual = 0, skippedNoPrice = 0, failed = 0;
       for (const ticker of allTickers) {
+        const existing = existingMap.get(ticker);
+
+        // Skip tickers the user has manually overridden — their value wins always
+        if (isQuoteManual(existing)) {
+          console.log(`[refresh] skipping ${ticker} (manual override)`);
+          skippedManual++;
+          continue;
+        }
+
         const q = quoteResults[ticker];
         if (!q) {
           console.warn(`[refresh] no quote returned for ${ticker}`);
@@ -196,8 +207,9 @@ export default function AccountDetailPage() {
           continue;
         }
         if (q.price == null) {
-          console.warn(`[refresh] null price for ${ticker}: ${q.error ?? "(no error)"}`);
-          failed++;
+          // Yahoo returned null price (e.g. trust fund not on Yahoo). Leave existing record alone.
+          console.warn(`[refresh] null price for ${ticker}: ${q.error ?? "(no error)"} — preserving existing quote`);
+          skippedNoPrice++;
           continue;
         }
         const payload = {
@@ -208,7 +220,7 @@ export default function AccountDetailPage() {
           source:    "yahoo",
         };
         try {
-          if (existingSet.has(ticker)) {
+          if (existing) {
             const { errors } = await client.models.financeTickerQuote.update(payload);
             if (errors?.length) throw new Error(errors[0].message);
             updated++;
@@ -223,18 +235,19 @@ export default function AccountDetailPage() {
         }
       }
 
-      console.log(`[refresh] done: created=${created} updated=${updated} failed=${failed}`);
+      console.log(`[refresh] done: created=${created} updated=${updated} skippedManual=${skippedManual} skippedNoPrice=${skippedNoPrice} failed=${failed}`);
 
       // Refetch quotes to update the UI
       const { data: fresh } = await client.models.financeTickerQuote.list({ limit: 500 });
       setQuotes(fresh ?? []);
 
-      if (failed > 0) {
-        setRefreshMsg(`Updated ${created + updated} of ${allTickers.length} (${failed} failed — see console)`);
-      } else {
-        setRefreshMsg(`Updated ${created + updated} ticker${created + updated === 1 ? "" : "s"}`);
-        setTimeout(() => setRefreshMsg(null), 3000);
-      }
+      const msgParts: string[] = [];
+      if (created + updated > 0)  msgParts.push(`Updated ${created + updated}`);
+      if (skippedManual > 0)      msgParts.push(`${skippedManual} manual`);
+      if (skippedNoPrice > 0)     msgParts.push(`${skippedNoPrice} not on Yahoo`);
+      if (failed > 0)             msgParts.push(`${failed} failed`);
+      setRefreshMsg(msgParts.join(" · ") || "Nothing to update");
+      if (failed === 0 && skippedNoPrice === 0) setTimeout(() => setRefreshMsg(null), 3000);
     } catch (err: any) {
       console.error("[refresh] unhandled error:", err);
       setRefreshMsg(`Error: ${err?.message ?? String(err)}`);
@@ -384,6 +397,7 @@ export default function AccountDetailPage() {
                       {aggregates.map((agg) => {
                         const expanded = expandedTicker === agg.ticker;
                         const hasMultipleLots = agg.lots.length > 1;
+                        const isManual = isQuoteManual(quoteMap.get(agg.ticker));
                         return (
                           <React.Fragment key={agg.ticker}>
                             <tr
@@ -396,7 +410,18 @@ export default function AccountDetailPage() {
                                     <span className="text-gray-400 text-xs w-3">{expanded ? "▼" : "▶"}</span>
                                   )}
                                   <div>
-                                    <p className="font-semibold text-gray-800 dark:text-gray-100">{agg.ticker}</p>
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-semibold text-gray-800 dark:text-gray-100">{agg.ticker}</p>
+                                      {isManual && (
+                                        <span
+                                          className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
+                                          style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                                          title="Manually overridden price — refreshes skip this ticker"
+                                        >
+                                          Manual
+                                        </span>
+                                      )}
+                                    </div>
                                     <p className="text-[10px] text-gray-400">
                                       {agg.assetType ? ASSET_TYPE_LABELS[agg.assetType] : ""}
                                       {agg.lots.length > 1 && ` · ${agg.lots.length} lots`}
