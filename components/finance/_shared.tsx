@@ -19,6 +19,7 @@ export type RecurringRecord   = Schema["financeRecurring"]["type"];
 export type GoalRecord        = Schema["financeSavingsGoal"]["type"];
 export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
 export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
+export type AssetRecord       = Schema["financeAsset"]["type"];
 
 // ── Enums / constants ─────────────────────────────────────────────────────────
 
@@ -63,6 +64,18 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   MUTUAL_FUND: "Mutual Fund",
   CRYPTO:      "Crypto",
   BOND:        "Bond",
+  OTHER:       "Other",
+};
+
+// ── Physical assets (house, car, etc. — NOT holdings lots) ──────────────────────────
+
+export const PHYSICAL_ASSET_TYPES = ["REAL_ESTATE", "VEHICLE", "COLLECTIBLE", "OTHER"] as const;
+export type  PhysicalAssetType    = (typeof PHYSICAL_ASSET_TYPES)[number];
+
+export const PHYSICAL_ASSET_TYPE_LABELS: Record<PhysicalAssetType, string> = {
+  REAL_ESTATE: "Real Estate",
+  VEHICLE:     "Vehicle",
+  COLLECTIBLE: "Collectible",
   OTHER:       "Other",
 };
 
@@ -343,6 +356,30 @@ export function isQuoteStale(q: TickerQuoteRecord | null | undefined, hours = 24
   if (!q?.fetchedAt) return true;
   const ageMs = Date.now() - new Date(q.fetchedAt).getTime();
   return ageMs > hours * 3600 * 1000;
+}
+
+// ── Physical assets ─────────────────────────────────────────────────────────────────
+
+/** Total value of active assets. Inactive (sold) assets contribute 0. */
+export function totalAssetValue(assets: AssetRecord[]): number {
+  return assets
+    .filter((a) => a.active !== false)
+    .reduce((s, a) => s + (a.currentValue ?? 0), 0);
+}
+
+/**
+ * Gain/loss $ for an asset (currentValue − purchaseValue).
+ * Null if purchase value unknown (gracefully hidden in UI).
+ */
+export function assetGainLoss(asset: AssetRecord): number | null {
+  if (asset.purchaseValue == null) return null;
+  return (asset.currentValue ?? 0) - asset.purchaseValue;
+}
+
+/** Gain/loss % for an asset. Null if purchase value missing or zero. */
+export function assetGainLossPct(asset: AssetRecord): number | null {
+  if (!asset.purchaseValue) return null;
+  return ((asset.currentValue ?? 0) - asset.purchaseValue) / asset.purchaseValue;
 }
 
 /** Months remaining from today to a target date */

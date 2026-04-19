@@ -533,6 +533,22 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Asset ─────────────────────────────────────────────────────────────
+  // Non-financial holdings (house, car, collectibles) whose value comes from
+  // appraisal/market, not from a transaction ledger. Contribute to net worth.
+  // Loans (future) can FK to an asset via loan.assetId to compute equity.
+  financeAsset: a
+    .model({
+      name: a.string().required(),                 // "Primary home", "2019 Honda Civic"
+      type: a.enum(["REAL_ESTATE", "VEHICLE", "COLLECTIBLE", "OTHER"]),
+      purchaseValue: a.float(),                    // original cost (optional)
+      currentValue: a.float().required().default(0),
+      purchaseDate: a.date(),
+      notes: a.string(),
+      active: a.boolean().default(true),           // sold/disposed = inactive
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Holding Lot ─────────────────────────────────────────────────────────────
   // One record per purchase lot of a ticker in a brokerage account.
   // Aggregated per ticker in the UI via tickerAggregate().

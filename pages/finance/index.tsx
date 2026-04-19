@@ -4,11 +4,13 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
-  HoldingLotRecord, TickerQuoteRecord,
+  HoldingLotRecord, TickerQuoteRecord, AssetRecord,
   FINANCE_COLOR, CADENCE_LABELS,
+  PHYSICAL_ASSET_TYPE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
   amountColor, goalPctColor, isRecurrenceLive,
   accountTotalValue, buildQuoteMap, isInvestedAccount,
+  totalAssetValue, assetGainLoss,
   AccountBadge,
   type Cadence,
 } from "@/components/finance/_shared";
@@ -22,6 +24,7 @@ export default function FinanceDashboard() {
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
+  const [assets,       setAssets]       = useState<AssetRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
 
   const fetchAll = useCallback(async () => {
@@ -34,6 +37,7 @@ export default function FinanceDashboard() {
         { data: gls },
         { data: lotRecs },
         { data: quoteRecs },
+        { data: assetRecs },
       ] = await Promise.all([
         client.models.financeAccount.list({ limit: 200 }),
         client.models.financeTransaction.list({ limit: 500 }),
@@ -41,6 +45,7 @@ export default function FinanceDashboard() {
         client.models.financeSavingsGoal.list({ limit: 100 }),
         client.models.financeHoldingLot.list({ limit: 500 }),
         client.models.financeTickerQuote.list({ limit: 500 }),
+        client.models.financeAsset.list({ limit: 200 }),
       ]);
       setAccounts(accs ?? []);
       setTransactions(txs ?? []);
@@ -48,6 +53,7 @@ export default function FinanceDashboard() {
       setGoals(gls ?? []);
       setLots(lotRecs ?? []);
       setQuotes(quoteRecs ?? []);
+      setAssets(assetRecs ?? []);
     } finally {
       setLoading(false);
     }
@@ -64,12 +70,14 @@ export default function FinanceDashboard() {
 
   const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
 
-  // Net worth uses total account value (cash + positions for brokerage).
-  // Sign convention: credit owed = negative, assets = positive.
-  const netWorth = activeAccounts.reduce(
-    (sum, a) => sum + accountTotalValue(a, lots, quoteMap),
-    0,
-  );
+  const activeAssets = useMemo(() => assets.filter((a) => a.active !== false), [assets]);
+  const assetsTotal  = useMemo(() => totalAssetValue(assets), [assets]);
+
+  // Net worth uses total account value (cash + positions for brokerage/retirement)
+  // plus active asset values. Sign convention: credit owed = negative, assets = positive.
+  const netWorth =
+    activeAccounts.reduce((sum, a) => sum + accountTotalValue(a, lots, quoteMap), 0) +
+    assetsTotal;
 
   const today = todayIso();
   const in30  = addMonths(today, 1);
@@ -175,6 +183,60 @@ export default function FinanceDashboard() {
                 </div>
               )}
             </section>
+
+            {/* ── Assets ─────────────────────────────────────────────────────────── */}
+            {activeAssets.length > 0 && (
+              <section>
+                <div className="flex items-baseline justify-between gap-3 mb-3">
+                  <div className="flex items-baseline gap-3">
+                    <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Assets</h2>
+                    <span
+                      className="text-lg font-bold tabular-nums"
+                      style={{ color: assetsTotal >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                    >
+                      {fmtCurrency(assetsTotal)}
+                    </span>
+                  </div>
+                  <a href="/finance/assets" className="text-xs font-semibold" style={{ color: FINANCE_COLOR }}>
+                    Manage →
+                  </a>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activeAssets.map((asset) => {
+                    const gain = assetGainLoss(asset);
+                    const label = PHYSICAL_ASSET_TYPE_LABELS[(asset.type ?? "OTHER") as keyof typeof PHYSICAL_ASSET_TYPE_LABELS];
+                    return (
+                      <a
+                        key={asset.id}
+                        href="/finance/assets"
+                        className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface px-4 py-3 flex flex-col gap-1 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{asset.name}</span>
+                          <span
+                            className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide flex-shrink-0"
+                            style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                          >
+                            {label}
+                          </span>
+                        </div>
+                        <span
+                          className="text-xl font-bold tabular-nums"
+                          style={{ color: (asset.currentValue ?? 0) >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                        >
+                          {fmtCurrency(asset.currentValue)}
+                        </span>
+                        {gain != null && (
+                          <p className="text-[11px] tabular-nums" style={{ color: amountColor(gain) }}>
+                            {fmtCurrency(gain, "USD", true)} since purchase
+                          </p>
+                        )}
+                      </a>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             {/* ── Upcoming Recurring (next 30 days) ────────────────────── */}
             <section>
