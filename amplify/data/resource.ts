@@ -479,6 +479,7 @@ const schema = a.schema({
         "BROKERAGE",
         "RETIREMENT",
         "CREDIT",
+        "LOAN",
         "CASH",
         "OTHER",
       ]),
@@ -546,6 +547,60 @@ const schema = a.schema({
       notes: a.string(),
     })
     .secondaryIndexes((idx) => [idx("goalId")])
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Loan metadata ─────────────────────────────────────────────────────────
+  // One-to-one with a financeAccount of type LOAN. The account holds the
+  // ledger (currentBalance = -amount owed); this record holds loan-specific
+  // metadata + cached balance + asset/escrow links.
+  //
+  // currentBalance is cached as: originalPrincipal − Σ(POSTED payment.principal).
+  // Drift from lender-stated balance is resolved via a "correction" payment
+  // (principal-only adjustment) — see correction banner on loan detail page.
+  financeLoan: a
+    .model({
+      accountId: a.id().required(),
+      loanType: a.enum(["MORTGAGE", "AUTO", "STUDENT", "PERSONAL", "HELOC", "OTHER"]),
+      originalPrincipal: a.float().required(),
+      currentBalance: a.float().required().default(0),   // cached; recomputed on payment post/edit/delete
+      interestRate: a.float().required(),                // annual APR as decimal, e.g. 0.045 for 4.5%
+      termMonths: a.integer().required(),                // total loan length, e.g. 360
+      startDate: a.date().required(),                    // origination
+      firstPaymentDate: a.date().required(),             // first scheduled payment
+      paymentStrategy: a.enum(["PRICE_FIXED_PAYMENT", "PRICE_FIXED_TERM"]),
+      assetId: a.id(),                                   // optional FK to financeAsset (mortgage → house, auto → car)
+      escrowAccountId: a.id(),                           // optional FK to financeAccount (future v2 wiring)
+      lender: a.string(),
+      notes: a.string(),
+    })
+    .secondaryIndexes((idx) => [idx("accountId")])
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Loan Payment ──────────────────────────────────────────────────────
+  // One record per payment (scheduled or posted). Scheduled payments are
+  // projections from amortization — they have amounts populated but status=
+  // SCHEDULED means they don't affect balance or generate transactions.
+  // On post, the user confirms/edits the split, status flips to POSTED, and
+  // three transactions are written atomically: expense on checking, income on
+  // loan account, payment record itself.
+  financeLoanPayment: a
+    .model({
+      loanId: a.id().required(),
+      status: a.enum(["SCHEDULED", "POSTED"]),
+      date: a.date().required(),                         // scheduled date (or actual post date)
+      sequenceNumber: a.integer(),                        // 1..termMonths for scheduled rows; null for ad-hoc extras
+      totalAmount: a.float().required(),                  // total $ leaving checking
+      principal: a.float().required(),                    // portion reducing loan balance
+      interest: a.float().required(),                     // portion paid to bank
+      escrow: a.float(),                                  // optional escrow impound
+      fees: a.float(),                                    // optional one-off fees
+      isCorrection: a.boolean().default(false),          // true for principal-only reconciliation adjustments
+      isExtraPayment: a.boolean().default(false),        // true for ad-hoc extra principal payments outside schedule
+      transactionId: a.id(),                              // FK to financeTransaction (on checking side, set when posted)
+      loanTransactionId: a.id(),                          // FK to financeTransaction (on loan account, set when posted)
+      notes: a.string(),
+    })
+    .secondaryIndexes((idx) => [idx("loanId")])
     .authorization((allow) => [allow.group("admins")]),
 
   // ── Asset ─────────────────────────────────────────────────────────────

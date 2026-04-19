@@ -21,12 +21,14 @@ export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
 export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
 export type AssetRecord       = Schema["financeAsset"]["type"];
 export type MilestoneRecord   = Schema["financeGoalMilestone"]["type"];
+export type LoanRecord        = Schema["financeLoan"]["type"];
+export type LoanPaymentRecord = Schema["financeLoanPayment"]["type"];
 
 export type MilestoneStatus = "HIT" | "MISSED" | "PENDING";
 
 // ── Enums / constants ─────────────────────────────────────────────────────────
 
-export const ACCOUNT_TYPES = ["CHECKING", "SAVINGS", "BROKERAGE", "RETIREMENT", "CREDIT", "CASH", "OTHER"] as const;
+export const ACCOUNT_TYPES = ["CHECKING", "SAVINGS", "BROKERAGE", "RETIREMENT", "CREDIT", "LOAN", "CASH", "OTHER"] as const;
 export type  AccountType   = (typeof ACCOUNT_TYPES)[number];
 
 export const RETIREMENT_TYPES = ["_401K", "TRAD_IRA", "ROTH_IRA", "HSA", "SEP_IRA", "OTHER"] as const;
@@ -82,6 +84,31 @@ export const PHYSICAL_ASSET_TYPE_LABELS: Record<PhysicalAssetType, string> = {
   OTHER:       "Other",
 };
 
+// ── Loans ─────────────────────────────────────────────────────────────────────
+
+export const LOAN_TYPES = ["MORTGAGE", "AUTO", "STUDENT", "PERSONAL", "HELOC", "OTHER"] as const;
+export type  LoanType   = (typeof LOAN_TYPES)[number];
+
+export const LOAN_TYPE_LABELS: Record<LoanType, string> = {
+  MORTGAGE: "Mortgage",
+  AUTO:     "Auto",
+  STUDENT:  "Student",
+  PERSONAL: "Personal",
+  HELOC:    "HELOC",
+  OTHER:    "Other",
+};
+
+export const LOAN_PAYMENT_STRATEGIES = ["PRICE_FIXED_PAYMENT", "PRICE_FIXED_TERM"] as const;
+export type  LoanPaymentStrategy    = (typeof LOAN_PAYMENT_STRATEGIES)[number];
+
+export const LOAN_PAYMENT_STRATEGY_LABELS: Record<LoanPaymentStrategy, string> = {
+  PRICE_FIXED_PAYMENT: "Fixed payment (shorter term when prepaying)",
+  PRICE_FIXED_TERM:    "Fixed term (lower payment when prepaying)",
+};
+
+export const LOAN_PAYMENT_STATUSES = ["SCHEDULED", "POSTED"] as const;
+export type  LoanPaymentStatus    = (typeof LOAN_PAYMENT_STATUSES)[number];
+
 export const FINANCE_COLOR = "#10b981";
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
@@ -90,6 +117,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   BROKERAGE:  "Brokerage",
   RETIREMENT: "Retirement",
   CREDIT:     "Credit Card",
+  LOAN:       "Loan",
   CASH:       "Cash",
   OTHER:      "Other",
 };
@@ -412,6 +440,149 @@ export function milestoneStatus(
   if (goalCurrentAmount >= (m.targetAmount ?? 0)) return "HIT";
   if ((m.targetDate ?? "") && asOf > (m.targetDate ?? "")) return "MISSED";
   return "PENDING";
+}
+
+// ── Loan amortization + balance ───────────────────────────────────────────────────
+
+/**
+ * One row of a Price-style (French/Italian fixed-rate) amortization schedule.
+ * Each month has a fixed total payment; principal grows and interest shrinks
+ * as the balance draws down.
+ */
+export type AmortizationRow = {
+  sequenceNumber: number;   // 1-indexed
+  date: string;             // ISO (YYYY-MM-DD)
+  totalAmount: number;
+  principal: number;
+  interest: number;
+  balanceAfter: number;     // remaining balance after this payment
+};
+
+/**
+ * Price-style monthly payment formula.
+ * P * r / (1 - (1 + r)^-n), where r = monthly rate, n = months remaining.
+ * If rate is 0, returns simple principal/n.
+ */
+export function priceMonthlyPayment(
+  principal: number,
+  annualRate: number,
+  months: number,
+): number {
+  if (months <= 0) return 0;
+  const r = annualRate / 12;
+  if (r === 0) return principal / months;
+  return (principal * r) / (1 - Math.pow(1 + r, -months));
+}
+
+/** Add N months to an ISO date string, preserving day-of-month when possible. */
+export function addMonthsIso(isoDate: string, n: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(y, (m - 1) + n, d));
+  // Handle overflow (e.g. Jan 31 + 1mo → should be Feb 28/29, not Mar 3)
+  if (date.getUTCDate() !== d) {
+    date.setUTCDate(0); // roll back to last day of previous month
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Generate a full Price-style amortization schedule.
+ * @param principal       starting balance
+ * @param annualRate      APR as decimal (0.045 for 4.5%)
+ * @param months          remaining term in months
+ * @param firstPaymentDate ISO date of the first payment (seq 1)
+ * @param startingSeq     sequence number of the first row (defaults to 1; use when
+ *                        generating mid-loan schedules after a prepayment)
+ * @returns array of amortization rows, one per month
+ */
+export function amortize(
+  principal: number,
+  annualRate: number,
+  months: number,
+  firstPaymentDate: string,
+  startingSeq = 1,
+): AmortizationRow[] {
+  const rows: AmortizationRow[] = [];
+  if (principal <= 0 || months <= 0) return rows;
+
+  const monthly = priceMonthlyPayment(principal, annualRate, months);
+  const r = annualRate / 12;
+  let balance = principal;
+
+  for (let i = 0; i < months; i++) {
+    const interest = balance * r;
+    // Last row squares the balance to 0 regardless of rounding drift
+    let principalPortion = monthly - interest;
+    if (i === months - 1) principalPortion = balance;
+    const total = principalPortion + interest;
+    const newBalance = Math.max(0, balance - principalPortion);
+
+    rows.push({
+      sequenceNumber: startingSeq + i,
+      date:           addMonthsIso(firstPaymentDate, i),
+      totalAmount:    round2(total),
+      principal:      round2(principalPortion),
+      interest:       round2(interest),
+      balanceAfter:   round2(newBalance),
+    });
+
+    balance = newBalance;
+  }
+  return rows;
+}
+
+/** Round to 2 decimal places (avoid 0.1 + 0.2 = 0.30000000000000004). */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Cached loan balance from posted payments:
+ *   originalPrincipal − Σ(POSTED payment.principal)
+ * Used by "Recalculate from transactions" audit + correction banner logic.
+ */
+export function computeLoanBalanceFromPayments(
+  originalPrincipal: number,
+  payments: LoanPaymentRecord[],
+): number {
+  const posted = payments.filter((p) => p.status === "POSTED");
+  const principalPaid = posted.reduce((s, p) => s + (p.principal ?? 0), 0);
+  return round2(originalPrincipal - principalPaid);
+}
+
+/**
+ * Remaining scheduled payments (status === SCHEDULED, sorted by sequenceNumber/date).
+ * Used for "months remaining" displays and for the recalculate-schedule flow.
+ */
+export function remainingScheduled(payments: LoanPaymentRecord[]): LoanPaymentRecord[] {
+  return payments
+    .filter((p) => p.status === "SCHEDULED")
+    .sort((a, b) => {
+      const sa = a.sequenceNumber ?? 0;
+      const sb = b.sequenceNumber ?? 0;
+      if (sa !== sb) return sa - sb;
+      return (a.date ?? "").localeCompare(b.date ?? "");
+    });
+}
+
+/** Count of posted payments (for "payment N of M" display). */
+export function postedCount(payments: LoanPaymentRecord[]): number {
+  return payments.filter((p) => p.status === "POSTED").length;
+}
+
+/** Percentage of original principal paid off (0..1). */
+export function loanProgressPct(loan: LoanRecord): number {
+  const orig = loan.originalPrincipal ?? 0;
+  if (orig <= 0) return 0;
+  const paid = orig - (loan.currentBalance ?? 0);
+  return Math.min(1, Math.max(0, paid / orig));
+}
+
+/** Total interest paid across all posted payments. Useful for summary displays. */
+export function totalInterestPaid(payments: LoanPaymentRecord[]): number {
+  return payments
+    .filter((p) => p.status === "POSTED")
+    .reduce((s, p) => s + (p.interest ?? 0), 0);
 }
 
 /** Months remaining from today to a target date */
