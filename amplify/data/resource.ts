@@ -533,6 +533,21 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Goal Milestone ────────────────────────────────────────────────────────────
+  // Checkpoint on the road to a goal. Progress is measured against the parent
+  // goal's currentAmount: hit if currentAmount ≥ milestone.targetAmount, missed
+  // if past targetDate without hitting, pending otherwise.
+  financeGoalMilestone: a
+    .model({
+      goalId: a.id().required(),
+      targetDate: a.date().required(),
+      targetAmount: a.float().required(),
+      label: a.string(),   // "Emergency cushion", "Down payment ready"
+      notes: a.string(),
+    })
+    .secondaryIndexes((idx) => [idx("goalId")])
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Asset ─────────────────────────────────────────────────────────────
   // Non-financial holdings (house, car, collectibles) whose value comes from
   // appraisal/market, not from a transaction ledger. Contribute to net worth.

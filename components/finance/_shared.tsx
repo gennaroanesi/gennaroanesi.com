@@ -20,6 +20,9 @@ export type GoalRecord        = Schema["financeSavingsGoal"]["type"];
 export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
 export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
 export type AssetRecord       = Schema["financeAsset"]["type"];
+export type MilestoneRecord   = Schema["financeGoalMilestone"]["type"];
+
+export type MilestoneStatus = "HIT" | "MISSED" | "PENDING";
 
 // ── Enums / constants ─────────────────────────────────────────────────────────
 
@@ -380,6 +383,30 @@ export function assetGainLoss(asset: AssetRecord): number | null {
 export function assetGainLossPct(asset: AssetRecord): number | null {
   if (!asset.purchaseValue) return null;
   return ((asset.currentValue ?? 0) - asset.purchaseValue) / asset.purchaseValue;
+}
+
+// ── Goal milestones ────────────────────────────────────────────────────────────────
+
+/** Sort milestones chronologically by targetDate ascending. */
+export function sortMilestones(ms: MilestoneRecord[]): MilestoneRecord[] {
+  return [...ms].sort((a, b) => (a.targetDate ?? "").localeCompare(b.targetDate ?? ""));
+}
+
+/**
+ * Status of a milestone for a given goal's currentAmount, as of today.
+ * - HIT     — currentAmount already meets or exceeds the milestone target
+ * - MISSED  — past the milestone's targetDate without hitting it
+ * - PENDING — not yet hit, not yet past the target date
+ */
+export function milestoneStatus(
+  m: MilestoneRecord,
+  goalCurrentAmount: number,
+  asOfIso?: string,
+): MilestoneStatus {
+  const asOf = asOfIso ?? new Date().toISOString().slice(0, 10);
+  if (goalCurrentAmount >= (m.targetAmount ?? 0)) return "HIT";
+  if ((m.targetDate ?? "") && asOf > (m.targetDate ?? "")) return "MISSED";
+  return "PENDING";
 }
 
 /** Months remaining from today to a target date */
