@@ -33,6 +33,9 @@ export default function FinanceDashboard() {
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
 
+  // Upcoming section: optional account filter for projected-balance view
+  const [upcomingAccFilter, setUpcomingAccFilter] = useState<string[]>([]);
+
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
@@ -165,9 +168,29 @@ export default function FinanceDashboard() {
     return entries.sort((a, b) => a.next.localeCompare(b.next));
   }, [recurrings, today, in30]);
 
-  // Upcoming recurring income vs expense totals
-  const upcomingIncome  = upcoming.filter(({ rec }) => (rec.amount ?? 0) > 0).reduce((s, { rec }) => s + (rec.amount ?? 0), 0);
-  const upcomingExpense = upcoming.filter(({ rec }) => (rec.amount ?? 0) < 0).reduce((s, { rec }) => s + (rec.amount ?? 0), 0);
+  // Upcoming recurring income vs expense totals (respect account filter)
+  const upcomingFiltered = upcomingAccFilter.length > 0
+    ? upcoming.filter(({ rec }) => upcomingAccFilter.includes(rec.accountId ?? ""))
+    : upcoming;
+  const upcomingIncome  = upcomingFiltered.filter(({ rec }) => (rec.amount ?? 0) > 0).reduce((s, { rec }) => s + (rec.amount ?? 0), 0);
+  const upcomingExpense = upcomingFiltered.filter(({ rec }) => (rec.amount ?? 0) < 0).reduce((s, { rec }) => s + (rec.amount ?? 0), 0);
+
+  // Projected balance: starting balance of selected accounts + cumulative upcoming amounts.
+  // Only computed when at least one account is selected.
+  const upcomingStartBalance = upcomingAccFilter.length > 0
+    ? upcomingAccFilter.reduce((s, accId) => {
+        const acc = accounts.find((a) => a.id === accId);
+        return acc ? s + accountTotalValue(acc, lots, quoteMap) : s;
+      }, 0)
+    : 0;
+  const upcomingProjected = useMemo(() => {
+    if (upcomingAccFilter.length === 0) return [];
+    let running = upcomingStartBalance;
+    return upcomingFiltered.map(({ rec }) => {
+      running += rec.amount ?? 0;
+      return running;
+    });
+  }, [upcomingFiltered, upcomingStartBalance, upcomingAccFilter.length]);
 
   // Recent posted transactions (last 10)
   const recentPosted = transactions
@@ -336,11 +359,76 @@ export default function FinanceDashboard() {
 
             {/* ── Upcoming Recurring (next 30 days) ────────────────────── */}
             <section>
-              <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium mb-3">
-                Upcoming · Next 30 Days
-              </h2>
-              {upcoming.length === 0 ? (
-                <p className="text-sm text-gray-400">No recurring items due in the next 30 days.</p>
+              <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
+                  Upcoming · Next 30 Days
+                </h2>
+                {/* Account multi-select filter */}
+                <div className="flex items-center gap-2">
+                  {upcomingAccFilter.length > 0 && (
+                    <button
+                      onClick={() => setUpcomingAccFilter([])}
+                      className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <select
+                    className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300 max-w-[200px]"
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      setUpcomingAccFilter((prev) =>
+                        prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]
+                      );
+                    }}
+                  >
+                    <option value="">
+                      {upcomingAccFilter.length === 0 ? "Filter by account…" : `${upcomingAccFilter.length} account${upcomingAccFilter.length > 1 ? "s" : ""}`}
+                    </option>
+                    {accounts.filter((a) => a.active !== false).map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {upcomingAccFilter.includes(a.id) ? "✓ " : ""}{a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Selected account chips */}
+              {upcomingAccFilter.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {upcomingAccFilter.map((accId) => {
+                    const acc = accounts.find((a) => a.id === accId);
+                    if (!acc) return null;
+                    return (
+                      <span key={accId}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border"
+                        style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
+                      >
+                        {acc.name}: {fmtCurrency(accountTotalValue(acc, lots, quoteMap))}
+                        <button
+                          onClick={() => setUpcomingAccFilter((p) => p.filter((x) => x !== accId))}
+                          className="ml-0.5 hover:opacity-60"
+                        >×</button>
+                      </span>
+                    );
+                  })}
+                  {upcomingAccFilter.length > 1 && (
+                    <span className="text-[11px] text-gray-400 self-center ml-1">
+                      Combined: <span className="font-semibold tabular-nums" style={{ color: amountColor(upcomingStartBalance) }}>{fmtCurrency(upcomingStartBalance)}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {upcomingFiltered.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  {upcomingAccFilter.length > 0
+                    ? "No recurring items on the selected account(s) in the next 30 days."
+                    : "No recurring items due in the next 30 days."}
+                </p>
               ) : (
                 <>
                   <div className="flex gap-4 mb-3 text-sm">
@@ -364,16 +452,33 @@ export default function FinanceDashboard() {
                   </div>
                   <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
                     <table className="w-full text-sm">
+                      {upcomingAccFilter.length > 0 && (
+                        <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
+                          <tr>
+                            <th className="px-4 py-1.5 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Date</th>
+                            <th className="px-4 py-1.5 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">Description</th>
+                            <th className="px-4 py-1.5 text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Category</th>
+                            <th className="px-4 py-1.5 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Amount</th>
+                            <th className="px-4 py-1.5 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium">Balance</th>
+                            <th className="px-4 py-1.5 text-right text-[10px] uppercase tracking-widest text-gray-400 font-medium hidden sm:table-cell">Cadence</th>
+                          </tr>
+                        </thead>
+                      )}
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                        {upcoming.map(({ rec, next }) => (
+                        {upcomingFiltered.map(({ rec, next }, idx) => (
                           <tr key={`${rec.id}-${next}`} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                             <td className="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(next)}</td>
                             <td className="px-4 py-2 text-gray-800 dark:text-gray-200">{rec.description}</td>
-                            <td className="px-4 py-2 text-gray-400 text-xs">{rec.category}</td>
+                            <td className="px-4 py-2 text-gray-400 text-xs hidden sm:table-cell">{rec.category}</td>
                             <td className="px-4 py-2 text-right tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(rec.amount ?? 0) }}>
                               {fmtCurrency(rec.amount, "USD", true)}
                             </td>
-                            <td className="px-4 py-2 text-right text-xs text-gray-400">{CADENCE_LABELS[rec.cadence as Cadence]}</td>
+                            {upcomingAccFilter.length > 0 && (
+                              <td className="px-4 py-2 text-right tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(upcomingProjected[idx] ?? 0) }}>
+                                {fmtCurrency(upcomingProjected[idx])}
+                              </td>
+                            )}
+                            <td className="px-4 py-2 text-right text-xs text-gray-400 hidden sm:table-cell">{CADENCE_LABELS[rec.cadence as Cadence]}</td>
                           </tr>
                         ))}
                       </tbody>
