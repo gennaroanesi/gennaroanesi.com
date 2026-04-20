@@ -66,6 +66,8 @@ export default function TransactionsPage() {
   const [importAccountId, setImportAccountId] = useState<string>("");
   const [importReverse,   setImportReverse]   = useState(false);
 
+  const today = todayIso();
+
   // ── Data fetching ─────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
@@ -344,7 +346,15 @@ export default function TransactionsPage() {
       sortValue: (t) => accountById.get(t.accountId ?? "")?.name?.toLowerCase() ?? "",
       searchValue: (t) => accountById.get(t.accountId ?? "")?.name ?? "",
       mobileHidden: true,
-      render: (t) => <AccountBadge type={accountById.get(t.accountId ?? "")?.type} />,
+      render: (t) => {
+        const acc = accountById.get(t.accountId ?? "");
+        return (
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-700 dark:text-gray-200 text-xs truncate max-w-[120px]">{acc?.name ?? "—"}</span>
+            <AccountBadge type={acc?.type} />
+          </div>
+        );
+      },
     },
     {
       key: "status",
@@ -534,7 +544,17 @@ export default function TransactionsPage() {
                     <div>
                       <label className={labelCls}>Type</label>
                       <select className={inputCls} value={txDraft.type ?? "EXPENSE"}
-                        onChange={(e) => setTxDraft((d) => ({ ...d, type: e.target.value as any }))}>
+                        onChange={(e) => {
+                          const newType = e.target.value as TxType;
+                          setTxDraft((d) => {
+                            const raw = Math.abs(d.amount ?? 0);
+                            return {
+                              ...d,
+                              type: newType as any,
+                              amount: newType === "INCOME" ? raw : -raw,
+                            };
+                          });
+                        }}>
                         <option value="INCOME">Income</option>
                         <option value="EXPENSE">Expense</option>
                         <option value="TRANSFER">Transfer</option>
@@ -549,19 +569,33 @@ export default function TransactionsPage() {
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className={labelCls}>Amount</label>
-                      <input type="number" step="0.01" className={inputCls} placeholder="0.00"
-                        value={txDraft.amount ?? ""}
-                        onChange={(e) => setTxDraft((d) => ({ ...d, amount: parseFloat(e.target.value) || 0 }))} />
-                      <p className="text-[10px] text-gray-400 mt-0.5">Positive = income · Negative = expense</p>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Date *</label>
-                      <input type="date" className={inputCls} value={txDraft.date ?? ""}
-                        onChange={(e) => setTxDraft((d) => ({ ...d, date: e.target.value }))} />
-                    </div>
+                  <div>
+                    <label className={labelCls}>Amount *</label>
+                    <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
+                      value={Math.abs(txDraft.amount ?? 0) || ""}
+                      onChange={(e) => {
+                        const raw = parseFloat(e.target.value) || 0;
+                        // Income = positive, Expense = negative, Transfer = negative (leaving source account)
+                        const signed = txDraft.type === "INCOME" ? Math.abs(raw) : -Math.abs(raw);
+                        setTxDraft((d) => ({ ...d, amount: signed }));
+                      }} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Date *</label>
+                    <input type="date" className={inputCls} value={txDraft.date ?? ""}
+                      onChange={(e) => {
+                        const newDate = e.target.value;
+                        setTxDraft((d) => ({
+                          ...d,
+                          date: newDate,
+                          // Auto-set PENDING for future dates on new transactions
+                          ...(panel?.kind === "new-tx" && newDate > today
+                            ? { status: "PENDING" }
+                            : panel?.kind === "new-tx" && newDate <= today
+                            ? { status: "POSTED" }
+                            : {}),
+                        }));
+                      }} />
                   </div>
                   <div>
                     <label className={labelCls}>Description</label>
