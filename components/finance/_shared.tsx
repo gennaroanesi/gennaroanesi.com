@@ -698,7 +698,18 @@ export function computeGoalAllocations(
     mappingsByAccount.set(m.accountId, bucket);
   }
 
-  for (const [accountId, accMappings] of mappingsByAccount) {
+  for (const [accountId, accMappings] of [...mappingsByAccount.entries()]
+    // Process accounts with fewer mapped goals first: a dedicated account (1 mapping)
+    // should fill its goal before a general pool (many mappings) absorbs everything.
+    // Tiebreak by account name for stable render order.
+    .sort((a, b) => {
+      const countDiff = a[1].length - b[1].length;
+      if (countDiff !== 0) return countDiff;
+      const accA = accountById.get(a[0]);
+      const accB = accountById.get(b[0]);
+      return (accA?.name ?? "").localeCompare(accB?.name ?? "");
+    })
+  ) {
     const acc = accountById.get(accountId);
     if (!acc) continue;
 
