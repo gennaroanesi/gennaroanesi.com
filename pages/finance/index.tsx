@@ -8,7 +8,7 @@ import {
   GoalFundingSourceRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   PHYSICAL_ASSET_TYPE_LABELS,
-  fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
+  fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, advanceByCadence, monthsUntil,
   amountColor, goalPctColor, isRecurrenceLive,
   accountTotalValue, buildQuoteMap, isInvestedAccount,
   totalAssetValue, assetGainLoss,
@@ -136,17 +136,34 @@ export default function FinanceDashboard() {
   const today = todayIso();
   const in30  = addMonths(today, 1);
 
-  // Upcoming recurring in the next 30 days
-  const upcoming = recurrings
-    .filter(isRecurrenceLive)
-    .map((r) => ({
-      rec:  r,
-      next: nextOccurrence(r.nextDate ?? r.startDate ?? today, r.cadence as Cadence, r.startDate ?? undefined),
-    }))
-    // Respect per-recurrence end date (inclusive): drop occurrences that land beyond it
-    .filter(({ rec, next }) => !rec.endDate || next <= rec.endDate)
-    .filter(({ next }) => next >= today && next <= in30)
-    .sort((a, b) => a.next.localeCompare(b.next));
+  // Upcoming recurring in the next 30 days — expand ALL occurrences per recurrence,
+  // not just the first one. A bi-weekly salary should show 2-3 entries in a 30-day window.
+  const upcoming = useMemo(() => {
+    const live = recurrings.filter(isRecurrenceLive);
+    const entries: { rec: RecurringRecord; next: string }[] = [];
+
+    for (const r of live) {
+      let cur = nextOccurrence(r.nextDate ?? r.startDate ?? today, r.cadence as Cadence, r.startDate ?? undefined);
+
+      // Walk forward generating every occurrence that falls within [today, in30]
+      while (cur <= in30) {
+        // Respect per-recurrence end date
+        if (r.endDate && cur > r.endDate) break;
+
+        if (cur >= today) {
+          entries.push({ rec: r, next: cur });
+        }
+
+        // Advance to next occurrence
+        const prev = cur;
+        cur = advanceByCadence(cur, r.cadence as Cadence, r.startDate ?? undefined);
+        // Safety: if advanceByCadence didn't move forward (shouldn't happen), break
+        if (cur <= prev) break;
+      }
+    }
+
+    return entries.sort((a, b) => a.next.localeCompare(b.next));
+  }, [recurrings, today, in30]);
 
   // Upcoming recurring income vs expense totals
   const upcomingIncome  = upcoming.filter(({ rec }) => (rec.amount ?? 0) > 0).reduce((s, { rec }) => s + (rec.amount ?? 0), 0);
@@ -349,7 +366,7 @@ export default function FinanceDashboard() {
                     <table className="w-full text-sm">
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                         {upcoming.map(({ rec, next }) => (
-                          <tr key={rec.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                          <tr key={`${rec.id}-${next}`} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                             <td className="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(next)}</td>
                             <td className="px-4 py-2 text-gray-800 dark:text-gray-200">{rec.description}</td>
                             <td className="px-4 py-2 text-gray-400 text-xs">{rec.category}</td>

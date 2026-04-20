@@ -223,18 +223,35 @@ financeStatementImport: a.model({
 
 #### Open questions
 
-- **Where does extraction run?** Simplest: client-side for CSV/XLSX, API call to Claude
-  for PDFs. Alternative: Lambda with the pdf skill + Claude SDK. API-in-artifact pattern
-  (Claude API from the browser) works and keeps it serverless but sends the whole
-  statement to the client.
-- **Scanned PDFs**: punt for v1. Detect when text extraction yields < N tokens and tell
-  the user "this looks like a scanned statement, OCR isn't supported yet."
+- **Where does extraction run?** Simplest: client-side for CSV/XLSX, API route
+  (`/api/statement-import`) for PDFs. The API route receives the PDF as
+  multipart/form-data, sends it to Claude Sonnet as a base64 document, returns
+  structured JSON. Keeps the Anthropic API key server-side. Alternative: Lambda
+  with the pdf skill + Claude SDK. The API-in-artifact pattern (Claude API from
+  the browser) works and keeps it serverless but sends the whole statement to
+  the client — and leaks the API key unless proxied.
+- **Prompt engineering for extraction**: tell Claude to return a JSON array of
+  `{date, description, amount, category}`, with amounts negative for charges
+  and positive for payments/credits. Include the account type in the prompt so
+  Claude knows the sign convention. Also ask for `accountHint` (last 4 digits,
+  account name) and `endingBalance` for auto-selection + reconciliation.
+- **Scanned PDFs**: punt for v1. Detect when text extraction yields < N tokens
+  and tell the user "this looks like a scanned statement, OCR isn't supported yet."
 - **Balance-vs-sum mismatch**: if applying the extracted transactions to the previous
   balance doesn't equal the stated ending balance, warn the user — probably means some
   transactions were missed or duplicated. Let them proceed or abort.
 - **Pending vs posted**: statements only show posted transactions. Our DB might have
   `PENDING` rows for the same underlying charges. Reconcile by promoting matched
   `PENDING` → `POSTED` instead of creating duplicates.
+- **Separate button or merged flow?** Two options: (a) "Import Statement" as a separate
+  button alongside "Import CSV" since the flows differ (CSV is client-side parsing,
+  PDF goes through the API), or (b) merge into one "Import" panel that accepts either
+  CSV or PDF and auto-detects by file extension. The preview + commit step is identical
+  either way. Leaning (a) for simplicity.
+- **Audit trail**: use `financeStatementImport` model (schema below) to record which
+  file was imported, when, how many rows, and balance reconciliation details.
+- **Dedup**: same `importHash(date, amount, description)` as CSV import — statements
+  re-imported won't double-count.
 
 #### Build order
 
