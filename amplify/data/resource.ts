@@ -532,7 +532,32 @@ const schema = a.schema({
       currentAmount: a.float().required().default(0),
       targetDate: a.date(), // optional deadline
       notes: a.string(),
+      // Assumed annual growth rate (decimal, e.g. 0.05 = 5%) used to project required
+      // monthly contribution via future-value-of-annuity. Null = use default (5%).
+      // Set to 0 for pure-cash goals where compound growth is not realistic.
+      expectedAnnualGrowth: a.float(),
     })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Goal Funding Source ─────────────────────────────────────
+  // Many-to-many mapping: which accounts fund which goals, and in what priority
+  // when an account funds multiple goals.
+  //
+  // Allocation algorithm (see computeGoalAllocations in _shared.tsx):
+  // For each account with mappings, iterate its mappings in priority asc order,
+  // fill each goal up to its targetAmount, keep remainder as account.surplus.
+  // Goals cap at their target — excess never gets silently absorbed.
+  //
+  // Priority scope: LOWER priority = funded first FROM THIS ACCOUNT.
+  // Priority has no cross-account meaning; an account always fills its own
+  // mapped goals in its own priority order regardless of other accounts.
+  financeGoalFundingSource: a
+    .model({
+      goalId:    a.id().required(),
+      accountId: a.id().required(),
+      priority:  a.integer().default(100),
+    })
+    .secondaryIndexes((idx) => [idx("accountId"), idx("goalId")])
     .authorization((allow) => [allow.group("admins")]),
 
   // ── Goal Milestone ────────────────────────────────────────────────────────────

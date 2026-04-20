@@ -1,18 +1,19 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
+import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  AccountRecord, TransactionRecord,
-  ACCOUNT_TYPES, TX_TYPES, TX_STATUSES, FINANCE_COLOR,
-  ACCOUNT_TYPE_LABELS,
-  RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, isInvestedAccount,
-  fmtCurrency, fmtDate, todayIso, importHash, amountColor,
+  AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
+  HoldingLotRecord, TickerQuoteRecord,
+  FINANCE_COLOR,
+  fmtCurrency, fmtDate, todayIso, amountColor,
+  computeGoalAllocations,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
   parseBankCsv, type ParsedTransaction,
-  type AccountType, type TxType, type TxStatus,
+  type TxType,
   listAll,
 } from "@/components/finance/_shared";
 import {
@@ -24,8 +25,6 @@ import {
 type PanelState =
   | { kind: "new-tx" }
   | { kind: "edit-tx";   tx:  TransactionRecord }
-  | { kind: "new-acc" }
-  | { kind: "edit-acc";  acc: AccountRecord }
   | { kind: "import" }
   | null;
 
@@ -42,6 +41,12 @@ export default function TransactionsPage() {
 
   const [accounts,     setAccounts]     = useState<AccountRecord[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  // Goals, mappings, lots, quotes are fetched only for the surplus-badge computation
+  // on the account chips. Actual mapping CRUD lives on /finance/accounts/[id].
+  const [goals,        setGoals]        = useState<GoalRecord[]>([]);
+  const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
+  const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
+  const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [saving,       setSaving]       = useState(false);
   const [panel,        setPanel]        = useState<PanelState>(null);
@@ -53,9 +58,6 @@ export default function TransactionsPage() {
 
   // Transaction draft
   const [txDraft, setTxDraft] = useState<Partial<TransactionRecord>>({});
-
-  // Account draft
-  const [accDraft, setAccDraft] = useState<Partial<AccountRecord>>({});
 
   // Import state
   const fileRef = useRef<HTMLInputElement>(null);
@@ -69,12 +71,20 @@ export default function TransactionsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, txs] = await Promise.all([
+      const [accs, txs, gls, maps, lotRecs, quoteRecs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
+        listAll(client.models.financeSavingsGoal),
+        listAll(client.models.financeGoalFundingSource),
+        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeTickerQuote),
       ]);
       setAccounts(accs);
       setTransactions(txs);
+      setGoals(gls);
+      setMappings(maps);
+      setLots(lotRecs);
+      setQuotes(quoteRecs);
     } finally {
       setLoading(false);
     }
@@ -91,12 +101,7 @@ export default function TransactionsPage() {
       openNewTx();
       router.replace("/finance/transactions", undefined, { shallow: true });
     }
-    // Convenience hook for the Accounts page's "+ New Account" button — deep-links into the existing account panel.
-    if (router.query["new-acc"] === "1") {
-      openNewAcc();
-      router.replace("/finance/transactions", undefined, { shallow: true });
-    }
-  }, [router.isReady, router.query.new, router.query["new-acc"]]);
+  }, [router.isReady, router.query.new]);
 
   // Preselect account filter from ?account= query param
   useEffect(() => {
@@ -117,16 +122,6 @@ export default function TransactionsPage() {
   function openEditTx(tx: TransactionRecord) {
     setTxDraft({ ...tx });
     setPanel({ kind: "edit-tx", tx });
-  }
-
-  function openNewAcc() {
-    setAccDraft({ currency: "USD", active: true, currentBalance: 0 });
-    setPanel({ kind: "new-acc" });
-  }
-
-  function openEditAcc(acc: AccountRecord) {
-    setAccDraft({ ...acc });
-    setPanel({ kind: "edit-acc", acc });
   }
 
   function openImport() {
@@ -231,58 +226,6 @@ export default function TransactionsPage() {
     }
   }
 
-  // ── Save account ──────────────────────────────────────────────────────────
-
-  async function handleSaveAcc() {
-    if (!accDraft.name?.trim()) return;
-    setSaving(true);
-    try {
-      if (panel?.kind === "new-acc") {
-        const { data: newAcc } = await client.models.financeAccount.create({
-          name:           accDraft.name!,
-          type:           (accDraft.type ?? "CHECKING") as any,
-          retirementType: (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
-          currentBalance: accDraft.currentBalance ?? 0,
-          currency:       accDraft.currency ?? "USD",
-          notes:          accDraft.notes ?? null,
-          active:         accDraft.active ?? true,
-          favorite:       accDraft.favorite ?? false,
-          creditLimit:    accDraft.creditLimit ?? null,
-        });
-        if (newAcc) setAccounts((p) => [...p, newAcc]);
-      } else if (panel?.kind === "edit-acc") {
-        await client.models.financeAccount.update({
-          id:             panel.acc.id,
-          name:           accDraft.name!,
-          type:           (accDraft.type ?? "CHECKING") as any,
-          retirementType: (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
-          currentBalance: accDraft.currentBalance ?? 0,
-          currency:       accDraft.currency ?? "USD",
-          notes:          accDraft.notes ?? null,
-          active:         accDraft.active ?? true,
-          favorite:       accDraft.favorite ?? false,
-          creditLimit:    accDraft.creditLimit ?? null,
-        });
-        setAccounts((p) => p.map((a) => a.id === panel.acc.id ? { ...a, ...accDraft } as AccountRecord : a));
-      }
-      setPanel(null);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDeleteAcc(acc: AccountRecord) {
-    if (!confirm(`Delete account "${acc.name}"? This does not delete its transactions.`)) return;
-    setSaving(true);
-    try {
-      await client.models.financeAccount.delete({ id: acc.id });
-      setAccounts((p) => p.filter((a) => a.id !== acc.id));
-      setPanel(null);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   // ── CSV Import ────────────────────────────────────────────────────────────
 
   // If the reverse-sign toggle is on, flip the amount for all import math (display,
@@ -367,6 +310,13 @@ export default function TransactionsPage() {
     return m;
   }, [accounts]);
 
+  // Goal allocations — used to show surplus badges on account chips so the user can
+  // see at a glance which accounts have cash that isn't earmarked for any goal.
+  const allocations = useMemo(
+    () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
+    [accounts, goals, mappings, lots, quotes],
+  );
+
   const txColumns: ColDef<TransactionRecord>[] = useMemo(() => [
     {
       key: "date",
@@ -438,6 +388,11 @@ export default function TransactionsPage() {
         {/* ── Main ─────────────────────────────────────────────────────── */}
         <div className="flex-1 px-4 py-5 md:px-6 overflow-auto">
 
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+            <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
+          </div>
+
           {/* Header */}
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Transactions</h1>
@@ -445,10 +400,6 @@ export default function TransactionsPage() {
               <button onClick={openImport} className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
                 style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}>
                 Import CSV
-              </button>
-              <button onClick={openNewAcc} className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}>
-                + Account
               </button>
               <button onClick={openNewTx} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
                 + Transaction
@@ -459,29 +410,45 @@ export default function TransactionsPage() {
           {/* Account balance strip */}
           {accounts.filter((a) => a.active !== false).length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
-              {accounts.filter((a) => a.active !== false).map((acc) => (
-                <button key={acc.id}
-                  onClick={() => { openEditAcc(acc); }}
-                  className="px-3 py-1 rounded-full text-xs font-semibold transition-opacity hover:opacity-80 border"
-                  style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
-                >
-                  {acc.name}:
-                  {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 ? (() => {
-                    // currentBalance is negative when money is owed; flip sign for utilization
-                    const owed = Math.max(0, -(acc.currentBalance ?? 0));
-                    const util = Math.min(1, owed / (acc.creditLimit ?? 1));
-                    return (
-                      <span className="tabular-nums">
-                        {" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")} /{" "}
-                        {fmtCurrency(acc.creditLimit, acc.currency ?? "USD")}{" "}
-                        ({Math.round(util * 100)}%)
+              {accounts.filter((a) => a.active !== false).map((acc) => {
+                // Surplus: cash on this account that no mapped goal has absorbed.
+                // undefined = no mappings at all on this account; skip badge.
+                // > 0     = there's unallocated cash; nudge to map it.
+                const surplus = allocations.surplusByAccount.get(acc.id);
+                const showSurplus = surplus !== undefined && surplus > 0.5 && acc.type !== "CREDIT" && acc.type !== "LOAN";
+                return (
+                  <a key={acc.id}
+                    href={`/finance/accounts/${acc.id}`}
+                    className="px-3 py-1 rounded-full text-xs font-semibold transition-opacity hover:opacity-80 border"
+                    style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
+                  >
+                    {acc.name}:
+                    {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 ? (() => {
+                      // currentBalance is negative when money is owed; flip sign for utilization
+                      const owed = Math.max(0, -(acc.currentBalance ?? 0));
+                      const util = Math.min(1, owed / (acc.creditLimit ?? 1));
+                      return (
+                        <span className="tabular-nums">
+                          {" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")} /{" "}
+                          {fmtCurrency(acc.creditLimit, acc.currency ?? "USD")}{" "}
+                          ({Math.round(util * 100)}%)
+                        </span>
+                      );
+                    })() : (
+                      <span className="tabular-nums">{" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}</span>
+                    )}
+                    {showSurplus && (
+                      <span
+                        className="ml-1 tabular-nums font-medium"
+                        style={{ color: "#f59e0b", opacity: 0.9 }}
+                        title={`${fmtCurrency(surplus, acc.currency ?? "USD")} not allocated to any goal`}
+                      >
+                        · +{fmtCurrency(surplus, acc.currency ?? "USD")}
                       </span>
-                    );
-                  })() : (
-                    <span className="tabular-nums">{" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}</span>
-                  )}
-                </button>
-              ))}
+                    )}
+                  </a>
+                );
+              })}
             </div>
           )}
 
@@ -624,109 +591,6 @@ export default function TransactionsPage() {
                     label={panel.kind === "new-tx" ? "Add Transaction" : "Save"} />
                   {panel.kind === "edit-tx" && (
                     <DeleteButton saving={saving} onDelete={() => handleDeleteTx(panel.tx)} />
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ── Account panel ─────────────────────────────────────── */}
-            {(panel.kind === "new-acc" || panel.kind === "edit-acc") && (
-              <>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-                  <h2 className="text-base font-semibold dark:text-rose text-purple">
-                    {panel.kind === "new-acc" ? "New Account" : "Edit Account"}
-                  </h2>
-                  <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-                </div>
-                <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-                  <div>
-                    <label className={labelCls}>Name *</label>
-                    <input type="text" className={inputCls} placeholder="Chase Checking"
-                      value={accDraft.name ?? ""}
-                      onChange={(e) => setAccDraft((d) => ({ ...d, name: e.target.value }))} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className={labelCls}>Type</label>
-                      <select className={inputCls} value={accDraft.type ?? "CHECKING"}
-                        onChange={(e) => setAccDraft((d) => ({ ...d, type: e.target.value as any }))}>
-                        {ACCOUNT_TYPES.map((t) => (
-                          <option key={t} value={t}>{ACCOUNT_TYPE_LABELS[t]}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Currency</label>
-                      <input type="text" className={inputCls} placeholder="USD" maxLength={3}
-                        value={accDraft.currency ?? "USD"}
-                        onChange={(e) => setAccDraft((d) => ({ ...d, currency: e.target.value.toUpperCase() }))} />
-                    </div>
-                  </div>
-                  {(accDraft.type ?? "CHECKING") === "RETIREMENT" && (
-                    <div>
-                      <label className={labelCls}>Retirement Type</label>
-                      <select className={inputCls} value={accDraft.retirementType ?? ""}
-                        onChange={(e) => setAccDraft((d) => ({ ...d, retirementType: (e.target.value || null) as any }))}>
-                        <option value="">— unspecified —</option>
-                        {RETIREMENT_TYPES.map((rt) => (
-                          <option key={rt} value={rt}>{RETIREMENT_TYPE_LABELS[rt]}</option>
-                        ))}
-                      </select>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Optional, for display only</p>
-                    </div>
-                  )}
-                  <div>
-                    <label className={labelCls}>
-                      {isInvestedAccount(accDraft.type) ? "Cash Balance" : "Current Balance"}
-                    </label>
-                    <input type="number" step="0.01" className={inputCls} placeholder="0.00"
-                      value={accDraft.currentBalance ?? ""}
-                      onChange={(e) => setAccDraft((d) => ({ ...d, currentBalance: parseFloat(e.target.value) || 0 }))} />
-                    <p className="text-[10px] text-gray-400 mt-0.5">
-                      {isInvestedAccount(accDraft.type)
-                        ? "Uninvested cash only. Positions are tracked as lots on the account page."
-                        : panel.kind === "new-acc" ? "Opening balance" : "Direct override — use sparingly"}
-                    </p>
-                  </div>
-                  {(accDraft.type ?? "CHECKING") === "CREDIT" && (
-                    <div>
-                      <label className={labelCls}>Credit Limit</label>
-                      <input type="number" step="0.01" min={0} className={inputCls} placeholder="5000.00"
-                        value={accDraft.creditLimit ?? ""}
-                        onChange={(e) => setAccDraft((d) => ({ ...d, creditLimit: parseFloat(e.target.value) || null as any }))} />
-                      {(accDraft.creditLimit ?? 0) > 0 && (accDraft.currentBalance ?? 0) < 0 && (() => {
-                        const owed = -(accDraft.currentBalance ?? 0);
-                        const util = Math.min(1, owed / (accDraft.creditLimit ?? 1));
-                        const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
-                        return (
-                          <p className="text-[10px] mt-1" style={{ color }}>
-                            {Math.round(util * 100)}% utilization · {fmtCurrency((accDraft.creditLimit ?? 0) - owed)} available
-                          </p>
-                        );
-                      })()}
-                    </div>
-                  )}
-                  <div>
-                    <label className={labelCls}>Notes</label>
-                    <input type="text" className={inputCls} placeholder="Last 4 digits, bank name…"
-                      value={accDraft.notes ?? ""}
-                      onChange={(e) => setAccDraft((d) => ({ ...d, notes: e.target.value }))} />
-                  </div>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                    <input type="checkbox" checked={accDraft.active ?? true}
-                      onChange={(e) => setAccDraft((d) => ({ ...d, active: e.target.checked }))} />
-                    Active
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                    <input type="checkbox" checked={accDraft.favorite ?? false}
-                      onChange={(e) => setAccDraft((d) => ({ ...d, favorite: e.target.checked }))} />
-                    <span className="mr-1" style={{ color: "#f59e0b" }}>★</span> Favorite
-                    <span className="text-[10px] text-gray-400">(pin to dashboard)</span>
-                  </label>
-                  <SaveButton saving={saving} onSave={handleSaveAcc}
-                    label={panel.kind === "new-acc" ? "Create Account" : "Save"} />
-                  {panel.kind === "edit-acc" && (
-                    <DeleteButton saving={saving} onDelete={() => handleDeleteAcc(panel.acc)} />
                   )}
                 </div>
               </>

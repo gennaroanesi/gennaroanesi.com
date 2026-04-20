@@ -6,10 +6,13 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, HoldingLotRecord, TickerQuoteRecord,
-  ACCOUNT_TYPE_LABELS, RETIREMENT_TYPE_LABELS, FINANCE_COLOR,
+  ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS,
+  RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, FINANCE_COLOR,
   fmtCurrency, amountColor,
   accountTotalValue, buildQuoteMap, isInvestedAccount,
   AccountBadge,
+  inputCls, labelCls,
+  SaveButton,
   listAll,
   type AccountType,
 } from "@/components/finance/_shared";
@@ -43,6 +46,11 @@ export default function AccountsPage() {
   const [quotes,   setQuotes]   = useState<TickerQuoteRecord[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [busyId,   setBusyId]   = useState<string | null>(null);   // id of the account whose star is mid-toggle
+
+  // Create-account side panel. Edit and delete live on the detail page (/finance/accounts/[id]).
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [saving,    setSaving]    = useState(false);
+  const [accDraft,  setAccDraft]  = useState<Partial<AccountRecord>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -94,6 +102,38 @@ export default function AccountsPage() {
       alert(`Failed to update favorite: ${err?.message ?? String(err)}`);
     } finally {
       setBusyId(null);
+    }
+  }
+
+  // ── Create account ───────────────────────────────────
+  // Create-only flow: the new account is persisted, appended to the list, and the
+  // panel closes. User clicks the row to navigate to /finance/accounts/[id] for any
+  // further edits (mapping goals, toggling active, renaming, deleting).
+
+  function openNewAcc() {
+    setAccDraft({ currency: "USD", active: true, currentBalance: 0, type: "CHECKING" as any });
+    setPanelOpen(true);
+  }
+
+  async function handleSaveAcc() {
+    if (!accDraft.name?.trim()) return;
+    setSaving(true);
+    try {
+      const { data: newAcc } = await client.models.financeAccount.create({
+        name:           accDraft.name!,
+        type:           (accDraft.type ?? "CHECKING") as any,
+        retirementType: (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
+        currentBalance: accDraft.currentBalance ?? 0,
+        currency:       accDraft.currency ?? "USD",
+        notes:          accDraft.notes ?? null,
+        active:         accDraft.active ?? true,
+        favorite:       accDraft.favorite ?? false,
+        creditLimit:    accDraft.creditLimit ?? null,
+      });
+      if (newAcc) setAccounts((p) => [...p, newAcc]);
+      setPanelOpen(false);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -244,7 +284,12 @@ export default function AccountsPage() {
 
   return (
     <FinanceLayout>
-      <div className="px-4 py-5 md:px-6 overflow-auto h-full">
+      <div className="flex h-full">
+        <div className="flex-1 px-4 py-5 md:px-6 overflow-auto">
+
+        <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+          <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
+        </div>
 
         <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <div className="flex items-baseline gap-3">
@@ -260,13 +305,13 @@ export default function AccountsPage() {
           </div>
           <div className="flex items-center gap-2">
             <SearchInput value={ctl.search} onChange={ctl.setSearch} placeholder="Search name, type, notes…" />
-            <NextLink
-              href="/finance/transactions?new-acc=1"
+            <button
+              onClick={openNewAcc}
               className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
               style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
             >
               + New Account
-            </NextLink>
+            </button>
           </div>
         </div>
 
@@ -279,12 +324,13 @@ export default function AccountsPage() {
           <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
         ) : accounts.length === 0 ? (
           <div className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-8 text-center">
-            <p className="text-sm text-gray-400">
-              No accounts yet. Create one on the{" "}
-              <NextLink href="/finance/transactions?new-acc=1" className="underline" style={{ color: FINANCE_COLOR }}>
-                Transactions page
-              </NextLink>.
-            </p>
+            <p className="text-sm text-gray-400 mb-3">No accounts yet.</p>
+            <button
+              onClick={openNewAcc}
+              className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
+            >
+              + Create your first account
+            </button>
           </div>
         ) : (
           <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
@@ -309,6 +355,99 @@ export default function AccountsPage() {
           </div>
         )}
 
+        </div>
+
+        {/* Create-account side panel */}
+        {panelOpen && (
+          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
+              <h2 className="text-base font-semibold dark:text-rose text-purple">New Account</h2>
+              <button onClick={() => setPanelOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+              <div>
+                <label className={labelCls}>Name *</label>
+                <input type="text" className={inputCls} placeholder="Chase Checking"
+                  value={accDraft.name ?? ""}
+                  onChange={(e) => setAccDraft((d) => ({ ...d, name: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className={labelCls}>Type</label>
+                  <select className={inputCls} value={accDraft.type ?? "CHECKING"}
+                    onChange={(e) => setAccDraft((d) => ({ ...d, type: e.target.value as any }))}>
+                    {ACCOUNT_TYPES.map((t) => (
+                      <option key={t} value={t}>{ACCOUNT_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Currency</label>
+                  <input type="text" className={inputCls} placeholder="USD" maxLength={3}
+                    value={accDraft.currency ?? "USD"}
+                    onChange={(e) => setAccDraft((d) => ({ ...d, currency: e.target.value.toUpperCase() }))} />
+                </div>
+              </div>
+              {(accDraft.type ?? "CHECKING") === "RETIREMENT" && (
+                <div>
+                  <label className={labelCls}>Retirement Type</label>
+                  <select className={inputCls} value={accDraft.retirementType ?? ""}
+                    onChange={(e) => setAccDraft((d) => ({ ...d, retirementType: (e.target.value || null) as any }))}>
+                    <option value="">— unspecified —</option>
+                    {RETIREMENT_TYPES.map((rt) => (
+                      <option key={rt} value={rt}>{RETIREMENT_TYPE_LABELS[rt]}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Optional, for display only</p>
+                </div>
+              )}
+              <div>
+                <label className={labelCls}>
+                  {isInvestedAccount(accDraft.type) ? "Cash Balance" : "Opening Balance"}
+                </label>
+                <input type="number" step="0.01" className={inputCls} placeholder="0.00"
+                  value={accDraft.currentBalance ?? ""}
+                  onChange={(e) => setAccDraft((d) => ({ ...d, currentBalance: parseFloat(e.target.value) || 0 }))} />
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {isInvestedAccount(accDraft.type)
+                    ? "Uninvested cash only. Add positions (lots) on the account page."
+                    : "Starting balance for this account"}
+                </p>
+              </div>
+              {(accDraft.type ?? "CHECKING") === "CREDIT" && (
+                <div>
+                  <label className={labelCls}>Credit Limit</label>
+                  <input type="number" step="0.01" min={0} className={inputCls} placeholder="5000.00"
+                    value={accDraft.creditLimit ?? ""}
+                    onChange={(e) => setAccDraft((d) => ({ ...d, creditLimit: parseFloat(e.target.value) || null as any }))} />
+                </div>
+              )}
+              <div>
+                <label className={labelCls}>Notes</label>
+                <input type="text" className={inputCls} placeholder="Last 4 digits, bank name…"
+                  value={accDraft.notes ?? ""}
+                  onChange={(e) => setAccDraft((d) => ({ ...d, notes: e.target.value }))} />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input type="checkbox" checked={accDraft.active ?? true}
+                  onChange={(e) => setAccDraft((d) => ({ ...d, active: e.target.checked }))} />
+                Active
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input type="checkbox" checked={accDraft.favorite ?? false}
+                  onChange={(e) => setAccDraft((d) => ({ ...d, favorite: e.target.checked }))} />
+                <span className="mr-1" style={{ color: "#f59e0b" }}>★</span> Favorite
+                <span className="text-[10px] text-gray-400">(pin to dashboard)</span>
+              </label>
+
+              <p className="text-[11px] text-gray-400 italic border-t border-gray-200 dark:border-darkBorder pt-4">
+                Map goals, rename, or delete on the account page after creation.
+              </p>
+
+              <SaveButton saving={saving} onSave={handleSaveAcc} label="Create Account" />
+            </div>
+          </div>
+        )}
       </div>
     </FinanceLayout>
   );

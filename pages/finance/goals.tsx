@@ -1,13 +1,19 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
+import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
   GoalRecord, MilestoneRecord, MilestoneStatus,
+  AccountRecord, GoalFundingSourceRecord, HoldingLotRecord, TickerQuoteRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, monthsUntil, goalPctColor,
   sortMilestones, milestoneStatus,
+  computeGoalAllocations, effectiveGoalAmount, goalHasFundingSource, goalHasVolatileFunding,
+  projectGoal, resolvedGrowthRate, DEFAULT_EXPECTED_GROWTH,
+  accountTotalValue, buildQuoteMap, ACCOUNT_TYPE_LABELS,
+  listAll,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState,
 } from "@/components/finance/_shared";
@@ -33,6 +39,10 @@ export default function GoalsPage() {
 
   const [goals,      setGoals]      = useState<GoalRecord[]>([]);
   const [milestones, setMilestones] = useState<MilestoneRecord[]>([]);
+  const [accounts,   setAccounts]   = useState<AccountRecord[]>([]);
+  const [mappings,   setMappings]   = useState<GoalFundingSourceRecord[]>([]);
+  const [lots,       setLots]       = useState<HoldingLotRecord[]>([]);
+  const [quotes,     setQuotes]     = useState<TickerQuoteRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
   const [panel,      setPanel]      = useState<PanelState>(null);
@@ -44,12 +54,20 @@ export default function GoalsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: gs }, { data: ms }] = await Promise.all([
-        client.models.financeSavingsGoal.list({ limit: 100 }),
-        client.models.financeGoalMilestone.list({ limit: 500 }),
+      const [gs, ms, accs, maps, lotRecs, quoteRecs] = await Promise.all([
+        listAll(client.models.financeSavingsGoal),
+        listAll(client.models.financeGoalMilestone),
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeGoalFundingSource),
+        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeTickerQuote),
       ]);
-      setGoals(gs ?? []);
-      setMilestones(ms ?? []);
+      setGoals(gs);
+      setMilestones(ms);
+      setAccounts(accs);
+      setMappings(maps);
+      setLots(lotRecs);
+      setQuotes(quoteRecs);
     } finally {
       setLoading(false);
     }
@@ -127,6 +145,7 @@ export default function GoalsPage() {
           currentAmount: draft.currentAmount ?? 0,
           targetDate:    draft.targetDate ?? null,
           notes:         draft.notes ?? null,
+          expectedAnnualGrowth: draft.expectedAnnualGrowth ?? null,
         });
         if (!newGoal) throw new Error("Goal creation failed");
         goalId = newGoal.id;
@@ -140,6 +159,7 @@ export default function GoalsPage() {
           currentAmount: draft.currentAmount ?? 0,
           targetDate:    draft.targetDate ?? null,
           notes:         draft.notes ?? null,
+          expectedAnnualGrowth: draft.expectedAnnualGrowth ?? null,
         });
         setGoals((p) => p.map((g) => g.id === goalId ? { ...g, ...draft } as GoalRecord : g));
       } else {
@@ -205,12 +225,35 @@ export default function GoalsPage() {
     }
   }
 
+  // Compute allocations once per render. Sub-millisecond; safe to recompute freely.
+  // IMPORTANT: hooks must come before any early return, so this lives above the
+  // authState guard below.
+  const allocations = useMemo(
+    () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
+    [accounts, goals, mappings, lots, quotes],
+  );
+
+  // Lookup used in goal cards to show "funded by X, Y, Z"
+  const accountById = useMemo(() => {
+    const m = new Map<string, AccountRecord>();
+    for (const a of accounts) m.set(a.id, a);
+    return m;
+  }, [accounts]);
+
+  // Quote map for accountTotalValue calls in the edit panel's funding section.
+  // Same map computeGoalAllocations builds internally; memoized separately so we
+  // can use it in render without recomputing.
+  const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
+
   if (authState !== "authenticated") return null;
 
   const sorted = [...goals].sort((a, b) => {
-    // Incomplete first, then by targetDate
-    const aPct = (a.targetAmount ?? 0) > 0 ? (a.currentAmount ?? 0) / a.targetAmount! : 0;
-    const bPct = (b.targetAmount ?? 0) > 0 ? (b.currentAmount ?? 0) / b.targetAmount! : 0;
+    // Incomplete first, then by targetDate. Use effective amount so mapped goals
+    // sort by true progress, not stale currentAmount.
+    const aCur = effectiveGoalAmount(a, allocations, mappings);
+    const bCur = effectiveGoalAmount(b, allocations, mappings);
+    const aPct = (a.targetAmount ?? 0) > 0 ? aCur / a.targetAmount! : 0;
+    const bPct = (b.targetAmount ?? 0) > 0 ? bCur / b.targetAmount! : 0;
     if (aPct >= 1 && bPct < 1) return 1;
     if (bPct >= 1 && aPct < 1) return -1;
     return (a.targetDate ?? "9999").localeCompare(b.targetDate ?? "9999");
@@ -220,6 +263,10 @@ export default function GoalsPage() {
     <FinanceLayout>
       <div className="flex h-full">
         <div className="flex-1 px-4 py-5 md:px-6 overflow-auto">
+
+          <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+            <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
+          </div>
 
           <div className="flex items-center justify-between mb-6 gap-2">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Savings Goals</h1>
@@ -236,14 +283,37 @@ export default function GoalsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {sorted.map((goal) => {
                 const target  = goal.targetAmount ?? 0;
-                const current = goal.currentAmount ?? 0;
+                const current = effectiveGoalAmount(goal, allocations, mappings);
+                const hasMapping = goalHasFundingSource(goal, mappings);
+                const isVolatile = goalHasVolatileFunding(goal, mappings, accounts);
                 const pct     = target > 0 ? Math.min(1, current / target) : 0;
                 const color   = goalPctColor(pct);
                 const months  = goal.targetDate ? monthsUntil(goal.targetDate) : null;
-                const needed  = target - current;
-                const monthly = months && months > 0 ? needed / months : null;
                 const done    = pct >= 1;
                 const ms      = milestonesFor(goal.id);
+
+                // Growth-aware projection: if the current balance + assumed annual growth
+                // already hits target by targetDate, monthly contribution is null.
+                const growth = resolvedGrowthRate(goal);
+                const projection = months && months > 0
+                  ? projectGoal(current, target, months, growth)
+                  : null;
+                const monthly = projection?.requiredMonthlyContribution ?? null;
+                const onTrackFromGrowth = projection != null
+                  && projection.requiredMonthlyContribution == null
+                  && !done;
+
+                // Contributing accounts in priority order. Filter to non-zero so the card
+                // shows "this is where the money's actually coming from right now."
+                const contributingMappings = mappings
+                  .filter((m) => m.goalId === goal.id)
+                  .map((m) => ({
+                    mapping: m,
+                    account: accountById.get(m.accountId ?? ""),
+                    allocated: allocations.allocatedByMapping.get(m.id) ?? 0,
+                  }))
+                  .filter((row) => row.account)
+                  .sort((a, b) => (b.allocated) - (a.allocated));   // biggest contributor first
 
                 return (
                   <div
@@ -253,7 +323,18 @@ export default function GoalsPage() {
                   >
                     {/* Title row */}
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">{goal.name}</h3>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{goal.name}</h3>
+                        {isVolatile && (
+                          <span
+                            className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: "#f59e0b22", color: "#f59e0b" }}
+                            title="Funded by a brokerage or retirement account — allocation fluctuates with the market"
+                          >
+                            ≈
+                          </span>
+                        )}
+                      </div>
                       {done
                         ? <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ backgroundColor: "#22c55e22", color: "#22c55e" }}>Complete</span>
                         : <span className="text-xs font-bold tabular-nums" style={{ color }}>{Math.round(pct * 100)}%</span>
@@ -321,6 +402,24 @@ export default function GoalsPage() {
                       </div>
                     )}
 
+                    {/* Funded by — which accounts contribute and how much. Only shown when
+                        the goal has mappings, not when falling back to manual currentAmount. */}
+                    {hasMapping && contributingMappings.length > 0 && (
+                      <div className="flex flex-col gap-1 border-t border-gray-100 dark:border-gray-700 pt-2">
+                        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Funded by</p>
+                        {contributingMappings.map((row) => (
+                          <div key={row.mapping.id} className="flex items-center justify-between text-[11px] gap-2">
+                            <span className="text-gray-600 dark:text-gray-300 truncate">{row.account!.name}</span>
+                            <span className="tabular-nums font-semibold" style={{
+                              color: row.allocated > 0 ? FINANCE_COLOR : "#9ca3af",
+                            }}>
+                              {fmtCurrency(row.allocated)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Deadline + projection */}
                     {goal.targetDate && (
                       <div className="text-[11px] text-gray-400 flex flex-col gap-0.5">
@@ -328,11 +427,17 @@ export default function GoalsPage() {
                           {months && months > 0 && <> · {Math.ceil(months)}mo left</>}
                           {months && months <= 0 && <span className="text-amber-500"> · Overdue</span>}
                         </span>
-                        {monthly && !done && monthly > 0 && (
-                          <span>Need <span className="font-medium" style={{ color: FINANCE_COLOR }}>{fmtCurrency(monthly)}/mo</span> to hit goal</span>
+                        {onTrackFromGrowth && projection && (
+                          <span className="text-green-500">
+                            On track from {Math.round(growth * 100)}% growth —
+                            projects to <span className="font-semibold tabular-nums">{fmtCurrency(projection.projectedEndValue)}</span>
+                          </span>
                         )}
-                        {needed <= 0 && !done && (
-                          <span className="text-green-500">On track!</span>
+                        {monthly != null && monthly > 0 && !done && (
+                          <span>
+                            Need <span className="font-medium" style={{ color: FINANCE_COLOR }}>{fmtCurrency(monthly)}/mo</span>
+                            {" "}at {Math.round(growth * 100)}% growth
+                          </span>
                         )}
                       </div>
                     )}
@@ -372,9 +477,22 @@ export default function GoalsPage() {
                 </div>
                 <div>
                   <label className={labelCls}>Current Amount</label>
-                  <input type="number" step="0.01" min={0} className={inputCls} placeholder="0"
-                    value={draft.currentAmount ?? ""}
-                    onChange={(e) => setDraft((d) => ({ ...d, currentAmount: parseFloat(e.target.value) || 0 }))} />
+                  {panel.kind === "edit" && goalHasFundingSource(panel.goal, mappings) ? (
+                    <div className={`${inputCls} flex items-center bg-gray-50 dark:bg-darkElevated`}>
+                      <span className="tabular-nums font-semibold text-gray-600 dark:text-gray-300">
+                        {fmtCurrency(effectiveGoalAmount(panel.goal, allocations, mappings))}
+                      </span>
+                    </div>
+                  ) : (
+                    <input type="number" step="0.01" min={0} className={inputCls} placeholder="0"
+                      value={draft.currentAmount ?? ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, currentAmount: parseFloat(e.target.value) || 0 }))} />
+                  )}
+                  {panel.kind === "edit" && goalHasFundingSource(panel.goal, mappings) && (
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Auto-computed from funding sources. Edit on the account panels.
+                    </p>
+                  )}
                 </div>
               </div>
               <div>
@@ -383,15 +501,146 @@ export default function GoalsPage() {
                   onChange={(e) => setDraft((d) => ({ ...d, targetDate: e.target.value || null as any }))} />
               </div>
 
-              {/* Live projection preview */}
+              {/* Expected growth — drives the "need $X/mo" projection. Stored as decimal
+                  (0.05 = 5%) but presented as percent so the user doesn't have to think
+                  about decimals. Empty input = use DEFAULT_EXPECTED_GROWTH. */}
+              <div>
+                <label className={labelCls}>Expected Annual Growth</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    max={50}
+                    className={inputCls}
+                    placeholder={`${(DEFAULT_EXPECTED_GROWTH * 100).toFixed(0)} (default)`}
+                    value={draft.expectedAnnualGrowth != null ? (draft.expectedAnnualGrowth * 100).toString() : ""}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setDraft((d) => ({
+                        ...d,
+                        expectedAnnualGrowth: raw === "" ? null as any : parseFloat(raw) / 100,
+                      }));
+                    }}
+                  />
+                  <span className="text-sm text-gray-500 dark:text-gray-400">%/yr</span>
+                </div>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  Used to project required monthly contribution. Set to 0 for cash-only goals.
+                  {draft.expectedAnnualGrowth == null && ` Default: ${(DEFAULT_EXPECTED_GROWTH * 100).toFixed(0)}%.`}
+                </p>
+              </div>
+
+              {/* Live projection preview — growth-aware. Replaces the old naive math. */}
               {(draft.targetAmount ?? 0) > 0 && (draft.currentAmount ?? 0) < (draft.targetAmount ?? 0) && draft.targetDate && (() => {
-                const months  = monthsUntil(draft.targetDate);
-                const needed  = (draft.targetAmount ?? 0) - (draft.currentAmount ?? 0);
-                const monthly = months > 0 ? needed / months : null;
+                const months = monthsUntil(draft.targetDate);
+                if (months <= 0) return null;
+                const rate = draft.expectedAnnualGrowth ?? DEFAULT_EXPECTED_GROWTH;
+                const proj = projectGoal(
+                  draft.currentAmount ?? 0,
+                  draft.targetAmount ?? 0,
+                  months,
+                  rate,
+                );
+                const onTrack = proj.requiredMonthlyContribution == null;
                 return (
                   <div className="rounded-lg bg-gray-50 dark:bg-darkElevated px-3 py-2 text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
-                    <span>{Math.ceil(months)} months remaining</span>
-                    {monthly && <span>Monthly contribution needed: <span className="font-semibold" style={{ color: FINANCE_COLOR }}>{fmtCurrency(monthly)}</span></span>}
+                    <span>{Math.ceil(months)} months remaining · {(rate * 100).toFixed(1)}%/yr assumed</span>
+                    <span>
+                      Projects to{" "}
+                      <span className="font-semibold tabular-nums text-gray-700 dark:text-gray-300">
+                        {fmtCurrency(proj.projectedEndValue)}
+                      </span>
+                      {" "}with no contributions
+                    </span>
+                    {onTrack ? (
+                      <span className="font-semibold text-green-500">On track from growth alone</span>
+                    ) : (
+                      <span>
+                        Monthly contribution needed:{" "}
+                        <span className="font-semibold" style={{ color: FINANCE_COLOR }}>
+                          {fmtCurrency(proj.requiredMonthlyContribution!)}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Funded by these accounts — read-only view of the mappings pointing at this goal.
+                  Shows each source account's total balance and how much is allocated to THIS
+                  goal specifically. Priority can't be edited here (it's per-account, not
+                  per-goal); user goes to the account panel to reorder or remove. */}
+              {panel.kind === "edit" && (() => {
+                const goalMappings = mappings
+                  .filter((m) => m.goalId === panel.goal.id)
+                  .map((m) => ({
+                    mapping:   m,
+                    account:   accountById.get(m.accountId ?? ""),
+                    allocated: allocations.allocatedByMapping.get(m.id) ?? 0,
+                  }))
+                  .filter((row) => row.account)
+                  .sort((a, b) => b.allocated - a.allocated);
+
+                return (
+                  <div className="border-t border-gray-100 dark:border-gray-700 pt-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <label className={labelCls}>Funded by</label>
+                      {goalMappings.length > 0 && (
+                        <span className="text-[10px] text-gray-400">
+                          Priority set per account
+                        </span>
+                      )}
+                    </div>
+                    {goalMappings.length === 0 ? (
+                      <p className="text-[11px] text-gray-400">
+                        No accounts currently fund this goal. Open an account in the Transactions
+                        page to link it here.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        {goalMappings.map((row) => {
+                          const acc = row.account!;
+                          const totalVal = accountTotalValue(acc, lots, quoteMap);
+                          return (
+                            <a
+                              key={row.mapping.id}
+                              href={`/finance/accounts/${acc.id}`}
+                              className="rounded border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
+                                  {acc.name}
+                                </span>
+                                <span
+                                  className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                                >
+                                  {ACCOUNT_TYPE_LABELS[(acc.type ?? "OTHER") as keyof typeof ACCOUNT_TYPE_LABELS]}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 mt-1 text-[11px]">
+                                <span className="text-gray-400">
+                                  Balance:{" "}
+                                  <span className="tabular-nums font-medium text-gray-600 dark:text-gray-300">
+                                    {fmtCurrency(totalVal, acc.currency ?? "USD")}
+                                  </span>
+                                </span>
+                                <span>
+                                  <span className="text-gray-400 mr-1">Allocated</span>
+                                  <span
+                                    className="tabular-nums font-semibold"
+                                    style={{ color: row.allocated > 0 ? FINANCE_COLOR : "#9ca3af" }}
+                                  >
+                                    {fmtCurrency(row.allocated, acc.currency ?? "USD")}
+                                  </span>
+                                </span>
+                              </div>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })()}

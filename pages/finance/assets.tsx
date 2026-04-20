@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
+import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
@@ -132,6 +133,10 @@ export default function AssetsPage() {
         <div className="flex-1 px-4 py-5 md:px-6 overflow-auto">
 
           {/* ── Header ────────────────────────────────────────────── */}
+          <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+            <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
+          </div>
+
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <div className="flex items-baseline gap-3">
               <h1 className="text-2xl font-bold text-purple dark:text-rose">Assets</h1>

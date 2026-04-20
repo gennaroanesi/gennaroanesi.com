@@ -5,12 +5,15 @@ import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
   HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord,
+  GoalFundingSourceRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   PHYSICAL_ASSET_TYPE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, monthsUntil,
   amountColor, goalPctColor, isRecurrenceLive,
   accountTotalValue, buildQuoteMap, isInvestedAccount,
   totalAssetValue, assetGainLoss,
+  computeGoalAllocations, effectiveGoalAmount, goalHasFundingSource,
+  projectGoal, resolvedGrowthRate,
   AccountBadge,
   listAll,
   type Cadence,
@@ -27,6 +30,7 @@ export default function FinanceDashboard() {
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [assets,       setAssets]       = useState<AssetRecord[]>([]);
   const [loans,        setLoans]        = useState<LoanRecord[]>([]);
+  const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
 
   const fetchAll = useCallback(async () => {
@@ -41,6 +45,7 @@ export default function FinanceDashboard() {
         quoteRecs,
         assetRecs,
         loanRecs,
+        mappingRecs,
       ] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
@@ -50,6 +55,7 @@ export default function FinanceDashboard() {
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeAsset),
         listAll(client.models.financeLoan),
+        listAll(client.models.financeGoalFundingSource),
       ]);
       setAccounts(accs);
       setTransactions(txs);
@@ -59,6 +65,7 @@ export default function FinanceDashboard() {
       setQuotes(quoteRecs);
       setAssets(assetRecs);
       setLoans(loanRecs);
+      setMappings(mappingRecs);
     } finally {
       setLoading(false);
     }
@@ -94,6 +101,26 @@ export default function FinanceDashboard() {
     }
     return m;
   }, [loans]);
+
+  // Goal allocations: derived from mappings + account balances. See _shared for algorithm.
+  const allocations = useMemo(
+    () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
+    [accounts, goals, mappings, lots, quotes],
+  );
+
+  // Total unallocated cash across all accounts that have at least one mapping.
+  // Accounts with no mappings are ignored — they're not part of the goal system yet.
+  const unallocatedSummary = useMemo(() => {
+    let total = 0;
+    let accountCount = 0;
+    for (const [accountId, surplus] of allocations.surplusByAccount) {
+      if (surplus > 0) {
+        total += surplus;
+        accountCount++;
+      }
+    }
+    return { total, accountCount };
+  }, [allocations]);
 
   // Total loan debt tied to assets — used so net worth subtracts it exactly once
   // (assets contribute their full value; loan accounts are their own line already via activeAccounts).
@@ -342,14 +369,41 @@ export default function FinanceDashboard() {
             {/* ── Savings Goals ─────────────────────────────────────────── */}
             {goals.length > 0 && (
               <section>
-                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium mb-3">Savings Goals</h2>
+                <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+                  <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Savings Goals</h2>
+                  {unallocatedSummary.total > 0 && (
+                    <a
+                      href="/finance/accounts"
+                      className="text-[11px] text-gray-500 dark:text-gray-400 hover:underline"
+                      title="Cash on mapped accounts that no goal has absorbed — click to manage accounts"
+                    >
+                      Unallocated:{" "}
+                      <span className="tabular-nums font-semibold" style={{ color: "#f59e0b" }}>
+                        {fmtCurrency(unallocatedSummary.total)}
+                      </span>
+                      {" "}across {unallocatedSummary.accountCount} account{unallocatedSummary.accountCount === 1 ? "" : "s"}
+                    </a>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {goals.map((goal) => {
-                    const pct     = (goal.targetAmount ?? 0) > 0 ? Math.min(1, (goal.currentAmount ?? 0) / (goal.targetAmount ?? 1)) : 0;
+                    const current = effectiveGoalAmount(goal, allocations, mappings);
+                    const target  = goal.targetAmount ?? 0;
+                    const pct     = target > 0 ? Math.min(1, current / target) : 0;
                     const color   = goalPctColor(pct);
                     const months  = goal.targetDate ? monthsUntil(goal.targetDate) : null;
-                    const needed  = (goal.targetAmount ?? 0) - (goal.currentAmount ?? 0);
-                    const monthly = months && months > 0 ? needed / months : null;
+                    const hasMapping = goalHasFundingSource(goal, mappings);
+
+                    // Growth-aware projection. If already on track from growth alone,
+                    // monthly = null — card shows "on track" instead.
+                    const growth = resolvedGrowthRate(goal);
+                    const projection = months && months > 0
+                      ? projectGoal(current, target, months, growth)
+                      : null;
+                    const monthly = projection?.requiredMonthlyContribution ?? null;
+                    const onTrackFromGrowth = projection != null
+                      && projection.requiredMonthlyContribution == null
+                      && pct < 1;
                     return (
                       <div
                         key={goal.id}
@@ -366,13 +420,16 @@ export default function FinanceDashboard() {
                         </div>
 
                         <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                          <span>{fmtCurrency(goal.currentAmount)} saved</span>
-                          <span>{fmtCurrency(goal.targetAmount)} goal</span>
+                          <span>{fmtCurrency(current)} {hasMapping ? "allocated" : "saved"}</span>
+                          <span>{fmtCurrency(target)} goal</span>
                         </div>
                         {goal.targetDate && (
                           <p className="text-[11px] text-gray-400">
                             {fmtDate(goal.targetDate)}
-                            {monthly && months! > 0 && (
+                            {onTrackFromGrowth && (
+                              <> · <span className="font-medium text-green-500">on track from {Math.round(growth * 100)}% growth</span></>
+                            )}
+                            {monthly != null && monthly > 0 && months! > 0 && (
                               <> · <span className="font-medium">{fmtCurrency(monthly)}/mo needed</span></>
                             )}
                           </p>

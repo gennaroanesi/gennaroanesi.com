@@ -760,7 +760,9 @@ export default function LoanDetailPage() {
 
           {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-xs text-gray-400 mb-3">
-            <NextLink href="/finance/loans" className="hover:underline">Loans</NextLink>
+            <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
+            <span>›</span>
+            <NextLink href="/finance/loans" className="hover:underline" style={{ color: FINANCE_COLOR }}>Loans</NextLink>
             <span>›</span>
             <span>{account.name}</span>
           </div>

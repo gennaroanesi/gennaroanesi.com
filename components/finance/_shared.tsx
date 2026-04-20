@@ -75,6 +75,7 @@ export type AccountRecord     = Schema["financeAccount"]["type"];
 export type TransactionRecord = Schema["financeTransaction"]["type"];
 export type RecurringRecord   = Schema["financeRecurring"]["type"];
 export type GoalRecord        = Schema["financeSavingsGoal"]["type"];
+export type GoalFundingSourceRecord = Schema["financeGoalFundingSource"]["type"];
 export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
 export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
 export type AssetRecord       = Schema["financeAsset"]["type"];
@@ -620,6 +621,242 @@ export function milestoneStatus(
   if (goalCurrentAmount >= (m.targetAmount ?? 0)) return "HIT";
   if ((m.targetDate ?? "") && asOf > (m.targetDate ?? "")) return "MISSED";
   return "PENDING";
+}
+
+// ── Goal funding allocation ──────────────────────────────────────
+
+/**
+ * Result of running the allocation algorithm across all accounts + mappings.
+ *
+ * - allocatedByGoal: goalId → total $ allocated from all source accounts (capped at target)
+ * - surplusByAccount: accountId → leftover $ on the account not absorbed by any mapped goal
+ * - allocatedByMapping: mappingId → $ from this specific mapping. Lets the UI show
+ *   "HYSA contributed $3,200 to Honeymoon and $1,800 to Emergency" without re-running math
+ */
+export type GoalAllocationResult = {
+  allocatedByGoal:     Map<string, number>;
+  surplusByAccount:    Map<string, number>;
+  allocatedByMapping:  Map<string, number>;
+};
+
+/**
+ * Allocate account balances to savings goals given a mapping table.
+ *
+ * Pure function — no side effects, no I/O. Safe to call on every render; the
+ * dashboard already holds all inputs in state. Sub-millisecond for realistic sizes.
+ *
+ * Algorithm (per account, independent):
+ *   remaining = account total value (cash + positions for brokerage/retirement)
+ *   for each mapping sorted by priority asc (tiebreak: mapping.id for stable order):
+ *     need = max(0, goal.targetAmount - goal.allocatedSoFar)
+ *     take = min(remaining, need)
+ *     goal.allocatedSoFar += take
+ *     remaining -= take
+ *   surplus = remaining
+ *
+ * Design decisions:
+ * - **Credit accounts excluded**: negative balances would subtract from goals. Users
+ *   shouldn't be able to map a CREDIT account in the UI, but we guard here too.
+ * - **LOAN accounts excluded**: debt, not an asset.
+ * - **Inactive accounts excluded**: their mappings stay in the DB for reactivation,
+ *   but they contribute 0 to allocations while inactive.
+ * - **Negative-balance non-credit accounts excluded**: unusual but possible (overdrawn
+ *   checking). Treat as zero — a negative balance can't fund anything.
+ * - **Goals cap at target**: any excess on the account becomes surplus. Surplus is a
+ *   signal to the user ("move this somewhere useful") not a silent absorption.
+ * - **Multi-account goals**: the goal's allocated amount accumulates across all
+ *   accounts that map to it. Cap still applies globally.
+ * - **Holdings ARE included**: for BROKERAGE/RETIREMENT accounts we use
+ *   accountTotalValue (cash + Σ lot × quote). Positions are market-volatile so the
+ *   allocation will fluctuate with the market — the user opts into this by mapping
+ *   a brokerage/retirement account to long-term goals and should manage stability
+ *   themselves (e.g. don't map a volatile brokerage to a near-term emergency fund).
+ *   If lots/quotes are empty or undefined, this degrades gracefully to cash-only.
+ */
+export function computeGoalAllocations(
+  accounts: AccountRecord[],
+  goals:    GoalRecord[],
+  mappings: GoalFundingSourceRecord[],
+  lots:     HoldingLotRecord[] = [],
+  quotes:   TickerQuoteRecord[] = [],
+): GoalAllocationResult {
+  const allocatedByGoal    = new Map<string, number>();
+  const surplusByAccount   = new Map<string, number>();
+  const allocatedByMapping = new Map<string, number>();
+
+  // Build fast lookups
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const goalById    = new Map(goals.map((g) => [g.id, g]));
+  const quoteMap    = buildQuoteMap(quotes);
+
+  // Group mappings by account so each account's fill order is independent
+  const mappingsByAccount = new Map<string, GoalFundingSourceRecord[]>();
+  for (const m of mappings) {
+    if (!m.accountId) continue;
+    const bucket = mappingsByAccount.get(m.accountId) ?? [];
+    bucket.push(m);
+    mappingsByAccount.set(m.accountId, bucket);
+  }
+
+  for (const [accountId, accMappings] of mappingsByAccount) {
+    const acc = accountById.get(accountId);
+    if (!acc) continue;
+
+    // Skip accounts that can't legitimately fund a goal
+    if (acc.active === false) continue;
+    if (acc.type === "CREDIT") continue;      // debt account; negative balance
+    if (acc.type === "LOAN") continue;        // debt account
+
+    // For brokerage/retirement accounts this includes positions at current market
+    // price. For cash-only accounts it's just currentBalance. Clamp to 0 — a
+    // negative total (overdrawn) can't fund anything.
+    let remaining = Math.max(0, accountTotalValue(acc, lots, quoteMap));
+
+    // Sort by priority asc, stable tiebreak by mapping id so re-renders are deterministic
+    const sorted = [...accMappings].sort((a, b) => {
+      const pa = a.priority ?? 100;
+      const pb = b.priority ?? 100;
+      if (pa !== pb) return pa - pb;
+      return (a.id ?? "").localeCompare(b.id ?? "");
+    });
+
+    for (const m of sorted) {
+      const goal = goalById.get(m.goalId ?? "");
+      if (!goal) continue;
+
+      const alreadyAllocated = allocatedByGoal.get(goal.id) ?? 0;
+      const need = Math.max(0, (goal.targetAmount ?? 0) - alreadyAllocated);
+      const take = Math.min(remaining, need);
+
+      if (take > 0) {
+        allocatedByGoal.set(goal.id, alreadyAllocated + take);
+        allocatedByMapping.set(m.id, take);
+        remaining -= take;
+      } else {
+        // Record zero allocations so the UI can still show the mapping exists
+        allocatedByMapping.set(m.id, 0);
+      }
+    }
+
+    surplusByAccount.set(accountId, remaining);
+  }
+
+  return { allocatedByGoal, surplusByAccount, allocatedByMapping };
+}
+
+/**
+ * Effective current amount for a goal, preferring computed allocation when the goal
+ * has at least one mapping; falling back to the stored (manual) currentAmount otherwise.
+ *
+ * This is the read path the UI should use everywhere that currently reads goal.currentAmount.
+ * Over time, as every goal gets mapped, the stored field becomes vestigial — at which
+ * point we can drop it. Until then, this bridge keeps unmapped goals showing sane values.
+ */
+export function effectiveGoalAmount(
+  goal: GoalRecord,
+  allocations: GoalAllocationResult,
+  mappings: GoalFundingSourceRecord[],
+): number {
+  const hasMapping = mappings.some((m) => m.goalId === goal.id);
+  if (hasMapping) {
+    return allocations.allocatedByGoal.get(goal.id) ?? 0;
+  }
+  return goal.currentAmount ?? 0;
+}
+
+/** True if any mapping on this goal points at a brokerage or retirement account.
+ *  UI uses this to show a "market-volatile funding" hint on the goal card, since
+ *  the allocated amount will fluctuate with quotes. */
+export function goalHasVolatileFunding(
+  goal: GoalRecord,
+  mappings: GoalFundingSourceRecord[],
+  accounts: AccountRecord[],
+): boolean {
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  return mappings.some((m) => {
+    if (m.goalId !== goal.id) return false;
+    const acc = accountById.get(m.accountId ?? "");
+    return acc ? isInvestedAccount(acc.type) : false;
+  });
+}
+
+/** True if the goal has at least one funding-source mapping — used to decide between
+ *  computed allocation and manual currentAmount in the UI. */
+export function goalHasFundingSource(
+  goal: GoalRecord,
+  mappings: GoalFundingSourceRecord[],
+): boolean {
+  return mappings.some((m) => m.goalId === goal.id);
+}
+
+// ── Goal projection (growth + contribution) ─────────────────────────
+
+/** Default assumed annual growth rate when the goal doesn't specify one. Conservative
+ *  — below historical S&P average (~10% nominal, ~7% real) to account for drag from
+ *  non-equity holdings, fees, and bad luck. Overridable per goal. */
+export const DEFAULT_EXPECTED_GROWTH = 0.05;
+
+/** Resolve a goal's assumed annual growth rate (decimal). Null/undefined field falls
+ *  back to the default. Callers should never reach for goal.expectedAnnualGrowth directly. */
+export function resolvedGrowthRate(goal: GoalRecord): number {
+  const raw = goal.expectedAnnualGrowth;
+  if (raw == null) return DEFAULT_EXPECTED_GROWTH;
+  return raw;
+}
+
+/**
+ * Project whether a goal is reachable given current amount, time remaining, and
+ * assumed annual growth. Assumes monthly compounding. Returns:
+ *
+ * - `projectedEndValue`: what `currentAmount` grows to over `months` at `annualRate`
+ *   with zero contributions. Useful for "you're already on track" messaging.
+ * - `requiredMonthlyContribution`: if `projectedEndValue < targetAmount`, what you'd
+ *   need to contribute per month to close the gap. Null if already on track or if
+ *   months <= 0 (degenerate).
+ *
+ * Math: future value of a lump sum + future value of an ordinary annuity.
+ *   FV = PV * (1 + r/12)^n  +  PMT * ((1 + r/12)^n - 1) / (r/12)
+ * Solve for PMT:
+ *   PMT = (FV_target - PV * (1+r/12)^n) / (((1+r/12)^n - 1) / (r/12))
+ *
+ * Edge case: if annualRate = 0, the annuity factor degenerates to `n` and the formula
+ * collapses to the naive `(FV - PV) / n`. Handled explicitly to avoid division by zero.
+ */
+export function projectGoal(
+  currentAmount: number,
+  targetAmount: number,
+  months: number,
+  annualRate: number,
+): { projectedEndValue: number; requiredMonthlyContribution: number | null } {
+  const pv = Math.max(0, currentAmount);
+  const fv = Math.max(0, targetAmount);
+
+  if (months <= 0) {
+    return { projectedEndValue: pv, requiredMonthlyContribution: null };
+  }
+
+  // Zero-growth branch: straight linear math.
+  if (annualRate === 0) {
+    const gap = fv - pv;
+    return {
+      projectedEndValue: pv,
+      requiredMonthlyContribution: gap > 0 ? gap / months : null,
+    };
+  }
+
+  const monthlyRate  = annualRate / 12;
+  const growthFactor = Math.pow(1 + monthlyRate, months);   // (1 + r/12)^n
+  const projectedEndValue = pv * growthFactor;
+
+  if (projectedEndValue >= fv) {
+    // Growth alone gets there; no contribution needed.
+    return { projectedEndValue, requiredMonthlyContribution: null };
+  }
+
+  const annuityFactor = (growthFactor - 1) / monthlyRate;    // Σ_{k=0..n-1} (1+r/12)^k
+  const requiredMonthlyContribution = (fv - projectedEndValue) / annuityFactor;
+
+  return { projectedEndValue, requiredMonthlyContribution };
 }
 
 // ── Loan amortization + balance ───────────────────────────────────────────────────
