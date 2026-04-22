@@ -119,16 +119,21 @@ export default function AccountsPage() {
     if (!accDraft.name?.trim()) return;
     setSaving(true);
     try {
+      const isCredit  = accDraft.type === "CREDIT";
+      const isSavings = accDraft.type === "SAVINGS";
       const { data: newAcc } = await client.models.financeAccount.create({
-        name:           accDraft.name!,
-        type:           (accDraft.type ?? "CHECKING") as any,
-        retirementType: (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
-        currentBalance: accDraft.currentBalance ?? 0,
-        currency:       accDraft.currency ?? "USD",
-        notes:          accDraft.notes ?? null,
-        active:         accDraft.active ?? true,
-        favorite:       accDraft.favorite ?? false,
-        creditLimit:    accDraft.creditLimit ?? null,
+        name:                accDraft.name!,
+        type:                (accDraft.type ?? "CHECKING") as any,
+        retirementType:      (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
+        currentBalance:      accDraft.currentBalance ?? 0,
+        currency:            accDraft.currency ?? "USD",
+        notes:               accDraft.notes ?? null,
+        active:              accDraft.active ?? true,
+        favorite:            accDraft.favorite ?? false,
+        creditLimit:         accDraft.creditLimit ?? null,
+        statementClosingDay: isCredit  ? accDraft.statementClosingDay ?? null : null,
+        apr:                 isCredit  ? accDraft.apr                 ?? null : null,
+        apy:                 isSavings ? accDraft.apy                 ?? null : null,
       });
       if (newAcc) setAccounts((p) => [...p, newAcc]);
       setPanelOpen(false);
@@ -415,11 +420,45 @@ export default function AccountsPage() {
                 </p>
               </div>
               {(accDraft.type ?? "CHECKING") === "CREDIT" && (
+                <>
+                  <div>
+                    <label className={labelCls}>Credit Limit</label>
+                    <input type="number" step="0.01" min={0} className={inputCls} placeholder="5000.00"
+                      value={accDraft.creditLimit ?? ""}
+                      onChange={(e) => setAccDraft((d) => ({ ...d, creditLimit: parseFloat(e.target.value) || null as any }))} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={labelCls}>Statement Closing Day</label>
+                      <input type="number" min={1} max={31} step={1} className={inputCls} placeholder="15"
+                        value={accDraft.statementClosingDay ?? ""}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          setAccDraft((d) => ({ ...d, statementClosingDay: Number.isFinite(n) ? Math.min(31, Math.max(1, n)) : null as any }));
+                        }} />
+                      <p className="text-[10px] text-gray-400 mt-0.5">Day of month (1–31)</p>
+                    </div>
+                    <div>
+                      <label className={labelCls}>APR (%)</label>
+                      <input type="number" step="0.01" min={0} className={inputCls} placeholder="24.99"
+                        value={accDraft.apr != null ? (accDraft.apr * 100).toFixed(4).replace(/\.?0+$/, "") : ""}
+                        onChange={(e) => {
+                          const pct = parseFloat(e.target.value);
+                          setAccDraft((d) => ({ ...d, apr: Number.isFinite(pct) ? pct / 100 : null as any }));
+                        }} />
+                    </div>
+                  </div>
+                </>
+              )}
+              {(accDraft.type ?? "CHECKING") === "SAVINGS" && (
                 <div>
-                  <label className={labelCls}>Credit Limit</label>
-                  <input type="number" step="0.01" min={0} className={inputCls} placeholder="5000.00"
-                    value={accDraft.creditLimit ?? ""}
-                    onChange={(e) => setAccDraft((d) => ({ ...d, creditLimit: parseFloat(e.target.value) || null as any }))} />
+                  <label className={labelCls}>APY (%)</label>
+                  <input type="number" step="0.001" min={0} className={inputCls} placeholder="4.00"
+                    value={accDraft.apy != null ? (accDraft.apy * 100).toFixed(4).replace(/\.?0+$/, "") : ""}
+                    onChange={(e) => {
+                      const pct = parseFloat(e.target.value);
+                      setAccDraft((d) => ({ ...d, apy: Number.isFinite(pct) ? pct / 100 : null as any }));
+                    }} />
                 </div>
               )}
               <div>

@@ -15,8 +15,16 @@ import {
   type Cadence,
 } from "@/components/finance/_shared";
 import {
-  ColDef, DataTable, SearchInput, TableControls, useTableControls,
+  ColDef, DataTable, SearchInput, useTableControls,
 } from "@/components/common/table";
+
+const UNCATEGORIZED = "Uncategorized";
+
+type CategoryGroup = {
+  key:     string;
+  items:   RecurringRecord[];
+  monthly: number;
+};
 
 type PanelState =
   | { kind: "new" }
@@ -274,8 +282,46 @@ export default function RecurringPage() {
     getSortValue: (row, key) => columns.find((c) => c.key === key)?.sortValue?.(row),
     getSearchText: (row) =>
       columns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" "),
-    initialPageSize: 50,
+    initialPageSize: 10_000,   // pagination disabled — grouped rendering shows everything
   });
+
+  // Group the filtered+sorted items by category. Items within each group preserve
+  // the current sort (ctl.sorted applies the global sort key across all items, then
+  // we partition). Groups are ordered by abs(monthly subtotal) desc, with
+  // "Uncategorized" always last.
+  const groups: CategoryGroup[] = useMemo(() => {
+    const map = new Map<string, RecurringRecord[]>();
+    for (const r of ctl.sorted) {
+      const cat = r.category?.trim() || UNCATEGORIZED;
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(r);
+    }
+    const arr: CategoryGroup[] = Array.from(map.entries()).map(([key, items]) => {
+      const monthly = items.reduce((s, r) => {
+        const amt = r.amount ?? 0;
+        const factor = CADENCE_MONTHLY_FACTOR[r.cadence as Cadence] ?? 1;
+        return s + amt * factor;
+      }, 0);
+      return { key, items, monthly };
+    });
+    arr.sort((a, b) => {
+      if (a.key === UNCATEGORIZED && b.key !== UNCATEGORIZED) return 1;
+      if (b.key === UNCATEGORIZED && a.key !== UNCATEGORIZED) return -1;
+      return Math.abs(b.monthly) - Math.abs(a.monthly);
+    });
+    return arr;
+  }, [ctl.sorted]);
+
+  // Unique non-empty categories across all recurrences — feeds the datalist typeahead
+  // in the edit panel. Includes inactive so a paused category doesn't disappear.
+  const categoryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of recurrings) {
+      const c = r.category?.trim();
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [recurrings]);
 
   if (authState !== "authenticated") return null;
 
@@ -308,34 +354,56 @@ export default function RecurringPage() {
             <EmptyState label="recurring transactions" onAdd={openNew} />
           ) : (
             <div className="flex flex-col gap-6">
-              {/* Active */}
+              {/* Active — grouped by category, subtotal per group */}
               <div>
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                   <p className="text-xs uppercase tracking-widest text-gray-400 font-medium">
                     Active · {active.length}
+                    {ctl.search && ctl.totalItems !== active.length && (
+                      <span className="ml-1 normal-case tracking-normal text-gray-500">
+                        ({ctl.totalItems} matching)
+                      </span>
+                    )}
                   </p>
                   <SearchInput value={ctl.search} onChange={ctl.setSearch} placeholder="Search description, category, account…" />
                 </div>
-                <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-                  <DataTable
-                    rows={ctl.paged}
-                    columns={columns}
-                    sortKey={ctl.sortKey}
-                    sortDir={ctl.sortDir}
-                    onSort={ctl.handleSort}
-                    onRowClick={openEdit}
-                    emptyMessage={ctl.search ? "No matches" : "No active recurrences"}
-                  />
-                  <TableControls
-                    page={ctl.page}
-                    totalPages={ctl.totalPages}
-                    totalItems={ctl.totalItems}
-                    totalUnfiltered={ctl.totalUnfiltered}
-                    pageSize={ctl.pageSize}
-                    setPage={ctl.setPage}
-                    setPageSize={ctl.setPageSize}
-                  />
-                </div>
+                {groups.length === 0 ? (
+                  <div className="rounded-lg border border-gray-200 dark:border-darkBorder p-6 text-center text-sm text-gray-400">
+                    {ctl.search ? "No matches" : "No active recurrences"}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {groups.map((g) => (
+                      <div key={g.key}>
+                        <div className="flex items-baseline justify-between mb-1.5 gap-2 flex-wrap px-1">
+                          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                            {g.key}
+                            <span className="ml-2 text-[11px] font-normal text-gray-400">
+                              {g.items.length} item{g.items.length === 1 ? "" : "s"}
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-gray-400">
+                            Monthly{" "}
+                            <span className="font-semibold tabular-nums" style={{ color: amountColor(g.monthly) }}>
+                              {fmtCurrency(g.monthly, "USD", true)}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                          <DataTable
+                            rows={g.items}
+                            columns={columns}
+                            sortKey={ctl.sortKey}
+                            sortDir={ctl.sortDir}
+                            onSort={ctl.handleSort}
+                            onRowClick={openEdit}
+                            emptyMessage="No matches"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Inactive — kept as-is: typically small, read-only listing */}
@@ -426,9 +494,17 @@ export default function RecurringPage() {
               </div>
               <div>
                 <label className={labelCls}>Category</label>
-                <input type="text" className={inputCls} placeholder="Housing, Subscription…"
+                <input
+                  type="text"
+                  className={inputCls}
+                  placeholder="Housing, Subscription…"
+                  list="recurring-category-options"
                   value={draft.category ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))} />
+                  onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
+                />
+                <datalist id="recurring-category-options">
+                  {categoryOptions.map((c) => <option key={c} value={c} />)}
+                </datalist>
               </div>
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
                 <input type="checkbox" checked={draft.active ?? true}

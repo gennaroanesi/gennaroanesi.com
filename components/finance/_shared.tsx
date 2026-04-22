@@ -575,6 +575,47 @@ export async function refreshAllQuotes(): Promise<RefreshPricesResult> {
   };
 }
 
+// Module-level flag so two simultaneous callers in the same tab can't stomp on each
+// other. Cross-tab coordination happens via the fetchedAt timestamp check below.
+let _refreshInFlight = false;
+
+export type MaybeRefreshResult =
+  | { skipped: true;  reason: "fresh" | "in-flight" | "error"; result?: undefined }
+  | { skipped: false; reason?: undefined;                      result: RefreshPricesResult };
+
+/**
+ * Auto-refresh wrapper. Short-circuits if another tab/device already refreshed
+ * recently (newest non-manual quote within `freshnessMinutes`), or if a refresh
+ * is already running in this tab. Errors are swallowed — callers are expected to
+ * be background tickers that shouldn't break the UI on transient failures.
+ */
+export async function maybeRefreshAllQuotes(
+  freshnessMinutes = 14,
+): Promise<MaybeRefreshResult> {
+  if (_refreshInFlight) return { skipped: true, reason: "in-flight" };
+  _refreshInFlight = true;
+  try {
+    const existing = await listAll(client.models.financeTickerQuote);
+    let newestMs = 0;
+    for (const q of existing) {
+      if (isQuoteManual(q)) continue;
+      if (!q.fetchedAt) continue;
+      const t = new Date(q.fetchedAt).getTime();
+      if (t > newestMs) newestMs = t;
+    }
+    if (newestMs > 0 && (Date.now() - newestMs) / 60_000 < freshnessMinutes) {
+      return { skipped: true, reason: "fresh" };
+    }
+    const result = await refreshAllQuotes();
+    return { skipped: false, result };
+  } catch (err: any) {
+    console.warn("[maybeRefreshAllQuotes] skipped:", err?.message ?? err);
+    return { skipped: true, reason: "error" };
+  } finally {
+    _refreshInFlight = false;
+  }
+}
+
 // ── Physical assets ─────────────────────────────────────────────────────────────────
 
 /** Total value of active assets. Inactive (sold) assets contribute 0. */

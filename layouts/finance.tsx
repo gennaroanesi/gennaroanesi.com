@@ -1,11 +1,13 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import { Listbox, ListboxItem } from "@heroui/listbox";
 import { Divider } from "@heroui/divider";
 import DefaultLayout from "@/layouts/default";
+import { maybeRefreshAllQuotes } from "@/components/finance/_shared";
 
 const FINANCE_COLOR = "#10b981"; // emerald
+const QUOTE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 const NAV_ITEMS = [
   { key: "dashboard",    label: "Dashboard",    href: "/finance" },
@@ -34,6 +36,15 @@ function activeKey(pathname: string): string {
 export default function FinanceLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const active = activeKey(router.pathname);
+
+  // Auto-refresh ticker quotes on first landing and every 15 min. The helper
+  // skips when another tab/device refreshed recently, so re-mounts on route
+  // changes within /finance are safe.
+  useEffect(() => {
+    maybeRefreshAllQuotes();
+    const id = setInterval(() => { maybeRefreshAllQuotes(); }, QUOTE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <DefaultLayout>
