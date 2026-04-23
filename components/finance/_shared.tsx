@@ -36,23 +36,37 @@ export const client = generateClient<Schema>();
  */
 export async function listAll<T>(
   model: {
-    list: (args: { limit?: number; nextToken?: string | null }) => Promise<{
+    list: (args: { limit?: number; nextToken?: string | null; filter?: any }) => Promise<{
       data: T[] | null;
       nextToken?: string | null;
       errors?: any[];
     }>;
   },
-  opts: { pageSize?: number; maxPages?: number } = {},
+  optsOrFilter: { pageSize?: number; maxPages?: number; filter?: any } | any = {},
 ): Promise<T[]> {
+  // Positional-arg quality-of-life: `listAll(model, { date: { ge: "2026-01-01" } })`
+  // is accepted as a filter shorthand, alongside the original
+  // `listAll(model, { pageSize: 500 })` options shape. We detect by looking
+  // for the pagination-control keys.
+  const looksLikeOpts =
+    optsOrFilter &&
+    typeof optsOrFilter === "object" &&
+    ("pageSize" in optsOrFilter || "maxPages" in optsOrFilter || "filter" in optsOrFilter);
+  const opts: { pageSize?: number; maxPages?: number; filter?: any } =
+    looksLikeOpts ? optsOrFilter : { filter: optsOrFilter };
+
   const pageSize = opts.pageSize ?? 1000;
   const maxPages = opts.maxPages ?? 50;
+  const filter   = opts.filter;
 
   const out: T[] = [];
   let nextToken: string | null | undefined = null;
   let pages = 0;
 
   do {
-    const res: any = await model.list({ limit: pageSize, nextToken });
+    const args: any = { limit: pageSize, nextToken };
+    if (filter) args.filter = filter;
+    const res: any = await model.list(args);
     if (res?.errors?.length) {
       console.error("[listAll] errors:", res.errors);
       throw new Error(res.errors[0]?.message ?? "list failed");
@@ -82,6 +96,7 @@ export type AssetRecord       = Schema["financeAsset"]["type"];
 export type MilestoneRecord   = Schema["financeGoalMilestone"]["type"];
 export type LoanRecord        = Schema["financeLoan"]["type"];
 export type LoanPaymentRecord = Schema["financeLoanPayment"]["type"];
+export type AccountSnapshotRecord = Schema["financeAccountSnapshot"]["type"];
 
 export type MilestoneStatus = "HIT" | "MISSED" | "PENDING";
 

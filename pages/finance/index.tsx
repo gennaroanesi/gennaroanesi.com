@@ -5,7 +5,7 @@ import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
   HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord,
-  GoalFundingSourceRecord,
+  GoalFundingSourceRecord, AccountSnapshotRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   PHYSICAL_ASSET_TYPE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, advanceByCadence, monthsUntil,
@@ -18,6 +18,7 @@ import {
   listAll,
   type Cadence,
 } from "@/components/finance/_shared";
+import { Sparkline } from "@/components/common/sparkline";
 
 // ── Skeleton placeholder ──────────────────────────────────────────────────
 function SectionSkeleton({ lines = 3 }: { lines?: number }) {
@@ -58,17 +59,25 @@ export default function FinanceDashboard() {
   // Each group fetches independently and sets its own loading flag.
   // Sections render as soon as their data arrives.
 
+  const [snapshots, setSnapshots] = useState<AccountSnapshotRecord[]>([]);
+
   const fetchAccounts = useCallback(async () => {
     setLoadingAccounts(true);
     try {
-      const [accs, lotRecs, quoteRecs] = await Promise.all([
+      // Trailing 30 days of snapshots — enough for the dashboard sparkline.
+      // Filtered on the server so we don't pay for years of history.
+      const sinceIso = new Date(Date.now() - 30 * 24 * 3600 * 1000)
+        .toISOString().slice(0, 10);
+      const [accs, lotRecs, quoteRecs, snapRecs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
+        listAll(client.models.financeAccountSnapshot, { date: { ge: sinceIso } }),
       ]);
       setAccounts(accs);
       setLots(lotRecs);
       setQuotes(quoteRecs);
+      setSnapshots(snapRecs);
     } finally {
       setLoadingAccounts(false);
     }
@@ -136,6 +145,23 @@ export default function FinanceDashboard() {
   const usingFavorites = favoriteAccounts.length > 0;
 
   const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
+
+  // Per-account trailing balance series for sparklines. Sorted oldest → newest
+  // so the line reads left-to-right as days go by.
+  const balanceSeriesByAccount = useMemo(() => {
+    const m = new Map<string, number[]>();
+    const byAcc = new Map<string, AccountSnapshotRecord[]>();
+    for (const s of snapshots) {
+      if (!s.accountId) continue;
+      if (!byAcc.has(s.accountId)) byAcc.set(s.accountId, []);
+      byAcc.get(s.accountId)!.push(s);
+    }
+    for (const [id, rows] of byAcc) {
+      rows.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+      m.set(id, rows.map((r) => r.balance ?? 0));
+    }
+    return m;
+  }, [snapshots]);
 
   const activeAssets = useMemo(() => assets.filter((a) => a.active !== false), [assets]);
   const assetsTotal  = useMemo(() => totalAssetValue(assets), [assets]);
@@ -307,6 +333,8 @@ export default function FinanceDashboard() {
                       const totalValue = accountTotalValue(acc, lots, quoteMap);
                       const invested = isInvestedAccount(acc.type);
                       const positionsValue = invested ? totalValue - (acc.currentBalance ?? 0) : 0;
+                      const series = balanceSeriesByAccount.get(acc.id) ?? [];
+                      const sparkColor = totalValue >= 0 ? FINANCE_COLOR : "#ef4444";
                       return (
                         <a
                           key={acc.id}
@@ -317,12 +345,24 @@ export default function FinanceDashboard() {
                             <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{acc.name}</span>
                             <AccountBadge type={acc.type} />
                           </div>
-                          <span
-                            className="text-xl font-bold tabular-nums"
-                            style={{ color: totalValue >= 0 ? FINANCE_COLOR : "#ef4444" }}
-                          >
-                            {fmtCurrency(totalValue, acc.currency ?? "USD")}
-                          </span>
+                          <div className="flex items-end justify-between gap-3">
+                            <span
+                              className="text-xl font-bold tabular-nums"
+                              style={{ color: sparkColor }}
+                            >
+                              {fmtCurrency(totalValue, acc.currency ?? "USD")}
+                            </span>
+                            {series.length >= 2 && (
+                              <Sparkline
+                                points={series}
+                                width={80}
+                                height={24}
+                                stroke={sparkColor}
+                                fill={sparkColor + "22"}
+                                title={`${series.length}-day balance trend`}
+                              />
+                            )}
+                          </div>
                           {invested && (
                             <p className="text-[11px] text-gray-400 tabular-nums">
                               Cash {fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}

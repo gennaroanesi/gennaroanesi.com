@@ -10,6 +10,8 @@ import {
 } from "aws-cdk-lib/aws-lambda";
 import { Repository } from "aws-cdk-lib/aws-ecr";
 import { DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { Rule, Schedule } from "aws-cdk-lib/aws-events";
+import { LambdaFunction as LambdaFunctionTarget } from "aws-cdk-lib/aws-events-targets";
 import { Duration, Size } from "aws-cdk-lib";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { CfnApi, CfnIntegration, CfnRoute, CfnStage } from "aws-cdk-lib/aws-apigatewayv2";
@@ -23,6 +25,7 @@ import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
 import { notesApi } from "./functions/notesApi/resource";
 import { gennaroAgent } from "./functions/gennaroAgent/resource";
+import { financeSnapshots } from "./functions/financeSnapshots/resource";
 
 const backend = defineBackend({
   auth,
@@ -32,6 +35,7 @@ const backend = defineBackend({
   importLogbook,
   notesApi,
   gennaroAgent,
+  financeSnapshots,
   //storage,
 });
 
@@ -424,6 +428,24 @@ gennaroAgentFn.addEnvironment(
   "ANTHROPIC_API_KEY",
   anthropicSecretForAgent.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
 );
+
+// ── financeSnapshots cron ────────────────────────────────────────────────────
+// Daily EventBridge rule at 11:00 UTC ≈ 6 AM America/Chicago (the repo's
+// canonical timezone). We tolerate the 1-hour DST skew instead of running
+// two rules — the Lambda captures "yesterday local" so running an hour
+// earlier or later doesn't change which date is captured.
+//
+// Data access is granted via schema-level allow.resource(financeSnapshots)
+// in amplify/data/resource.ts — no additional IAM wiring needed here.
+
+const snapshotFn = backend.financeSnapshots.resources.lambda as LambdaFunction;
+
+new Rule(backend.stack, "FinanceSnapshotsDailyRule", {
+  ruleName: "finance-snapshots-daily",
+  description: "Daily 6 AM Central capture of per-account balance + flow",
+  schedule: Schedule.cron({ minute: "0", hour: "11" }),
+  targets: [new LambdaFunctionTarget(snapshotFn)],
+});
 
 // ── transcribeAudio infrastructure ──────────────────────────────────────────
 // Python container Lambda — cannot use defineFunction (Node.js only).

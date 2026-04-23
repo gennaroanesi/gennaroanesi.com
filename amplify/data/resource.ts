@@ -2,6 +2,7 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { statusEnum } from "./enum";
 import { sendNotification } from "../functions/sendNotification/resource";
 import { gennaroAgent } from "../functions/gennaroAgent/resource";
+import { financeSnapshots } from "../functions/financeSnapshots/resource";
 
 // Reusable location shape — used on both day and event
 const locationCustomType = a.customType({
@@ -686,6 +687,31 @@ const schema = a.schema({
     })
     .identifier(["ticker"])
     .authorization((allow) => [allow.group("admins")]),
+
+  // ── Account daily snapshot ────────────────────────────────────────────────
+  // One row per (accountId, date). Captured daily by the financeSnapshots
+  // Lambda (6 AM Central ~ 11 UTC). Inflow/outflow are neutral terms that
+  // work for both checking (wages in / rent out) and credit cards (payment
+  // in / charges out). Snapshots are derived — never user-edited. If a
+  // transaction is back-dated, the next cron run overwrites the affected row
+  // (upsert by accountId+date).
+  financeAccountSnapshot: a
+    .model({
+      accountId:            a.id().required(),          // FK → financeAccount.id
+      date:                 a.date().required(),        // YYYY-MM-DD (America/Chicago local)
+      balance:              a.float().required(),       // account.currentBalance at capture time
+      inflow:               a.float().default(0),       // Σ positive-amount POSTED tx on this date
+      outflow:              a.float().default(0),       // |Σ negative-amount POSTED tx| on this date
+      txCount:              a.integer().default(0),     // POSTED tx count for this date
+      largestTxAmount:      a.float(),                  // signed amount of max-|tx| that day
+      largestTxDescription: a.string(),                 // description of that tx (for tooltip)
+      capturedAt:           a.datetime().required(),    // actual wall-clock capture time
+    })
+    .secondaryIndexes((index) => [
+      index("accountId").sortKeys(["date"]),            // "last N days for account X"
+    ])
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Task ──────────────────────────────────────────────────────────────────
   // Actionable items for the household agent. Structured (vs. PARA notes which
   // are freeform markdown). Notifications fire on overdue/upcoming tasks.
@@ -794,6 +820,7 @@ const schema = a.schema({
 })
 .authorization((allow) => [
   allow.resource(gennaroAgent),
+  allow.resource(financeSnapshots),
 ]);
 
 export type Schema = ClientSchema<typeof schema>;
