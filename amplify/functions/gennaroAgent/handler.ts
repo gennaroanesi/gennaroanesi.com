@@ -41,6 +41,21 @@ async function getClient(): Promise<DataClient> {
   return _client;
 }
 
+// Load inventoryItem rows into a Map keyed by id, optionally filtered by
+// category + active state. Used by the per-category list_* tools to join
+// detail rows (which only have itemId) back to the base item for its name
+// and brand. For the scale of a personal inventory, listing all items in a
+// category is cheaper than issuing one .get per detail row.
+async function buildItemMap(category: string, activeOnly: boolean): Promise<Map<string, any>> {
+  const c = await getClient();
+  const filter: any = { category: { eq: category } };
+  if (activeOnly) filter.active = { ne: false };
+  const items = await listAll(c.models.inventoryItem, filter);
+  const m = new Map<string, any>();
+  for (const item of items) if (item.id) m.set(item.id, item);
+  return m;
+}
+
 // Amplify.list() caps at 100 per page. This helper follows nextToken until the
 // cap is reached, keeping the agent from chewing through giant tables.
 async function listAll<T>(
@@ -247,6 +262,91 @@ const tools: Anthropic.Tool[] = [
       required: ["ticker"],
     },
   },
+
+  // ── Inventory ────────────────────────────────────────────────────────────
+  // Inventory has a base `item` record (name, brand, price, category) and one
+  // category-specific detail table per category (firearms, ammo, instruments,
+  // filaments, photography). Each list_<category> tool returns the details
+  // joined with their base items, so the agent can answer name + spec questions
+  // in a single turn.
+  {
+    name: "list_inventory_items",
+    description:
+      "List base inventory items across all categories. Useful for name/brand searches that span categories. For category-specific detail (caliber, instrument type, etc.) call the matching list_<category> tool instead.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        category:      { type: "string", description: "Filter to one category: FIREARM, AMMO, FILAMENT, INSTRUMENT, PHOTOGRAPHY, OTHER." },
+        nameContains:  { type: "string", description: "Case-insensitive substring match on name." },
+        brandContains: { type: "string", description: "Case-insensitive substring match on brand." },
+        activeOnly:    { type: "boolean", description: "Only items with active=true. Default true." },
+      },
+    },
+  },
+  {
+    name: "list_firearms",
+    description:
+      "List firearms with their base item data joined in. Each row has type (HANDGUN/RIFLE/SHOTGUN/SBR/SUPPRESSOR/OTHER), caliber, serial number, and the parent item's name/brand/notes.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type:       { type: "string", description: "Filter to a firearm type." },
+        caliber:    { type: "string", description: "Substring match on caliber (e.g. '9mm', '5.56', '.45')." },
+        activeOnly: { type: "boolean", description: "Only active items. Default true." },
+      },
+    },
+  },
+  {
+    name: "list_ammo",
+    description:
+      "List ammo with base item data joined in. Each row has caliber, quantity, unit (ROUNDS/BOX/CASE), roundsPerUnit, grain, bulletType, and roundsAvailable (current on-hand). When a caliber filter is provided, the result also includes totalRoundsAvailable summed across matching rows — use that for 'how many X do I have' style questions.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        caliber:       { type: "string", description: "Substring match on caliber (e.g. '9mm', '5.56')." },
+        onlyAvailable: { type: "boolean", description: "Exclude rows where roundsAvailable <= 0. Default false." },
+        activeOnly:    { type: "boolean", description: "Only active items. Default true." },
+      },
+    },
+  },
+  {
+    name: "list_instruments",
+    description:
+      "List musical instruments (guitars, basses, amps, pedals, keyboards). Rows join the detail record with the base item. Filter by type=GUITAR to answer 'list all my guitars'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type:       { type: "string", description: "Filter to one type: GUITAR, BASS, AMPLIFIER, PEDAL, KEYBOARD, OTHER." },
+        activeOnly: { type: "boolean", description: "Only active items. Default true." },
+      },
+    },
+  },
+  {
+    name: "list_filaments",
+    description:
+      "List 3D-printer filaments with base item data joined in. Each row has material (PLA, ABS, PETG, TPU, …), variant, color, diameter (d175/d285), weightG per spool, and quantity (spools).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        material:      { type: "string", description: "Filter to one material enum value." },
+        colorContains: { type: "string", description: "Substring match on color." },
+        activeOnly:    { type: "boolean", description: "Only active items. Default true." },
+      },
+    },
+  },
+  {
+    name: "list_photography",
+    description:
+      "List photography gear (cameras, lenses, drones, gimbals, tripods, lights, accessories). Rows include mount, sensor format, focal-length range, max aperture, etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type:       { type: "string", description: "Filter to one type: CAMERA, LENS, DRONE, GIMBAL, TRIPOD, LIGHT, ACCESSORY, OTHER." },
+        mount:      { type: "string", description: "Exact match on mount (e.g. 'E', 'RF', 'EF')." },
+        activeOnly: { type: "boolean", description: "Only active items. Default true." },
+      },
+    },
+  },
 ];
 
 // ── Tool dispatcher ─────────────────────────────────────────────────────────
@@ -370,6 +470,87 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         if (errors?.length) return stringify({ ok: false, error: errors[0].message });
         return stringify({ ok: true, data: { quote: data } });
       }
+
+      // ── Inventory ────────────────────────────────────────────────────────
+      case "list_inventory_items": {
+        const activeOnly = input.activeOnly !== false;
+        const filter: any = {};
+        if (input.category)      filter.category = { eq: input.category };
+        if (input.nameContains)  filter.name     = { contains: input.nameContains };
+        if (input.brandContains) filter.brand    = { contains: input.brandContains };
+        if (activeOnly)          filter.active   = { ne: false };
+        const items = await listAll(c.models.inventoryItem, Object.keys(filter).length ? filter : undefined);
+        return stringify({ ok: true, data: { items, count: items.length } });
+      }
+      case "list_firearms": {
+        const activeOnly = input.activeOnly !== false;
+        const itemMap = await buildItemMap("FIREARM", activeOnly);
+        const filter: any = {};
+        if (input.type)    filter.type    = { eq: input.type };
+        if (input.caliber) filter.caliber = { contains: input.caliber };
+        const details = await listAll(c.models.inventoryFirearm, Object.keys(filter).length ? filter : undefined);
+        const joined = details
+          .map((d) => ({ ...d, item: itemMap.get(d.itemId ?? "") }))
+          .filter((d) => d.item);
+        return stringify({ ok: true, data: { firearms: joined, count: joined.length } });
+      }
+      case "list_ammo": {
+        const activeOnly    = input.activeOnly !== false;
+        const onlyAvailable = input.onlyAvailable === true;
+        const itemMap = await buildItemMap("AMMO", activeOnly);
+        const filter: any = {};
+        if (input.caliber) filter.caliber = { contains: input.caliber };
+        const details = await listAll(c.models.inventoryAmmo, Object.keys(filter).length ? filter : undefined);
+        let joined = details
+          .map((d) => ({ ...d, item: itemMap.get(d.itemId ?? "") }))
+          .filter((d) => d.item);
+        if (onlyAvailable) joined = joined.filter((d) => (d.roundsAvailable ?? 0) > 0);
+        const totalRoundsAvailable = joined.reduce((s, d) => s + (d.roundsAvailable ?? 0), 0);
+        return stringify({
+          ok: true,
+          data: {
+            ammo: joined,
+            count: joined.length,
+            totalRoundsAvailable,
+          },
+        });
+      }
+      case "list_instruments": {
+        const activeOnly = input.activeOnly !== false;
+        const itemMap = await buildItemMap("INSTRUMENT", activeOnly);
+        const filter: any = {};
+        if (input.type) filter.type = { eq: input.type };
+        const details = await listAll(c.models.inventoryInstrument, Object.keys(filter).length ? filter : undefined);
+        const joined = details
+          .map((d) => ({ ...d, item: itemMap.get(d.itemId ?? "") }))
+          .filter((d) => d.item);
+        return stringify({ ok: true, data: { instruments: joined, count: joined.length } });
+      }
+      case "list_filaments": {
+        const activeOnly = input.activeOnly !== false;
+        const itemMap = await buildItemMap("FILAMENT", activeOnly);
+        const filter: any = {};
+        if (input.material)      filter.material = { eq: input.material };
+        if (input.colorContains) filter.color    = { contains: input.colorContains };
+        const details = await listAll(c.models.inventoryFilament, Object.keys(filter).length ? filter : undefined);
+        const joined = details
+          .map((d) => ({ ...d, item: itemMap.get(d.itemId ?? "") }))
+          .filter((d) => d.item);
+        return stringify({ ok: true, data: { filaments: joined, count: joined.length } });
+      }
+      case "list_photography": {
+        const activeOnly = input.activeOnly !== false;
+        const itemMap = await buildItemMap("PHOTOGRAPHY", activeOnly);
+        const filter: any = {};
+        if (input.type)  filter.type  = { eq: input.type };
+        if (input.mount) filter.mount = { eq: input.mount };
+        const details = await listAll(c.models.inventoryPhotography, Object.keys(filter).length ? filter : undefined);
+        const joined = details
+          .map((d) => ({ ...d, item: itemMap.get(d.itemId ?? "") }))
+          .filter((d) => d.item);
+        return stringify({ ok: true, data: { photography: joined, count: joined.length } });
+      }
+
       default:
         return stringify({ ok: false, error: `Unknown tool: ${name}` });
     }
@@ -405,7 +586,10 @@ function buildSystemPrompt(chatContext: unknown): string {
     } catch { /* ignore */ }
   }
 
-  return `You are the finance assistant for Gennaro's personal dashboard. You help summarize and explore the user's accounts, transactions, recurring items, goals, holdings, and loans.
+  return `You are the assistant for Gennaro's personal dashboard. You help summarize and explore two domains today:
+
+1. FINANCE — accounts, transactions, recurring items, savings goals, holdings, ticker quotes, assets, loans.
+2. INVENTORY — physical items (firearms, ammo, musical instruments, 3D-printer filaments, photography gear). A base item record holds name/brand/price; category-specific detail tables hold the specs. The list_<category> tools already join them.
 
 Today is ${dateFmt.format(now)} (${TZ}).
 
@@ -418,6 +602,9 @@ Guidelines:
 - Manual ticker quotes (source="manual") are user-managed and may be stale even if fresh looking.
 - Balances in BROKERAGE/RETIREMENT accounts are cash only — add Σ(lot.quantity × quote.price) for market value.
 - Credit account balances are negative when money is owed. creditLimit and APR are informational.
+- For inventory questions, pick the category-specific tool (list_firearms, list_ammo, list_instruments, …) — each returns items already joined with their base record (name/brand). Only use list_inventory_items for cross-category name/brand searches.
+- Ammo calibers are free-text (e.g. "9mm", "9mm Luger", "9x19 Parabellum"). Use contains-match. For "how many X do I have", list_ammo returns totalRoundsAvailable — use that directly.
+- Instrument types are uppercase enums: GUITAR, BASS, AMPLIFIER, PEDAL, KEYBOARD. "Guitars" maps to type=GUITAR.
 - Keep responses terse and direct. Don't narrate tool calls; just use the results.${ctxBlock}`;
 }
 

@@ -476,23 +476,32 @@ function safeStringify(v: unknown): string {
 }
 
 function EmptyChat({ accent }: { accent: string }) {
-  const examples = [
+  const financeExamples = [
     "What's my net worth right now?",
     "How much did I spend on dining last month?",
-    "Which accounts are funding my emergency-fund goal?",
     "What recurring expenses do I have every month?",
     "Show me all holdings in my brokerage.",
+  ];
+  const inventoryExamples = [
+    "List all my guitars.",
+    "How much 9mm ammo do I have?",
+    "What filament colors do I have in PETG?",
+    "Which lenses do I own for E-mount?",
   ];
   return (
     <div className="max-w-lg mx-auto text-center py-12">
       <p className="text-sm font-semibold mb-1" style={{ color: accent }}>Assistant</p>
       <p className="text-xs text-gray-400 mb-6">
-        Read-only agent with tools for the finance domain (accounts, transactions, recurrences, goals, holdings, loans).
-        More domains coming soon.
+        Read-only agent. Tools cover finance (accounts, transactions, recurrences, goals, holdings, loans)
+        and inventory (firearms, ammo, instruments, filaments, photography).
       </p>
-      <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Try asking</p>
+      <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Finance</p>
+      <ul className="text-xs text-gray-500 dark:text-gray-400 space-y-1 mb-5">
+        {financeExamples.map((e) => <li key={e}>· {e}</li>)}
+      </ul>
+      <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Inventory</p>
       <ul className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-        {examples.map((e) => <li key={e}>· {e}</li>)}
+        {inventoryExamples.map((e) => <li key={e}>· {e}</li>)}
       </ul>
     </div>
   );
