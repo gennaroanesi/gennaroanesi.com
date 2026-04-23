@@ -9,7 +9,7 @@
 const ENVIRONMENTS = {
   sandbox: {
     region:     "us-east-1",
-    userPoolId: "us-east-1_567Wg1eE0",
+    userPoolId: "us-east-1_aOPRNH5x3",
     clientId:   "14jdsru65a6be94lj26r2mm259",
     appsyncUrl: "https://vaqkgteemrdfroauddnr2mp4dm.appsync-api.us-east-1.amazonaws.com/graphql",
     apiKey:     "da2-if6ng6dys5dmlkdtadjzjgljci",

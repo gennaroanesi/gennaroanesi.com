@@ -22,6 +22,7 @@ import { sendNotification } from "./functions/sendNotification/resource";
 import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
 import { notesApi } from "./functions/notesApi/resource";
+import { gennaroAgent } from "./functions/gennaroAgent/resource";
 
 const backend = defineBackend({
   auth,
@@ -30,6 +31,7 @@ const backend = defineBackend({
   checkAmmoThresholds,
   importLogbook,
   notesApi,
+  gennaroAgent,
   //storage,
 });
 
@@ -400,6 +402,28 @@ importFn.addPermission("S3InvokeImportLogbook", {
   action:    "lambda:InvokeFunction",
   sourceArn: customBucket.bucketArn,
 });
+
+// ── gennaroAgent infrastructure ──────────────────────────────────────────────
+// Tool-calling Claude agent. Starts read-only over finance models; more tool
+// domains (inventory, flight, …) will be added later. Wired as an AppSync
+// custom mutation handler (invokeGennaroAgent) in amplify/data/resource.ts.
+// Data access is granted via schema-level allow.resource(gennaroAgent).
+// All we do here is inject ANTHROPIC_API_KEY.
+//
+// Reuses the existing gennaroanesi/transcribe secret (which already stores
+// the Anthropic API key for the Whisper → Claude flight transcription pipeline).
+
+const gennaroAgentFn = backend.gennaroAgent.resources.lambda as LambdaFunction;
+const anthropicSecretForAgent = Secret.fromSecretNameV2(
+  backend.stack,
+  "GennaroAgentAnthropicSecret",
+  "gennaroanesi/transcribe",
+);
+anthropicSecretForAgent.grantRead(gennaroAgentFn);
+gennaroAgentFn.addEnvironment(
+  "ANTHROPIC_API_KEY",
+  anthropicSecretForAgent.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+);
 
 // ── transcribeAudio infrastructure ──────────────────────────────────────────
 // Python container Lambda — cannot use defineFunction (Node.js only).

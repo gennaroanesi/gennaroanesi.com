@@ -1,6 +1,7 @@
 import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { statusEnum } from "./enum";
 import { sendNotification } from "../functions/sendNotification/resource";
+import { gennaroAgent } from "../functions/gennaroAgent/resource";
 
 // Reusable location shape — used on both day and event
 const locationCustomType = a.customType({
@@ -706,6 +707,53 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index("dueDate"), index("assignedTo")])
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Gennaro agent conversation log ───────────────────────────────────────
+  // Persistent chat history for the assistant UI. The Lambda itself is
+  // stateless — the frontend reads/writes these tables to build the history
+  // array it passes to invokeGennaroAgent each turn.
+  //
+  // Messages link to conversations via a plain conversationId FK (no
+  // hasMany/belongsTo) — the overall schema is deep enough that relational
+  // types trip TypeScript's "excessively deep" limiter. Secondary index on
+  // conversationId keeps listing messages for a conversation O(1).
+  gennaroAgentConversation: a
+    .model({
+      title:  a.string(),
+      pinned: a.boolean().default(false),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
+  gennaroAgentConversationMessage: a
+    .model({
+      conversationId: a.id().required(),
+      role:           a.enum(["user", "assistant"]),
+      content:        a.string().required(),
+      actionsTaken:   a.json(), // [{tool, result}] from tool calls this turn
+    })
+    .secondaryIndexes((index) => [index("conversationId")])
+    .authorization((allow) => [allow.group("admins")]),
+
+  gennaroAgentAction: a.customType({
+    tool:   a.string().required(),
+    result: a.json(),
+  }),
+
+  gennaroAgentResponse: a.customType({
+    message:      a.string().required(),
+    actionsTaken: a.ref("gennaroAgentAction").array(),
+  }),
+
+  invokeGennaroAgent: a
+    .mutation()
+    .authorization((allow) => [allow.group("admins")])
+    .arguments({
+      message:     a.string().required(),
+      history:     a.json(), // [{role: "user"|"assistant", content: string}]
+      chatContext: a.json(), // optional frontend page state (currentPath, filters, …)
+    })
+    .returns(a.ref("gennaroAgentResponse"))
+    .handler(a.handler.function(gennaroAgent)),
+
   // ── testNotification mutation ──────────────────────────────────────────
   // Invokes sendNotification directly so the UI can test delivery without
   // needing to trigger the ammo threshold flow.
@@ -743,7 +791,10 @@ const schema = a.schema({
     ]),
     notes: a.string(),
   }),
-});
+})
+.authorization((allow) => [
+  allow.resource(gennaroAgent),
+]);
 
 export type Schema = ClientSchema<typeof schema>;
 
