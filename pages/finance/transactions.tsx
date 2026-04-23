@@ -6,7 +6,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
-  HoldingLotRecord, TickerQuoteRecord,
+  HoldingLotRecord, TickerQuoteRecord, RecurringRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, amountColor,
   computeGoalAllocations,
@@ -15,6 +15,8 @@ import {
   parseBankCsv, type ParsedTransaction,
   type TxType,
   listAll,
+  findRecurringMatches, applyRecurringMatch,
+  RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
@@ -47,6 +49,7 @@ export default function TransactionsPage() {
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
+  const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [saving,       setSaving]       = useState(false);
   const [panel,        setPanel]        = useState<PanelState>(null);
@@ -73,13 +76,14 @@ export default function TransactionsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, txs, gls, maps, lotRecs, quoteRecs] = await Promise.all([
+      const [accs, txs, gls, maps, lotRecs, quoteRecs, recRecs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
         listAll(client.models.financeSavingsGoal),
         listAll(client.models.financeGoalFundingSource),
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
+        listAll(client.models.financeRecurring),
       ]);
       setAccounts(accs);
       setTransactions(txs);
@@ -87,6 +91,7 @@ export default function TransactionsPage() {
       setMappings(maps);
       setLots(lotRecs);
       setQuotes(quoteRecs);
+      setRecurrings(recRecs);
     } finally {
       setLoading(false);
     }
@@ -156,7 +161,16 @@ export default function TransactionsPage() {
           importHash:  txDraft.importHash ?? null,
         });
         if (newTx) {
-          setTransactions((prev) => [newTx, ...prev]);
+          // Auto-match against recurring rules. High-confidence hits link
+          // immediately and advance the rule's nextDate. Lower-confidence
+          // suggestions are deferred to UI (not surfaced here).
+          const candidates = findRecurringMatches(newTx, recurrings);
+          let linked: TransactionRecord = newTx;
+          if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
+            await applyRecurringMatch(client, newTx, candidates[0].rule);
+            linked = { ...newTx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord;
+          }
+          setTransactions((prev) => [linked, ...prev]);
           if (isPosted) await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
         }
 
@@ -173,6 +187,7 @@ export default function TransactionsPage() {
           status:      (txDraft.status ?? "POSTED") as any,
           goalId:      txDraft.goalId ?? null,
           toAccountId: txDraft.toAccountId ?? null,
+          recurringId: txDraft.recurringId ?? null,
         });
 
         // Reverse old balance effect, apply new
@@ -278,7 +293,17 @@ export default function TransactionsPage() {
           toAccountId: null,
           importHash:  row.hash,
         });
-        if (tx) created.push(tx);
+        if (tx) {
+          // Same inline match attempt as manual entry. Imports often *are*
+          // recurring realizations, so the auto-link is the whole point.
+          const candidates = findRecurringMatches(tx, recurrings);
+          if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
+            await applyRecurringMatch(client, tx, candidates[0].rule);
+            created.push({ ...tx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord);
+          } else {
+            created.push(tx);
+          }
+        }
       }
 
       // Adjust account balance by sum of imported amounts (using effective signs)
@@ -312,6 +337,12 @@ export default function TransactionsPage() {
     return m;
   }, [accounts]);
 
+  const recurringById = useMemo(() => {
+    const m = new Map<string, RecurringRecord>();
+    for (const r of recurrings) m.set(r.id, r);
+    return m;
+  }, [recurrings]);
+
   // Goal allocations — used to show surplus badges on account chips so the user can
   // see at a glance which accounts have cash that isn't earmarked for any goal.
   const allocations = useMemo(
@@ -330,8 +361,30 @@ export default function TransactionsPage() {
       key: "description",
       label: "Description",
       sortValue: (t) => (t.description ?? "").toLowerCase(),
-      searchValue: (t) => `${t.description ?? ""} ${t.category ?? ""}`,
-      render: (t) => <span className="text-gray-800 dark:text-gray-200 block max-w-[200px] truncate">{t.description || "—"}</span>,
+      searchValue: (t) => {
+        const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
+        return `${t.description ?? ""} ${t.category ?? ""} ${rule?.description ?? ""}`;
+      },
+      render: (t) => {
+        const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-800 dark:text-gray-200 block max-w-[240px] truncate">{t.description || "—"}</span>
+            {rule && (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400"
+                title={`Linked to recurring rule: ${rule.description ?? ""}`}
+              >
+                <span
+                  className="inline-block w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: FINANCE_COLOR }}
+                />
+                {rule.description ?? "recurring"}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "category",
@@ -379,7 +432,7 @@ export default function TransactionsPage() {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [accountById]);
+  ], [accountById, recurringById]);
 
   const txCtl = useTableControls(filtered, {
     defaultSortKey: "date",
@@ -619,6 +672,25 @@ export default function TransactionsPage() {
                           <option key={a.id} value={a.id}>{a.name}</option>
                         ))}
                       </select>
+                    </div>
+                  )}
+                  {/* Linked recurring rule (edit only) — read-only with unlink.
+                      Re-linking uses the auto-matcher on save. */}
+                  {panel.kind === "edit-tx" && txDraft.recurringId && (
+                    <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex items-center justify-between gap-2">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Linked to recurring</span>
+                        <span className="text-xs text-gray-700 dark:text-gray-200">
+                          {recurringById.get(txDraft.recurringId)?.description ?? "(deleted rule)"}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTxDraft((d) => ({ ...d, recurringId: null as any }))}
+                        className="text-[11px] text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        Unlink
+                      </button>
                     </div>
                   )}
                   <SaveButton saving={saving} onSave={handleSaveTx}

@@ -511,7 +511,13 @@ const schema = a.schema({
       goalId: a.id(), // optional tag → financeSavingsGoal.id
       toAccountId: a.id(), // TRANSFER destination account
       importHash: a.string(), // dedup fingerprint: hash(date+amount+description)
+      // Optional link to the financeRecurring rule this tx realizes. Set by
+      // the auto-matcher on create or by the user via "Link to rule" action.
+      // Never set by the "Post now" flow — that path already advances the
+      // rule's nextDate server-side via the rule update.
+      recurringId: a.id(),
     })
+    .secondaryIndexes((index) => [index("recurringId")])
     .authorization((allow) => [allow.group("admins")]),
 
   financeRecurring: a

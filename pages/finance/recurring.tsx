@@ -5,7 +5,7 @@ import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  AccountRecord, RecurringRecord,
+  AccountRecord, RecurringRecord, TransactionRecord,
   CADENCES, CADENCE_LABELS, CADENCE_MONTHLY_FACTOR, FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, nextOccurrence, advanceByCadence, amountColor,
   isRecurrenceLive,
@@ -37,6 +37,7 @@ export default function RecurringPage() {
 
   const [accounts,   setAccounts]   = useState<AccountRecord[]>([]);
   const [recurrings, setRecurrings] = useState<RecurringRecord[]>([]);
+  const [linkedTxs,  setLinkedTxs]  = useState<TransactionRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
   const [panel,      setPanel]      = useState<PanelState>(null);
@@ -45,12 +46,17 @@ export default function RecurringPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, recs] = await Promise.all([
+      const [accs, recs, txs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring),
+        // Only the transactions that are linked to a recurring rule. Used to
+        // compute per-rule "last matched on YYYY-MM-DD" chips without pulling
+        // the entire ledger onto this page.
+        listAll(client.models.financeTransaction, { recurringId: { attributeExists: true } }),
       ]);
       setAccounts(accs);
       setRecurrings(recs);
+      setLinkedTxs(txs);
     } finally {
       setLoading(false);
     }
@@ -198,6 +204,17 @@ export default function RecurringPage() {
     [],
   );
 
+  // Latest linked-transaction date per rule, for the "last matched" chip.
+  const lastMatchByRule = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of linkedTxs) {
+      if (!t.recurringId || !t.date) continue;
+      const prev = m.get(t.recurringId);
+      if (!prev || t.date > prev) m.set(t.recurringId, t.date);
+    }
+    return m;
+  }, [linkedTxs]);
+
   const columns: ColDef<RecurringRecord>[] = useMemo(() => [
     {
       key: "description",
@@ -206,11 +223,17 @@ export default function RecurringPage() {
       searchValue: (r) => `${r.description ?? ""} ${r.category ?? ""} ${accountName(r)}`,
       render: (r) => {
         const acc = accounts.find((a) => a.id === r.accountId);
+        const lastMatched = lastMatchByRule.get(r.id);
         return (
           <div>
             <p className="text-gray-800 dark:text-gray-200 font-medium">{r.description}</p>
             {r.category && <p className="text-[11px] text-gray-400">{r.category}</p>}
             {acc && <p className="text-[11px] text-gray-400">{acc.name}</p>}
+            {lastMatched && (
+              <p className="text-[10px]" style={{ color: FINANCE_COLOR }}>
+                · last matched {fmtDate(lastMatched)}
+              </p>
+            )}
           </div>
         );
       },
@@ -274,7 +297,7 @@ export default function RecurringPage() {
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [accounts, saving, accountName, nextDate]);
+  ], [accounts, saving, accountName, nextDate, lastMatchByRule]);
 
   const ctl = useTableControls(active, {
     defaultSortKey: "next",
