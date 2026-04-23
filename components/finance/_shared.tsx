@@ -1170,11 +1170,13 @@ export function recalculateLoan(
     : addMonthsIso(todayIso(), paceSim.months);
 
   // ── originalTerm ────────────────────────────────────────────────────────
-  // Months from today to the loan's contractual payoff date.
+  // Months from today to the loan's contractual payoff date. Rounded up —
+  // a "partial month remaining" isn't a meaningful user-facing figure and
+  // the amortization formula needs an integer anyway.
   const firstPay   = loan.firstPaymentDate ?? loan.startDate ?? todayIso();
   const totalTerm  = loan.termMonths ?? 0;
   const payoffOrig = addMonthsIso(firstPay, Math.max(0, totalTerm - 1));
-  const monthsLeftOrig = Math.max(1, monthsUntil(payoffOrig));
+  const monthsLeftOrig = Math.max(1, Math.ceil(monthsUntil(payoffOrig)));
   const origPmt    = priceMonthlyPayment(balance, annualRate, monthsLeftOrig);
 
   // ── payoffIn{12,24,36,60} ───────────────────────────────────────────────
