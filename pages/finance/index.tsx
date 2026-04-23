@@ -419,17 +419,34 @@ export default function FinanceDashboard() {
                             </p>
                           )}
                           {/* EOY projection — cash-ish accounts only. Dim so it
-                              doesn't compete with the current-balance figure. */}
-                          {proj && Math.abs(proj.projected - proj.current) > 1 && (
-                            <p className="text-[11px] text-gray-400 tabular-nums">
-                              → EOY {fmtCurrency(proj.projected, acc.currency ?? "USD")}
-                              {proj.method === "blended" && proj.high - proj.low > 1 && (
-                                <span className="text-gray-500 dark:text-gray-500">
-                                  {" "}({fmtCurrency(proj.low, acc.currency ?? "USD")}–{fmtCurrency(proj.high, acc.currency ?? "USD")})
-                                </span>
-                              )}
-                            </p>
-                          )}
+                              doesn't compete with the current-balance figure.
+                              Hover shows the breakdown so "why is EOY so high"
+                              is answerable without opening devtools. */}
+                          {proj && Math.abs(proj.projected - proj.current) > 1 && (() => {
+                            const currency = acc.currency ?? "USD";
+                            const pad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
+                            const breakdown =
+                              `EOY projection (${proj.horizonDays}d horizon)\n` +
+                              `  ${pad("Current",   16)}${fmtCurrency(proj.current,       currency)}\n` +
+                              `  ${pad("+ Recurring",16)}${fmtCurrency(proj.deterministic, currency, true)}\n` +
+                              `  ${pad("+ Trailing", 16)}${fmtCurrency(proj.stochastic,    currency, true)}\n` +
+                              `  ${"─".repeat(28)}\n` +
+                              `  ${pad("Projected",  16)}${fmtCurrency(proj.projected,     currency)}\n` +
+                              `Method: ${proj.method === "blended" ? "blended (recurring + trailing-30d drift)" : "recurring-only (not enough snapshot history)"}`;
+                            return (
+                              <p
+                                className="text-[11px] text-gray-400 tabular-nums cursor-help"
+                                title={breakdown}
+                              >
+                                → EOY {fmtCurrency(proj.projected, currency)}
+                                {proj.method === "blended" && proj.high - proj.low > 1 && (
+                                  <span className="text-gray-500 dark:text-gray-500">
+                                    {" "}({fmtCurrency(proj.low, currency)}–{fmtCurrency(proj.high, currency)})
+                                  </span>
+                                )}
+                              </p>
+                            );
+                          })()}
                           {/* Time to payoff for credit / loan accounts */}
                           {ttz && (
                             <p className="text-[11px] tabular-nums" style={{ color: FINANCE_COLOR }}>
