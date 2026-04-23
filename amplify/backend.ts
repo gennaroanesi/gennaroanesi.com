@@ -440,8 +440,11 @@ gennaroAgentFn.addEnvironment(
 
 const snapshotFn = backend.financeSnapshots.resources.lambda as LambdaFunction;
 
+// No explicit ruleName — EventBridge rule names must be unique per region
+// per AWS account, and sandbox + prod both deploy here. CDK generates a
+// stack-scoped name like `...-FinanceSnapshotsDailyRule-XXXX` which is
+// unique across envs.
 new Rule(backend.stack, "FinanceSnapshotsDailyRule", {
-  ruleName: "finance-snapshots-daily",
   description: "Daily 6 AM Central capture of per-account balance + flow",
   schedule: Schedule.cron({ minute: "0", hour: "11" }),
   targets: [new LambdaFunctionTarget(snapshotFn)],
