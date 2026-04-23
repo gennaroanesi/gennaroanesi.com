@@ -1416,7 +1416,15 @@ export async function applyRecurringMatch(
  */
 export type BalanceProjection = {
   current:        number;
+  /** Mean estimate: current + deterministic + mean×horizon. Honest central value. */
   projected:      number;
+  /** Conservative floor — there's ~80% probability the realized EOY balance is ≥ this.
+   *  Computed as projected − z_0.20 × σ × √horizon, where σ is the sample stddev of
+   *  daily drift. Callers that want to "err on the conservative side" display this. */
+  conservative:   number;
+  /** Optimistic ceiling — ~80% probability realized is ≤ this. Symmetric counterpart. */
+  optimistic:     number;
+  /** ±1σ band (≈P16/P84). Useful as a secondary "typical range" hint. */
   low:            number;
   high:           number;
   method:         "recurring-only" | "blended";
@@ -1424,6 +1432,10 @@ export type BalanceProjection = {
   deterministic:  number;
   stochastic:     number;
 };
+
+// Z-score for 80/20 confidence. ≈ 0.8416 on a standard normal, so subtracting
+// 0.8416×σ from the mean gives the 20th percentile (P20).
+const Z_P20 = 0.8416;
 
 export function projectBalance(
   account:     AccountRecord,
@@ -1504,11 +1516,16 @@ export function projectBalance(
   }
 
   const projected = current + deterministic + stochastic;
-  const band = stochasticStdev * Math.sqrt(horizonDays);
+  // Sum-over-N random walk: variance scales with N, stddev with √N.
+  const scaledStdev = stochasticStdev * Math.sqrt(horizonDays);
+  const band = scaledStdev;            // ±1σ (P16/P84)
+  const pad  = Z_P20 * scaledStdev;    // ±0.84σ (P20/P80)
 
   return {
     current:       round2(current),
     projected:     round2(projected),
+    conservative:  round2(projected - pad),
+    optimistic:    round2(projected + pad),
     low:           round2(projected - band),
     high:          round2(projected + band),
     method,
@@ -1520,11 +1537,16 @@ export function projectBalance(
 
 /**
  * Whether we should surface a balance projection for this account type.
- * Brokerage / retirement projections are dominated by market noise — skip.
+ * - BROKERAGE / RETIREMENT: dominated by market noise, skip.
+ * - CHECKING: pass-through float, not an accumulating balance — the
+ *   extrapolated "EOY" is rarely meaningful (money in, money out, roughly
+ *   breakeven). Skip.
+ * Savings, credit, loan, cash do get projections.
  */
 export function isProjectableAccount(type: AccountRecord["type"]): boolean {
   if (type === "BROKERAGE") return false;
   if (type === "RETIREMENT") return false;
+  if (type === "CHECKING") return false;
   return true;
 }
 
