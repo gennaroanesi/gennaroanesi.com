@@ -7,8 +7,9 @@ import {
   client,
   AccountRecord, LoanRecord, LoanPaymentRecord, AssetRecord, TransactionRecord,
   LOAN_TYPE_LABELS, FINANCE_COLOR,
-  fmtCurrency, fmtDate, todayIso, amountColor,
+  fmtCurrency, fmtDate, todayIso, amountColor, addMonthsIso,
   loanProgressPct, computeLoanBalanceFromPayments, remainingScheduled, postedCount, totalInterestPaid,
+  recalculateLoan, paymentForTargetMonths,
   inputCls, labelCls,
   SaveButton, DeleteButton,
   listAll,
@@ -91,6 +92,9 @@ export default function LoanDetailPage() {
 
   // Checking account picker (for posting). Default = first CHECKING account.
   const [checkingAccountId, setCheckingAccountId] = useState<string>("");
+
+  // Recalc panel: months slider state for the "custom target" row
+  const [customMonths, setCustomMonths] = useState<number>(36);
 
   const fetchAll = useCallback(async () => {
     if (!loanId) return;
@@ -752,6 +756,8 @@ export default function LoanDetailPage() {
 
   const pct = loanProgressPct(loan);
   const interestPaid = totalInterestPaid(payments);
+  const recalc = recalculateLoan(loan, payments);
+  const customPayment = paymentForTargetMonths(loan, customMonths);
 
   return (
     <FinanceLayout>
@@ -846,6 +852,83 @@ export default function LoanDetailPage() {
               />
             </div>
           </div>
+
+          {/* ── Recalc: forward projection ──────────────────────────────── */}
+          {/* Scenarios compare "what if I keep paying at this pace" to "what
+              it takes to hit the original payoff date or a custom target." */}
+          {recalc.remainingBalance > 0 && (
+            <section className="mb-5 rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-darkBorder">
+                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Recalc</h2>
+                <p className="text-[10px] text-gray-400">
+                  Based on {recalc.postedPaymentCount} posted payment{recalc.postedPaymentCount === 1 ? "" : "s"} · avg of last {Math.min(6, recalc.postedPaymentCount)}
+                </p>
+              </div>
+
+              {/* Under-pay warning */}
+              {recalc.scenarios.currentPace.underPaying && (
+                <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
+                  Current pace ({fmtCurrency(recalc.avgPaymentLast6Mo)}/mo) doesn't cover monthly interest at {((loan.interestRate ?? 0) * 100).toFixed(3)}%. Balance would grow under this schedule.
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 p-4">
+                {/* Current pace */}
+                <ScenarioTile
+                  label="Current pace"
+                  payment={recalc.scenarios.currentPace.monthlyPayment}
+                  sub={
+                    recalc.scenarios.currentPace.underPaying
+                      ? "Never (interest exceeds pmt)"
+                      : `→ ${fmtDate(recalc.scenarios.currentPace.payoffDate)} · ${recalc.scenarios.currentPace.months}mo · ${fmtCurrency(recalc.scenarios.currentPace.totalInterest)} interest`
+                  }
+                  accent={recalc.scenarios.currentPace.underPaying ? "#ef4444" : FINANCE_COLOR}
+                />
+                {/* Original term */}
+                <ScenarioTile
+                  label="Original-term pace"
+                  payment={recalc.scenarios.originalTerm.monthlyPayment}
+                  sub={`→ ${fmtDate(recalc.scenarios.originalTerm.payoffDate)} · ${recalc.scenarios.originalTerm.monthsLeft}mo left`}
+                />
+                {/* Fixed targets */}
+                {([12, 24, 36, 60] as const).map((m) => (
+                  <ScenarioTile
+                    key={m}
+                    label={`Clear in ${m} mo`}
+                    payment={recalc.scenarios.payoffInMonths[m].monthlyPayment}
+                    sub={`→ ${fmtDate(recalc.scenarios.payoffInMonths[m].payoffDate)}`}
+                  />
+                ))}
+              </div>
+
+              {/* Custom target months slider */}
+              <div className="border-t border-gray-200 dark:border-darkBorder px-4 py-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
+                    Custom target
+                  </label>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {customMonths} mo · {fmtDate(addMonthsIso(todayIso(), customMonths))}
+                    </span>
+                    <span className="text-base font-bold tabular-nums" style={{ color: FINANCE_COLOR }}>
+                      {fmtCurrency(customPayment)}/mo
+                    </span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={Math.max(120, (loan.termMonths ?? 60))}
+                  step={1}
+                  value={customMonths}
+                  onChange={(e) => setCustomMonths(parseInt(e.target.value, 10))}
+                  className="w-full"
+                  style={{ accentColor: FINANCE_COLOR }}
+                />
+              </div>
+            </section>
+          )}
 
           {/* ── Drift warning (cached vs computed) ────────────────────── */}
           {Math.abs(cachedVsComputedDrift) > 0.01 && (
@@ -1310,5 +1393,27 @@ export default function LoanDetailPage() {
         )}
       </div>
     </FinanceLayout>
+  );
+}
+
+// ── Subcomponents ──────────────────────────────────────────────────────────
+
+function ScenarioTile({
+  label, payment, sub, accent,
+}: {
+  label:    string;
+  payment:  number;
+  sub:      string;
+  accent?:  string;
+}) {
+  const color = accent ?? FINANCE_COLOR;
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-darkBorder px-3 py-2 flex flex-col gap-0.5">
+      <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">{label}</p>
+      <p className="text-base font-bold tabular-nums" style={{ color }}>
+        {fmtCurrency(payment)}<span className="text-xs font-normal text-gray-400">/mo</span>
+      </p>
+      <p className="text-[10px] text-gray-500 dark:text-gray-400">{sub}</p>
+    </div>
   );
 }
