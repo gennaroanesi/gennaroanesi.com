@@ -14,6 +14,8 @@ import {
   totalAssetValue, assetGainLoss,
   computeGoalAllocations, effectiveGoalAmount, goalHasFundingSource,
   projectGoal, resolvedGrowthRate,
+  projectBalance, isProjectableAccount, daysToEOY,
+  estimateTimeToZero,
   AccountBadge,
   listAll,
   type Cadence,
@@ -163,6 +165,30 @@ export default function FinanceDashboard() {
     return m;
   }, [snapshots]);
 
+  // Per-account end-of-year projection, keyed by account id. Built once per
+  // render of the account cards rather than inside each card's render — fewer
+  // allocations, easier to reason about.
+  const eoyProjectionByAccount = useMemo(() => {
+    const horizon = daysToEOY();
+    const m = new Map<string, ReturnType<typeof projectBalance>>();
+    for (const acc of accounts) {
+      if (!isProjectableAccount(acc.type)) continue;
+      m.set(acc.id, projectBalance(acc, snapshots, recurrings, horizon));
+    }
+    return m;
+  }, [accounts, snapshots, recurrings]);
+
+  // Time-to-zero for CREDIT / LOAN accounts (trending toward zero balance).
+  const timeToZeroByAccount = useMemo(() => {
+    const m = new Map<string, NonNullable<ReturnType<typeof estimateTimeToZero>>>();
+    for (const acc of accounts) {
+      if (acc.type !== "CREDIT" && acc.type !== "LOAN") continue;
+      const r = estimateTimeToZero(acc, snapshots, recurrings);
+      if (r) m.set(acc.id, r);
+    }
+    return m;
+  }, [accounts, snapshots, recurrings]);
+
   const activeAssets = useMemo(() => assets.filter((a) => a.active !== false), [assets]);
   const assetsTotal  = useMemo(() => totalAssetValue(assets), [assets]);
 
@@ -199,6 +225,20 @@ export default function FinanceDashboard() {
   const netWorth =
     activeAccounts.reduce((sum, a) => sum + accountTotalValue(a, lots, quoteMap), 0) +
     assetsTotal;
+
+  // Projected net worth at EOY = current net worth shifted by each projectable
+  // account's (projected − current) delta. Non-projectable accounts (brokerage,
+  // retirement) contribute zero delta — their value tracks the market, which
+  // we don't forecast.
+  const projectedNetWorthEOY = useMemo(() => {
+    let delta = 0;
+    for (const acc of activeAccounts) {
+      const p = eoyProjectionByAccount.get(acc.id);
+      if (!p) continue;
+      delta += p.projected - p.current;
+    }
+    return netWorth + delta;
+  }, [activeAccounts, eoyProjectionByAccount, netWorth]);
 
   const today = todayIso();
   const in30  = addMonths(today, 1);
@@ -306,7 +346,7 @@ export default function FinanceDashboard() {
             ) : (
               <>
                 <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
-                  <div className="flex items-baseline gap-3">
+                  <div className="flex items-baseline gap-3 flex-wrap">
                     <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Net Worth</h2>
                     <span
                       className="text-2xl font-bold tabular-nums"
@@ -314,6 +354,11 @@ export default function FinanceDashboard() {
                     >
                       {fmtCurrency(netWorth)}
                     </span>
+                    {Math.abs(projectedNetWorthEOY - netWorth) > 1 && (
+                      <span className="text-[11px] text-gray-400 tabular-nums">
+                        → EOY {fmtCurrency(projectedNetWorthEOY)}
+                      </span>
+                    )}
                     {usingFavorites && (
                       <span className="text-[11px] text-gray-400">
                         Showing {favoriteAccounts.length} favorite{favoriteAccounts.length === 1 ? "" : "s"} of {activeAccounts.length}
@@ -335,6 +380,8 @@ export default function FinanceDashboard() {
                       const positionsValue = invested ? totalValue - (acc.currentBalance ?? 0) : 0;
                       const series = balanceSeriesByAccount.get(acc.id) ?? [];
                       const sparkColor = totalValue >= 0 ? FINANCE_COLOR : "#ef4444";
+                      const proj = eoyProjectionByAccount.get(acc.id);
+                      const ttz  = timeToZeroByAccount.get(acc.id);
                       return (
                         <a
                           key={acc.id}
@@ -368,6 +415,27 @@ export default function FinanceDashboard() {
                               Cash {fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}
                               {positionsValue !== 0 && (
                                 <> · Positions {fmtCurrency(positionsValue, acc.currency ?? "USD")}</>
+                              )}
+                            </p>
+                          )}
+                          {/* EOY projection — cash-ish accounts only. Dim so it
+                              doesn't compete with the current-balance figure. */}
+                          {proj && Math.abs(proj.projected - proj.current) > 1 && (
+                            <p className="text-[11px] text-gray-400 tabular-nums">
+                              → EOY {fmtCurrency(proj.projected, acc.currency ?? "USD")}
+                              {proj.method === "blended" && proj.high - proj.low > 1 && (
+                                <span className="text-gray-500 dark:text-gray-500">
+                                  {" "}({fmtCurrency(proj.low, acc.currency ?? "USD")}–{fmtCurrency(proj.high, acc.currency ?? "USD")})
+                                </span>
+                              )}
+                            </p>
+                          )}
+                          {/* Time to payoff for credit / loan accounts */}
+                          {ttz && (
+                            <p className="text-[11px] tabular-nums" style={{ color: FINANCE_COLOR }}>
+                              Payoff in ~{ttz.months} mo
+                              {ttz.method === "recurring-only" && (
+                                <span className="text-gray-400"> · recurring-only</span>
                               )}
                             </p>
                           )}

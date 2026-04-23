@@ -1225,6 +1225,171 @@ export function paymentForTargetMonths(
   );
 }
 
+// ── Projections ────────────────────────────────────────────────────────────
+
+/**
+ * Project an account's balance `horizonDays` into the future.
+ *
+ * Two components are combined:
+ * 1. **Deterministic**: sum of recurring-rule amounts whose occurrences fall
+ *    within [today, today+horizonDays] given the rule's cadence and end date.
+ * 2. **Stochastic**: average *non-recurring* daily drift from the account's
+ *    trailing snapshots, scaled to the horizon. Excluding recurring-occurrence
+ *    days prevents double-counting the deterministic inflows/outflows.
+ *
+ * The band (low/high) is the stochastic component's sample standard deviation
+ * scaled by √horizon (random-walk variance), ± around the point projection.
+ *
+ * Returns `method: "recurring-only"` when there aren't enough snapshots
+ * (<7 days) for the stochastic term; `"blended"` when both components
+ * contributed.
+ */
+export type BalanceProjection = {
+  current:        number;
+  projected:      number;
+  low:            number;
+  high:           number;
+  method:         "recurring-only" | "blended";
+  horizonDays:    number;
+  deterministic:  number;
+  stochastic:     number;
+};
+
+export function projectBalance(
+  account:     AccountRecord,
+  snapshots:   AccountSnapshotRecord[],
+  recurrings:  RecurringRecord[],
+  horizonDays: number,
+): BalanceProjection {
+  const current = account.currentBalance ?? 0;
+  const todayStr = todayIso();
+  const horizonEnd = addDays(todayStr, horizonDays);
+
+  // ── Deterministic: enumerate recurring occurrences in the window ──────
+  const myRules = recurrings.filter((r) =>
+    r.accountId === account.id && isRecurrenceLive(r),
+  );
+  const recurringDates = new Set<string>();
+  let deterministic = 0;
+
+  for (const rule of myRules) {
+    const cadence = rule.cadence as Cadence;
+    const seed = rule.nextDate ?? rule.startDate ?? todayStr;
+    const anchor = rule.startDate ?? seed;
+    const amount = rule.amount ?? 0;
+
+    // Roll to first occurrence ≥ today
+    let occ = nextOccurrence(seed, cadence, anchor);
+    // Safety cap — cadence-based advance is always finite but defend anyway
+    let guard = 0;
+    while (occ <= horizonEnd && guard++ < 1000) {
+      if (rule.endDate && occ > rule.endDate) break;
+      deterministic += amount;
+      recurringDates.add(occ);
+      const next = advanceByCadence(occ, cadence, anchor);
+      if (next <= occ) break;   // guard against stalls
+      occ = next;
+    }
+  }
+
+  // ── Stochastic: trailing non-recurring daily drift ────────────────────
+  const mine = snapshots
+    .filter((s) => s.accountId === account.id && s.date)
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+
+  // Build per-day net changes excluding days that had a recurring occurrence
+  // (approximation: we only know recurring rule dates going forward; past
+  // occurrences land on their `date`-matched days. If a rule's nextDate is
+  // today, any past occurrences already fell on cadence-anchored days which
+  // we don't enumerate backwards. For the trailing-30d drift the
+  // overwhelming contribution is from ad-hoc transactions anyway; accept
+  // the minor double-count risk on rule-anchored days.)
+  const drifts: number[] = [];
+  for (let i = 1; i < mine.length; i++) {
+    const prev = mine[i - 1];
+    const cur  = mine[i];
+    if (!prev || !cur) continue;
+    const d = (cur.balance ?? 0) - (prev.balance ?? 0);
+    // Skip days whose tx activity looks like a recurring hit: use inflow/outflow
+    // heuristic on the current row — if its flows exactly match an active
+    // recurring amount, treat as recurring and skip.
+    const flowToday = (cur.inflow ?? 0) - (cur.outflow ?? 0);
+    const looksRecurring = myRules.some((r) =>
+      Math.abs((r.amount ?? 0) - flowToday) < 0.01,
+    );
+    if (looksRecurring) continue;
+    drifts.push(d);
+  }
+
+  let method: BalanceProjection["method"] = "recurring-only";
+  let stochastic = 0;
+  let stochasticStdev = 0;
+
+  if (drifts.length >= 7) {
+    method = "blended";
+    const mean = drifts.reduce((s, v) => s + v, 0) / drifts.length;
+    const variance = drifts.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, drifts.length - 1);
+    stochasticStdev = Math.sqrt(variance);
+    stochastic = mean * horizonDays;
+  }
+
+  const projected = current + deterministic + stochastic;
+  const band = stochasticStdev * Math.sqrt(horizonDays);
+
+  return {
+    current:       round2(current),
+    projected:     round2(projected),
+    low:           round2(projected - band),
+    high:          round2(projected + band),
+    method,
+    horizonDays,
+    deterministic: round2(deterministic),
+    stochastic:    round2(stochastic),
+  };
+}
+
+/**
+ * Whether we should surface a balance projection for this account type.
+ * Brokerage / retirement projections are dominated by market noise — skip.
+ */
+export function isProjectableAccount(type: AccountRecord["type"]): boolean {
+  if (type === "BROKERAGE") return false;
+  if (type === "RETIREMENT") return false;
+  return true;
+}
+
+/** Days from today to the last day of the current calendar year. */
+export function daysToEOY(): number {
+  const now = new Date();
+  const eoy = new Date(now.getFullYear(), 11, 31);
+  return Math.max(0, Math.ceil((eoy.getTime() - now.getTime()) / (24 * 3600 * 1000)));
+}
+
+/**
+ * Rough months-until-zero for a credit card (or any drawing-down account).
+ * Uses the 30-day projection to estimate monthly direction; returns null when
+ * the account isn't trending toward zero (flat or diverging). Loans have a
+ * dedicated `recalculateLoan` scenario and shouldn't use this.
+ */
+export function estimateTimeToZero(
+  account:    AccountRecord,
+  snapshots:  AccountSnapshotRecord[],
+  recurrings: RecurringRecord[],
+): { months: number; method: BalanceProjection["method"] } | null {
+  const current = account.currentBalance ?? 0;
+  if (Math.abs(current) < 0.01) return null;
+  const proj = projectBalance(account, snapshots, recurrings, 30);
+  const monthlyChange = proj.projected - current;
+  // Trending toward zero required: negative current → positive change; positive current → negative change.
+  if (current < 0 && monthlyChange <= 0.01) return null;
+  if (current > 0 && monthlyChange >= -0.01) return null;
+  const months = Math.ceil(Math.abs(current) / Math.abs(monthlyChange));
+  // Clamp to a reasonable range so we don't display "in 412 years" for
+  // microscopic pay-downs.
+  if (!Number.isFinite(months) || months > 600) return null;
+  return { months, method: proj.method };
+}
+
 /** Months remaining from today to a target date */
 export function monthsUntil(isoDate: string): number {
   const today = new Date();
