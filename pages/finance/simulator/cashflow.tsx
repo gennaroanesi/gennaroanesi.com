@@ -64,7 +64,12 @@ export default function CashflowSimulatorPage() {
   const { authState } = useRequireAuth();
 
   const { value: cashflows, setValue: setCashflows, status: syncStatus, lastSavedAt } =
-    useS3JsonState<Cashflow[]>(S3_PATH, defaultCashflows, { localStorageKey: LOCAL_KEY });
+    useS3JsonState<Cashflow[]>(S3_PATH, defaultCashflows, {
+      localStorageKey: LOCAL_KEY,
+      // Gate S3 ops on auth — Amplify Storage needs credentials. The hook
+      // still mirrors to localStorage while we wait, so no keystrokes lost.
+      enabled: authState === "authenticated",
+    });
 
   // One-shot migration from v1 (Row[]) to v2 (Cashflow[]). Runs whenever a
   // legacy shape is detected; the next save effect persists the wrapped form.
@@ -78,9 +83,14 @@ export default function CashflowSimulatorPage() {
   }, [cashflows, setCashflows]);
 
   // Active cashflow id — per-device, not synced (each device may have its own
-  // active scratchpad). Default to first; only persist when there's a match.
+  // active scratchpad). Validated whenever `cashflows` changes identity (NOT
+  // just length) — the S3 load often replaces the initial placeholder with
+  // a same-length-but-different-id set, and row/rename ops target by id, so
+  // drift here silently no-ops every edit.
   const [activeId, setActiveId] = useState<string>("");
   useEffect(() => {
+    const hasActive = !!activeId && cashflows.some((c) => c.id === activeId);
+    if (hasActive) return;
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(ACTIVE_LS_KEY);
     if (saved && cashflows.some((c) => c.id === saved)) {
@@ -88,8 +98,7 @@ export default function CashflowSimulatorPage() {
     } else if (cashflows.length > 0) {
       setActiveId(cashflows[0].id);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cashflows.length]); // re-run when count changes (after add/delete/migrate)
+  }, [cashflows, activeId]);
   useEffect(() => {
     if (typeof window === "undefined" || !activeId) return;
     window.localStorage.setItem(ACTIVE_LS_KEY, activeId);

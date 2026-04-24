@@ -42,6 +42,11 @@ export type UseS3JsonStateOptions = {
   debounceMs?:      number;
   /** localStorage key for the offline mirror. If omitted, no mirror. */
   localStorageKey?: string;
+  /** Gate all S3 operations. When false, the hook behaves as a pure
+   *  localStorage-backed state. When it flips from false → true, the hook
+   *  runs its initial S3 load. Useful for waiting out auth resolution.
+   *  Default: true. */
+  enabled?:         boolean;
 };
 
 export type UseS3JsonStateResult<T> = {
@@ -60,6 +65,7 @@ export function useS3JsonState<T>(
 ): UseS3JsonStateResult<T> {
   const debounceMs = opts.debounceMs      ?? 1500;
   const lsKey      = opts.localStorageKey ?? null;
+  const enabled    = opts.enabled         ?? true;
 
   const [value, setValue]             = useState<T>(defaultValue);
   const [status, setStatus]           = useState<S3SyncStatus>("loading");
@@ -70,6 +76,9 @@ export function useS3JsonState<T>(
   // reachable) so we can detect no-op saves and skip them.
   const lastSavedJsonRef = useRef<string>("");
   const saveTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Once we've run the initial S3 load once, don't run it again when
+  // `enabled` toggles — a caller re-disabling shouldn't re-fetch on re-enable.
+  const hasLoadedRef     = useRef(false);
 
   // ── Local helpers ─────────────────────────────────────────────────────
   const readLocal = useCallback((): T | undefined => {
@@ -114,21 +123,29 @@ export function useS3JsonState<T>(
   }, [s3Path]);
 
   // ── Hydration: paint local first, then reconcile with S3 ──────────────
+  // Runs the first time `enabled` is true. Prior to that the hook behaves as
+  // a localStorage-backed scratchpad so the caller can safely render while
+  // waiting on auth resolution.
   useEffect(() => {
+    // Paint local immediately regardless of enabled — fast first paint.
+    const local = readLocal();
+    if (local !== undefined) setValue(local);
+
+    if (!enabled || hasLoadedRef.current) {
+      if (!enabled) {
+        // While gated, we haven't tried S3 yet — keep status honest.
+        setStatus("loading");
+      }
+      return;
+    }
+    hasLoadedRef.current = true;
+
     let cancelled = false;
     (async () => {
-      const local = readLocal();
-      if (local !== undefined && !cancelled) {
-        setValue(local);
-        // Don't update lastSavedJsonRef yet — local copy might be ahead of S3
-        // and we want the next save effect to catch it up.
-      }
-
       try {
         const remote = await downloadFromS3();
         if (cancelled) return;
         if (remote !== null) {
-          // Remote wins on mount. Adopt it and mirror to local.
           setValue(remote);
           writeLocal(remote);
           lastSavedJsonRef.current = JSON.stringify(remote);
@@ -156,12 +173,15 @@ export function useS3JsonState<T>(
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once per mount; s3Path changes are out-of-scope for v1
+  }, [enabled]);
 
   // ── Debounced save on change ──────────────────────────────────────────
+  // Always writes to localStorage on change so offline edits survive; the
+  // S3 upload part is gated on `hydrated && enabled` so we don't stomp
+  // remote state before we've read it, or fire writes without auth.
   useEffect(() => {
-    if (!hydrated) return;
     writeLocal(value);
+    if (!hydrated || !enabled) return;
     const json = JSON.stringify(value);
     if (json === lastSavedJsonRef.current) return;
 
@@ -172,7 +192,6 @@ export function useS3JsonState<T>(
         .then(() => setStatus("synced"))
         .catch((err) => {
           console.warn(`[useS3JsonState:${s3Path}] save failed:`, err);
-          // Local is still ahead; flag so the UI can warn.
           setStatus("local-only");
         });
     }, debounceMs);
@@ -180,7 +199,7 @@ export function useS3JsonState<T>(
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [value, hydrated, debounceMs, writeLocal, uploadToS3, s3Path]);
+  }, [value, hydrated, enabled, debounceMs, writeLocal, uploadToS3, s3Path]);
 
   const setValueWrapped = useCallback((next: T | ((prev: T) => T)) => {
     setValue((prev) => typeof next === "function" ? (next as (p: T) => T)(prev) : next);
