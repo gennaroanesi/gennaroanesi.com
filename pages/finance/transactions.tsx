@@ -53,6 +53,8 @@ export default function TransactionsPage() {
   const [loading,      setLoading]      = useState(true);
   const [saving,       setSaving]       = useState(false);
   const [panel,        setPanel]        = useState<PanelState>(null);
+  // Transient UI state for the edit-tx panel's "Change linked rule" toggle.
+  const [showMatchCandidates, setShowMatchCandidates] = useState(false);
 
   // Filters
   const [filterAccount, setFilterAccount] = useState<string>("");
@@ -128,6 +130,7 @@ export default function TransactionsPage() {
 
   function openEditTx(tx: TransactionRecord) {
     setTxDraft({ ...tx });
+    setShowMatchCandidates(false);
     setPanel({ kind: "edit-tx", tx });
   }
 
@@ -674,25 +677,86 @@ export default function TransactionsPage() {
                       </select>
                     </div>
                   )}
-                  {/* Linked recurring rule (edit only) — read-only with unlink.
-                      Re-linking uses the auto-matcher on save. */}
-                  {panel.kind === "edit-tx" && txDraft.recurringId && (
-                    <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex items-center justify-between gap-2">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Linked to recurring</span>
-                        <span className="text-xs text-gray-700 dark:text-gray-200">
-                          {recurringById.get(txDraft.recurringId)?.description ?? "(deleted rule)"}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setTxDraft((d) => ({ ...d, recurringId: null as any }))}
-                        className="text-[11px] text-gray-400 hover:text-red-500 transition-colors"
-                      >
-                        Unlink
-                      </button>
-                    </div>
-                  )}
+                  {/* Linked recurring rule block (edit only). Also shows
+                      suggested matches when unlinked or when "Change…" is clicked. */}
+                  {panel.kind === "edit-tx" && (() => {
+                    const candidateTx = {
+                      accountId:   txDraft.accountId,
+                      amount:      txDraft.amount,
+                      type:        txDraft.type,
+                      category:    txDraft.category,
+                      description: txDraft.description,
+                      date:        txDraft.date,
+                    } as TransactionRecord;
+                    const candidates = findRecurringMatches(candidateTx, recurrings);
+                    const linked = txDraft.recurringId ? recurringById.get(txDraft.recurringId) : null;
+                    return (
+                      <>
+                        {linked && (
+                          <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex items-center justify-between gap-2">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Linked to recurring</span>
+                              <span className="text-xs text-gray-700 dark:text-gray-200">{linked.description ?? "(deleted rule)"}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setShowMatchCandidates((v) => !v)}
+                                className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+                              >
+                                {showMatchCandidates ? "Hide" : "Change…"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTxDraft((d) => ({ ...d, recurringId: null as any }))}
+                                className="text-[11px] text-gray-400 hover:text-red-500 transition-colors"
+                              >
+                                Unlink
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {(!linked || showMatchCandidates) && candidates.length > 0 && (
+                          <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex flex-col gap-1.5">
+                            <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
+                              {linked ? "Change to…" : "Suggested matches"}
+                            </span>
+                            {candidates.slice(0, 5).map(({ rule, score, reasons }) => (
+                              <button
+                                key={rule.id}
+                                type="button"
+                                onClick={() => {
+                                  setTxDraft((d) => ({ ...d, recurringId: rule.id }));
+                                  setShowMatchCandidates(false);
+                                }}
+                                className="w-full text-left rounded border border-gray-200 dark:border-darkBorder hover:border-gray-300 dark:hover:border-gray-500 px-2 py-1.5 transition-colors flex items-center justify-between gap-2"
+                                title={reasons.join(" · ")}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs text-gray-700 dark:text-gray-200 truncate">{rule.description}</p>
+                                  <p className="text-[10px] text-gray-400">
+                                    {fmtCurrency(rule.amount, "USD", true)} · next {rule.nextDate ? fmtDate(rule.nextDate) : "—"}
+                                  </p>
+                                </div>
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                  style={{
+                                    backgroundColor: FINANCE_COLOR + "22",
+                                    color: FINANCE_COLOR,
+                                  }}
+                                >
+                                  {Math.round(score)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {!linked && candidates.length === 0 && (
+                          <p className="text-[11px] text-gray-400 italic">No recurring rules match this transaction.</p>
+                        )}
+                      </>
+                    );
+                  })()}
                   <SaveButton saving={saving} onSave={handleSaveTx}
                     label={panel.kind === "new-tx" ? "Add Transaction" : "Save"} />
                   {panel.kind === "edit-tx" && (

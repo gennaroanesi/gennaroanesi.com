@@ -1280,6 +1280,17 @@ export function scoreTransactionAgainstRecurring(
   const reasons: string[] = [];
   let score = 0;
 
+  // ── Match pattern (user-provided) ────────────────────────────────────
+  // When set, the pattern is a strong signal. A hit gives a big score
+  // bump; a miss disqualifies the tx entirely (the user is explicitly
+  // telling the system how this rule's tx looks).
+  if (rule.matchPattern && rule.matchPattern.trim()) {
+    const hit = matchesUserPattern(rule.matchPattern, tx.description ?? "");
+    if (!hit) return { score: 0, reasons: [] };
+    score += 50;
+    reasons.push("matches user pattern");
+  }
+
   // ── Amount ───────────────────────────────────────────────────────────
   const absTx   = Math.abs(txAmt);
   const absRule = Math.abs(ruleAmt);
@@ -1325,6 +1336,29 @@ export function scoreTransactionAgainstRecurring(
   return { score, reasons };
 }
 
+/**
+ * Test whether a transaction description satisfies a user-provided match
+ * pattern. The pattern is either:
+ * - a /regex/flags form — parsed as a RegExp (supported flags: i, m, s, u)
+ * - anything else — case-insensitive substring match
+ *
+ * Invalid regexes fall back to substring match so a typo in the rule
+ * doesn't disqualify every transaction.
+ */
+export function matchesUserPattern(pattern: string, description: string): boolean {
+  const p = pattern.trim();
+  if (!p) return true;
+  const regexForm = p.match(/^\/(.+)\/([imsu]*)$/);
+  if (regexForm) {
+    try {
+      return new RegExp(regexForm[1], regexForm[2]).test(description);
+    } catch {
+      /* fall through to substring */
+    }
+  }
+  return description.toLowerCase().includes(p.toLowerCase());
+}
+
 /** Days between two ISO dates. Result is signed (positive = first is later). */
 function daysBetween(a: string, b: string): number {
   const da = new Date(`${a}T12:00:00Z`).getTime();
@@ -1346,6 +1380,33 @@ export function findRecurringMatches(
   for (const rule of rules) {
     const { score, reasons } = scoreTransactionAgainstRecurring(tx, rule);
     if (score >= minScore) out.push({ rule, score, reasons });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out;
+}
+
+/**
+ * Inverse of findRecurringMatches — given a rule, which unlinked transactions
+ * might realize it? Used by the per-rule "candidates" modal on the Recurring
+ * page. Callers pass pre-filtered `transactions` (typically the last ~90
+ * days, not yet linked to anything).
+ */
+export type TransactionMatchCandidate = {
+  tx:     TransactionRecord;
+  score:  number;
+  reasons: string[];
+};
+
+export function findMatchingTransactionsForRule(
+  rule:         RecurringRecord,
+  transactions: TransactionRecord[],
+  minScore:     number = RECURRING_MATCH_SUGGEST_THRESHOLD,
+): TransactionMatchCandidate[] {
+  const out: TransactionMatchCandidate[] = [];
+  for (const tx of transactions) {
+    if (tx.recurringId) continue;   // already claimed by some rule
+    const { score, reasons } = scoreTransactionAgainstRecurring(tx, rule);
+    if (score >= minScore) out.push({ tx, score, reasons });
   }
   out.sort((a, b) => b.score - a.score);
   return out;

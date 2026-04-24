@@ -533,6 +533,11 @@ const schema = a.schema({
       nextDate: a.date(), // next expected occurrence
       active: a.boolean().default(true),
       goalId: a.id(), // optional tag → financeSavingsGoal.id
+      // Optional user-provided substring or /regex/ to match this rule against
+      // noisy bank descriptions. When set, the matcher gives a large bonus on
+      // hit and treats miss as a disqualifier (see scoreTransactionAgainstRecurring).
+      // Examples: "MORTGAGE PMT", "NETFLIX", "/CHASE.*AUTOPAY/i"
+      matchPattern: a.string(),
     })
     .authorization((allow) => [allow.group("admins")]),
 

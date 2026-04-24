@@ -12,6 +12,7 @@ import {
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState,
   listAll,
+  findMatchingTransactionsForRule, applyRecurringMatch,
   type Cadence,
 } from "@/components/finance/_shared";
 import {
@@ -29,6 +30,7 @@ type CategoryGroup = {
 type PanelState =
   | { kind: "new" }
   | { kind: "edit"; rec: RecurringRecord }
+  | { kind: "match"; rec: RecurringRecord }
   | null;
 
 export default function RecurringPage() {
@@ -37,26 +39,31 @@ export default function RecurringPage() {
 
   const [accounts,   setAccounts]   = useState<AccountRecord[]>([]);
   const [recurrings, setRecurrings] = useState<RecurringRecord[]>([]);
-  const [linkedTxs,  setLinkedTxs]  = useState<TransactionRecord[]>([]);
+  const [recentTxs,  setRecentTxs]  = useState<TransactionRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
   const [panel,      setPanel]      = useState<PanelState>(null);
   const [draft,      setDraft]      = useState<Partial<RecurringRecord>>({});
+  // Checked candidates in the match-panel multi-select.
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      // Trailing 180 days covers weekly → quarterly cadences. Longer-tail
+      // cadences (semiannual, annual) will only surface one candidate at a
+      // time, which is fine — candidates are a one-shot helper, not a
+      // bulk-audit tool.
+      const sinceIso = new Date(Date.now() - 180 * 24 * 3600 * 1000)
+        .toISOString().slice(0, 10);
       const [accs, recs, txs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring),
-        // Only the transactions that are linked to a recurring rule. Used to
-        // compute per-rule "last matched on YYYY-MM-DD" chips without pulling
-        // the entire ledger onto this page.
-        listAll(client.models.financeTransaction, { recurringId: { attributeExists: true } }),
+        listAll(client.models.financeTransaction, { date: { ge: sinceIso } }),
       ]);
       setAccounts(accs);
       setRecurrings(recs);
-      setLinkedTxs(txs);
+      setRecentTxs(txs);
     } finally {
       setLoading(false);
     }
@@ -85,39 +92,65 @@ export default function RecurringPage() {
     setPanel({ kind: "edit", rec });
   }
 
+  function openMatch(rec: RecurringRecord) {
+    setSelectedTxIds(new Set());
+    setPanel({ kind: "match", rec });
+  }
+
+  // Batch-link the checked candidates to the rule, then refetch so
+  // local state (nextDate advance, linked chips, candidate counts) updates.
+  async function handleBatchLink(rec: RecurringRecord) {
+    const ids = Array.from(selectedTxIds);
+    if (ids.length === 0) return;
+    setSaving(true);
+    try {
+      for (const id of ids) {
+        const tx = recentTxs.find((t) => t.id === id);
+        if (!tx) continue;
+        await applyRecurringMatch(client, tx, rec);
+      }
+      await fetchData();
+      setPanel(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSave() {
     if (!draft.accountId || draft.amount == null || !draft.description?.trim()) return;
     setSaving(true);
     try {
       if (panel?.kind === "new") {
         const { data: newRec } = await client.models.financeRecurring.create({
-          accountId:   draft.accountId!,
-          amount:      draft.amount!,
-          type:        (draft.type ?? "EXPENSE") as any,
-          category:    draft.category ?? null,
-          description: draft.description!,
-          cadence:     (draft.cadence ?? "MONTHLY") as any,
-          startDate:   draft.startDate ?? todayIso(),
-          endDate:     draft.endDate ?? null,
-          nextDate:    draft.nextDate ?? draft.startDate ?? todayIso(),
-          active:      draft.active ?? true,
-          goalId:      draft.goalId ?? null,
+          accountId:    draft.accountId!,
+          amount:       draft.amount!,
+          type:         (draft.type ?? "EXPENSE") as any,
+          category:     draft.category ?? null,
+          description:  draft.description!,
+          cadence:      (draft.cadence ?? "MONTHLY") as any,
+          startDate:    draft.startDate ?? todayIso(),
+          endDate:      draft.endDate ?? null,
+          nextDate:     draft.nextDate ?? draft.startDate ?? todayIso(),
+          active:       draft.active ?? true,
+          goalId:       draft.goalId ?? null,
+          matchPattern: draft.matchPattern?.trim() || null,
         });
         if (newRec) setRecurrings((p) => [...p, newRec]);
       } else if (panel?.kind === "edit") {
         await client.models.financeRecurring.update({
-          id:          panel.rec.id,
-          accountId:   draft.accountId!,
-          amount:      draft.amount!,
-          type:        (draft.type ?? "EXPENSE") as any,
-          category:    draft.category ?? null,
-          description: draft.description!,
-          cadence:     (draft.cadence ?? "MONTHLY") as any,
-          startDate:   draft.startDate ?? todayIso(),
-          endDate:     draft.endDate ?? null,
-          nextDate:    draft.nextDate ?? draft.startDate ?? todayIso(),
-          active:      draft.active ?? true,
-          goalId:      draft.goalId ?? null,
+          id:           panel.rec.id,
+          accountId:    draft.accountId!,
+          amount:       draft.amount!,
+          type:         (draft.type ?? "EXPENSE") as any,
+          category:     draft.category ?? null,
+          description:  draft.description!,
+          cadence:      (draft.cadence ?? "MONTHLY") as any,
+          startDate:    draft.startDate ?? todayIso(),
+          endDate:      draft.endDate ?? null,
+          nextDate:     draft.nextDate ?? draft.startDate ?? todayIso(),
+          active:       draft.active ?? true,
+          goalId:       draft.goalId ?? null,
+          matchPattern: draft.matchPattern?.trim() || null,
         });
         setRecurrings((p) => p.map((r) => r.id === panel.rec.id ? { ...r, ...draft } as RecurringRecord : r));
       }
@@ -207,13 +240,23 @@ export default function RecurringPage() {
   // Latest linked-transaction date per rule, for the "last matched" chip.
   const lastMatchByRule = useMemo(() => {
     const m = new Map<string, string>();
-    for (const t of linkedTxs) {
+    for (const t of recentTxs) {
       if (!t.recurringId || !t.date) continue;
       const prev = m.get(t.recurringId);
       if (!prev || t.date > prev) m.set(t.recurringId, t.date);
     }
     return m;
-  }, [linkedTxs]);
+  }, [recentTxs]);
+
+  // Candidate transactions per rule — drives the "Match (N)" button count.
+  // findMatchingTransactionsForRule already skips already-linked txs.
+  const candidateCountByRule = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of recurrings) {
+      m.set(r.id, findMatchingTransactionsForRule(r, recentTxs).length);
+    }
+    return m;
+  }, [recurrings, recentTxs]);
 
   const columns: ColDef<RecurringRecord>[] = useMemo(() => [
     {
@@ -275,29 +318,42 @@ export default function RecurringPage() {
       key: "actions",
       label: "",
       align: "right",
-      className: "w-36",
-      render: (r) => (
-        <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={() => handlePostNow(r)}
-            disabled={saving}
-            className="text-[10px] px-2 py-0.5 rounded border transition-colors"
-            style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
-            title="Post one occurrence now"
-          >
-            Post
-          </button>
-          <button
-            onClick={() => openEdit(r)}
-            className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            Edit
-          </button>
-        </div>
-      ),
+      className: "w-48",
+      render: (r) => {
+        const matchCount = candidateCountByRule.get(r.id) ?? 0;
+        return (
+          <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+            {matchCount > 0 && (
+              <button
+                onClick={() => openMatch(r)}
+                className="text-[10px] px-2 py-0.5 rounded border transition-colors"
+                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                title={`${matchCount} candidate transaction${matchCount === 1 ? "" : "s"} to link`}
+              >
+                Match ({matchCount})
+              </button>
+            )}
+            <button
+              onClick={() => handlePostNow(r)}
+              disabled={saving}
+              className="text-[10px] px-2 py-0.5 rounded border transition-colors"
+              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+              title="Post one occurrence now"
+            >
+              Post
+            </button>
+            <button
+              onClick={() => openEdit(r)}
+              className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Edit
+            </button>
+          </div>
+        );
+      },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [accounts, saving, accountName, nextDate, lastMatchByRule]);
+  ], [accounts, saving, accountName, nextDate, lastMatchByRule, candidateCountByRule]);
 
   const ctl = useTableControls(active, {
     defaultSortKey: "next",
@@ -452,8 +508,8 @@ export default function RecurringPage() {
           )}
         </div>
 
-        {/* ── Side panel ─────────────────────────────────────────────── */}
-        {panel && (
+        {/* ── Side panel — create/edit ─────────────────────────────── */}
+        {panel && (panel.kind === "new" || panel.kind === "edit") && (
           <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
               <h2 className="text-base font-semibold dark:text-rose text-purple">
@@ -529,6 +585,20 @@ export default function RecurringPage() {
                   {categoryOptions.map((c) => <option key={c} value={c} />)}
                 </datalist>
               </div>
+              <div>
+                <label className={labelCls}>Match pattern</label>
+                <input
+                  type="text"
+                  className={inputCls}
+                  placeholder={"CHASE MORTGAGE  —  or /netflix.*us/i"}
+                  value={draft.matchPattern ?? ""}
+                  onChange={(e) => setDraft((d) => ({ ...d, matchPattern: e.target.value }))}
+                />
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  Optional. Case-insensitive substring, or <code>/regex/flags</code>. When set, a match
+                  gives a big scoring bump and a miss disqualifies the transaction.
+                </p>
+              </div>
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
                 <input type="checkbox" checked={draft.active ?? true}
                   onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} />
@@ -542,6 +612,109 @@ export default function RecurringPage() {
             </div>
           </div>
         )}
+
+        {/* ── Side panel — batch-match candidates ──────────────────── */}
+        {panel && panel.kind === "match" && (() => {
+          const rec = panel.rec;
+          const candidates = findMatchingTransactionsForRule(rec, recentTxs);
+          const allSelected = candidates.length > 0 && candidates.every((c) => selectedTxIds.has(c.tx.id));
+          const toggleAll = () => {
+            if (allSelected) setSelectedTxIds(new Set());
+            else setSelectedTxIds(new Set(candidates.map((c) => c.tx.id)));
+          };
+          const toggleOne = (id: string) => {
+            setSelectedTxIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            });
+          };
+          return (
+            <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-[28rem] border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold dark:text-rose text-purple truncate">Match — {rec.description}</h2>
+                  <p className="text-[11px] text-gray-400">
+                    {candidates.length} candidate{candidates.length === 1 ? "" : "s"} · last 180d · {fmtCurrency(rec.amount, "USD", true)}
+                  </p>
+                </div>
+                <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
+              </div>
+
+              {candidates.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center px-6 py-8">
+                  <p className="text-xs text-gray-400 text-center">
+                    No unlinked transactions in the last 180 days match this rule.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between px-6 py-2 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
+                    <label className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400 cursor-pointer">
+                      <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                      Select all
+                    </label>
+                    <span className="text-[11px] text-gray-400 tabular-nums">
+                      {selectedTxIds.size} selected
+                    </span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-1.5">
+                    {candidates.map(({ tx, score, reasons }) => {
+                      const checked = selectedTxIds.has(tx.id);
+                      return (
+                        <label
+                          key={tx.id}
+                          className={[
+                            "flex items-center gap-3 px-3 py-2 rounded border cursor-pointer transition-colors",
+                            checked
+                              ? ""
+                              : "border-gray-200 dark:border-darkBorder hover:border-gray-300 dark:hover:border-gray-500",
+                          ].join(" ")}
+                          style={checked ? { borderColor: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "14" } : undefined}
+                          title={reasons.join(" · ")}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleOne(tx.id)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-gray-700 dark:text-gray-200 truncate">{tx.description || "—"}</p>
+                            <p className="text-[10px] text-gray-400">
+                              {tx.date ? fmtDate(tx.date) : "—"} · {fmtCurrency(tx.amount, "USD", true)}
+                            </p>
+                          </div>
+                          <span
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
+                            style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                          >
+                            {Math.round(score)}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="border-t border-gray-200 dark:border-darkBorder px-6 py-3 flex-shrink-0 flex items-center justify-between gap-3">
+                    <p className="text-[10px] text-gray-400">
+                      Linking advances the rule's next date past the latest matched tx.
+                    </p>
+                    <button
+                      onClick={() => handleBatchLink(rec)}
+                      disabled={saving || selectedTxIds.size === 0}
+                      className="px-4 py-1.5 rounded text-sm font-semibold text-white disabled:opacity-50 transition-opacity"
+                      style={{ backgroundColor: FINANCE_COLOR }}
+                    >
+                      {saving ? "Linking…" : `Link ${selectedTxIds.size || ""}`.trim()}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </FinanceLayout>
   );
