@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { key: "assets",       label: "Assets",       href: "/finance/assets" },
   { key: "loans",        label: "Loans",        href: "/finance/loans" },
   { key: "prices",       label: "Prices",       href: "/finance/prices" },
+  { key: "simulator",    label: "Simulator",    href: "/finance/simulator/cashflow" },
 ];
 
 function activeKey(pathname: string): string {
@@ -30,6 +31,7 @@ function activeKey(pathname: string): string {
   if (pathname.includes("assets"))       return "assets";
   if (pathname.includes("loans"))        return "loans";
   if (pathname.includes("prices"))       return "prices";
+  if (pathname.includes("simulator"))    return "simulator";
   return "dashboard";
 }
 
