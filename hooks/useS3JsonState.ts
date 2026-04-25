@@ -47,6 +47,10 @@ export type UseS3JsonStateOptions = {
    *  runs its initial S3 load. Useful for waiting out auth resolution.
    *  Default: true. */
   enabled?:         boolean;
+  /** S3 bucket name — must be set in amplify_outputs.json's storage.buckets.
+   *  This repo's amplify_outputs omits a default, so every call must specify
+   *  the bucket explicitly or Amplify Storage throws "no bucket configured". */
+  bucket:           string;
 };
 
 export type UseS3JsonStateResult<T> = {
@@ -61,11 +65,12 @@ export type UseS3JsonStateResult<T> = {
 export function useS3JsonState<T>(
   s3Path:       string,
   defaultValue: T | (() => T),
-  opts:         UseS3JsonStateOptions = {},
+  opts:         UseS3JsonStateOptions,
 ): UseS3JsonStateResult<T> {
   const debounceMs = opts.debounceMs      ?? 1500;
   const lsKey      = opts.localStorageKey ?? null;
   const enabled    = opts.enabled         ?? true;
+  const bucket     = opts.bucket;
 
   const [value, setValue]             = useState<T>(defaultValue);
   const [status, setStatus]           = useState<S3SyncStatus>("loading");
@@ -98,7 +103,7 @@ export function useS3JsonState<T>(
   // ── S3 helpers ────────────────────────────────────────────────────────
   const downloadFromS3 = useCallback(async (): Promise<T | null> => {
     try {
-      const { url } = await getUrl({ path: s3Path });
+      const { url } = await getUrl({ path: s3Path, options: { bucket } });
       const res = await fetch(url.toString());
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`s3 fetch ${res.status}`);
@@ -110,17 +115,17 @@ export function useS3JsonState<T>(
       if (/404|NotFound|NoSuchKey|AccessDenied/i.test(msg)) return null;
       throw err;
     }
-  }, [s3Path]);
+  }, [s3Path, bucket]);
 
   const uploadToS3 = useCallback(async (v: T) => {
     await uploadData({
       path: s3Path,
       data: new Blob([JSON.stringify(v)], { type: "application/json" }),
-      options: { contentType: "application/json" },
+      options: { bucket, contentType: "application/json" },
     }).result;
     lastSavedJsonRef.current = JSON.stringify(v);
     setLastSavedAt(new Date());
-  }, [s3Path]);
+  }, [s3Path, bucket]);
 
   // ── Hydration: paint local first, then reconcile with S3 ──────────────
   // Runs the first time `enabled` is true. Prior to that the hook behaves as

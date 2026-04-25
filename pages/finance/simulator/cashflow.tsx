@@ -30,6 +30,7 @@ type Cashflow = {
   rows:  Row[];
 };
 
+const S3_BUCKET      = "gennaroanesi.com";
 const S3_PATH        = "simulator-state/cashflow.json";
 const LOCAL_KEY      = "finance:simulator:cashflow:v1";   // hook-managed mirror
 const ACTIVE_LS_KEY  = "finance:simulator:cashflow:active"; // per-device, not synced
@@ -65,6 +66,7 @@ export default function CashflowSimulatorPage() {
 
   const { value: cashflows, setValue: setCashflows, status: syncStatus, lastSavedAt } =
     useS3JsonState<Cashflow[]>(S3_PATH, defaultCashflows, {
+      bucket: S3_BUCKET,
       localStorageKey: LOCAL_KEY,
       // Gate S3 ops on auth — Amplify Storage needs credentials. The hook
       // still mirrors to localStorage while we wait, so no keystrokes lost.
