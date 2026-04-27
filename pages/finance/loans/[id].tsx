@@ -47,6 +47,11 @@ type PaymentDraft = {
   escrow:      number | "";
   fees:        number | "";
   notes:       string;
+  /** When true, also create the matching expense transaction on the paying
+   *  account and decrement that account's balance. Default false because the
+   *  user often imports the checking debit independently from CSV — creating
+   *  it here would double-count. */
+  createCheckingTx: boolean;
 };
 
 function draftFromPayment(p: LoanPaymentRecord): PaymentDraft {
@@ -58,6 +63,9 @@ function draftFromPayment(p: LoanPaymentRecord): PaymentDraft {
     escrow:      p.escrow ?? "",
     fees:        p.fees ?? "",
     notes:       p.notes ?? "",
+    // Re-editing a payment that already had a checking tx defaults to keeping
+    // it. New posts default to false.
+    createCheckingTx: !!p.transactionId,
   };
 }
 
@@ -76,6 +84,7 @@ export default function LoanDetailPage() {
   const [panel,        setPanel]        = useState<PanelState>(null);
   const [draft,        setDraft]        = useState<PaymentDraft>({
     date: todayIso(), totalAmount: "", principal: "", interest: "", escrow: "", fees: "", notes: "",
+    createCheckingTx: false,
   });
 
   // Lender-stated balance (for correction banner). Local-only UI field.
@@ -322,10 +331,24 @@ export default function LoanDetailPage() {
   }
 
   /**
-   * Post a single scheduled payment: create the 2 linked transactions,
-   * flip status to POSTED, write split from the draft (may differ from scheduled).
-   * Also adjusts the linked checking account's balance by −totalAmount.
-   * Returns the updated LoanPaymentRecord.
+   * Post a single scheduled payment.
+   *
+   * Always:
+   * - Creates an INCOME transaction on the loan account for `principal`
+   *   (so the ledger reflects the debit; balance update below keeps the
+   *    cached account.currentBalance honest immediately, instead of waiting
+   *    on recalcCachedBalance).
+   * - Bumps loan account balance by +principal (debt closer to 0).
+   * - Bumps loan record's cached `currentBalance` by −principal.
+   *
+   * Conditional on `createCheckingTx`:
+   * - Creates an EXPENSE transaction on the paying account and decrements
+   *   that account's balance by `totalAmount`. Default is OFF — the user
+   *   typically imports their checking ledger from CSV, and creating it
+   *   here would double-count.
+   *
+   * Always at the end: caller invokes recalcCachedBalance() as a safety
+   * net to reconcile against the full posted-payment list.
    */
   async function postPayment(
     payment: LoanPaymentRecord,
@@ -337,31 +360,43 @@ export default function LoanDetailPage() {
       escrow: number | null;
       fees: number | null;
       notes: string | null;
+      createCheckingTx: boolean;
     },
   ): Promise<LoanPaymentRecord | null> {
     if (!loan || !account) return null;
-    if (!checkingAccountId) {
-      alert("No checking account selected. Pick one above the scheduled table.");
+    const { date, totalAmount, principal, interest, escrow, fees, notes, createCheckingTx } = values;
+
+    if (createCheckingTx && !checkingAccountId) {
+      alert("Pick a paying account above the scheduled table, or uncheck \"Also debit checking\" on the panel.");
       return null;
     }
 
-    const { date, totalAmount, principal, interest, escrow, fees, notes } = values;
+    // 1. Optional: expense transaction on the paying account + balance update
+    let checkingTx: { id: string } | null | undefined = null;
+    if (createCheckingTx) {
+      const created = await client.models.financeTransaction.create({
+        accountId:   checkingAccountId,
+        amount:      -totalAmount,
+        type:        "EXPENSE" as any,
+        category:    "Loan payment",
+        description: `${account.name} payment${payment.sequenceNumber ? ` #${payment.sequenceNumber}` : ""}`,
+        date,
+        status:      "POSTED" as any,
+        goalId:      null,
+        toAccountId: null,
+        importHash:  null,
+      });
+      checkingTx = created.data;
+      const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
+      if (chk) {
+        await client.models.financeAccount.update({
+          id:             checkingAccountId,
+          currentBalance: (chk.currentBalance ?? 0) - totalAmount,
+        });
+      }
+    }
 
-    // 1. Expense transaction on checking (money leaves your pocket)
-    const { data: checkingTx } = await client.models.financeTransaction.create({
-      accountId:   checkingAccountId,
-      amount:      -totalAmount,
-      type:        "EXPENSE" as any,
-      category:    "Loan payment",
-      description: `${account.name} payment${payment.sequenceNumber ? ` #${payment.sequenceNumber}` : ""}`,
-      date,
-      status:      "POSTED" as any,
-      goalId:      null,
-      toAccountId: null,
-      importHash:  null,
-    });
-
-    // 2. Income transaction on loan account (principal reduces the debt — balance moves toward zero)
+    // 2. Income transaction on loan account (principal reduces the debt)
     const { data: loanTx } = await client.models.financeTransaction.create({
       accountId:   account.id,
       amount:      principal,
@@ -375,16 +410,31 @@ export default function LoanDetailPage() {
       importHash:  null,
     });
 
-    // 3. Adjust the checking account's balance by −totalAmount (read–modify–write)
-    const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
-    if (chk) {
-      await client.models.financeAccount.update({
-        id:             checkingAccountId,
-        currentBalance: (chk.currentBalance ?? 0) - totalAmount,
-      });
+    // 3. Bump the loan account's cached balance toward zero by +principal.
+    //    (Loan account balance is stored as a negative number; principal
+    //    payment reduces the debt, so balance moves up.)
+    {
+      const { data: la } = await client.models.financeAccount.get({ id: account.id });
+      if (la) {
+        await client.models.financeAccount.update({
+          id:             account.id,
+          currentBalance: (la.currentBalance ?? 0) + principal,
+        });
+      }
     }
 
-    // 4. Update the payment record: status POSTED + split + transaction FKs
+    // 4. Bump the loan record's cached currentBalance by −principal.
+    {
+      const { data: lr } = await client.models.financeLoan.get({ id: loan.id });
+      if (lr) {
+        await client.models.financeLoan.update({
+          id:             loan.id,
+          currentBalance: (lr.currentBalance ?? 0) - principal,
+        });
+      }
+    }
+
+    // 5. Update the payment record: status POSTED + split + transaction FKs
     const { data: updated } = await client.models.financeLoanPayment.update({
       id:                 payment.id,
       status:             "POSTED" as any,
@@ -439,16 +489,57 @@ export default function LoanDetailPage() {
           escrow: draft.escrow === "" ? null : Number(draft.escrow),
           fees: draft.fees === "" ? null : Number(draft.fees),
           notes: draft.notes.trim() || null,
+          createCheckingTx: draft.createCheckingTx,
         });
         if (updated) {
           setPayments((p) => p.map((x) => x.id === updated.id ? updated : x));
         }
       } else if (panel.kind === "edit-posted") {
-        // Edit an already-posted payment: update the 2 transactions + payment record
-        // For simplicity, re-create the transactions if date/amount/principal changed
+        // Edit an already-posted payment: drop the 2 old transactions and let
+        // postPayment recreate them (or skip checking if toggle is off now).
+        // We also need to undo the prior balance hits before postPayment
+        // re-applies the new ones — otherwise balances double-up. principalDelta
+        // is signed: positive principal originally reduced loan debt, so
+        // reversing means subtracting it again from the loan account / adding
+        // to the loan record.
         const old = panel.payment;
-        if (old.transactionId) await client.models.financeTransaction.delete({ id: old.transactionId });
-        if (old.loanTransactionId) await client.models.financeTransaction.delete({ id: old.loanTransactionId });
+        if (old.transactionId) {
+          // Reverse the old checking expense before deleting it.
+          try {
+            const { data: tx } = await client.models.financeTransaction.get({ id: old.transactionId });
+            if (tx) {
+              const { data: chk } = await client.models.financeAccount.get({ id: tx.accountId ?? "" });
+              if (chk) {
+                await client.models.financeAccount.update({
+                  id:             chk.id,
+                  currentBalance: (chk.currentBalance ?? 0) - (tx.amount ?? 0),
+                });
+              }
+            }
+          } catch {}
+          await client.models.financeTransaction.delete({ id: old.transactionId });
+        }
+        if (old.loanTransactionId) {
+          await client.models.financeTransaction.delete({ id: old.loanTransactionId });
+        }
+        // Reverse the old loan-side balance bumps so postPayment can reapply
+        // cleanly with the (possibly different) new principal.
+        if (account && (old.principal ?? 0) !== 0) {
+          const { data: la } = await client.models.financeAccount.get({ id: account.id });
+          if (la) {
+            await client.models.financeAccount.update({
+              id:             account.id,
+              currentBalance: (la.currentBalance ?? 0) - (old.principal ?? 0),
+            });
+          }
+          const { data: lr } = await client.models.financeLoan.get({ id: loan!.id });
+          if (lr) {
+            await client.models.financeLoan.update({
+              id:             loan!.id,
+              currentBalance: (lr.currentBalance ?? 0) + (old.principal ?? 0),
+            });
+          }
+        }
 
         const updated = await postPayment(old, {
           date: draft.date,
@@ -458,24 +549,40 @@ export default function LoanDetailPage() {
           escrow: draft.escrow === "" ? null : Number(draft.escrow),
           fees: draft.fees === "" ? null : Number(draft.fees),
           notes: draft.notes.trim() || null,
+          createCheckingTx: draft.createCheckingTx,
         });
         if (updated) setPayments((p) => p.map((x) => x.id === updated.id ? updated : x));
       } else if (panel.kind === "extra") {
-        // Create a brand-new POSTED payment (ad-hoc extra)
+        // Ad-hoc extra payment. Same gating rule as scheduled posts: only
+        // create the checking-side debit when the toggle is on.
         if (!loan || !account) return;
-        if (!checkingAccountId) { alert("No checking account selected"); return; }
+        if (draft.createCheckingTx && !checkingAccountId) {
+          alert("Pick a paying account, or uncheck \"Also debit checking\".");
+          return;
+        }
 
-        // Transactions
-        const { data: checkingTx } = await client.models.financeTransaction.create({
-          accountId:   checkingAccountId,
-          amount:      -total,
-          type:        "EXPENSE" as any,
-          category:    "Loan payment",
-          description: `${account.name} extra payment`,
-          date:        draft.date,
-          status:      "POSTED" as any,
-          goalId: null, toAccountId: null, importHash: null,
-        });
+        let checkingTx: { id: string } | null | undefined = null;
+        if (draft.createCheckingTx) {
+          const created = await client.models.financeTransaction.create({
+            accountId:   checkingAccountId,
+            amount:      -total,
+            type:        "EXPENSE" as any,
+            category:    "Loan payment",
+            description: `${account.name} extra payment`,
+            date:        draft.date,
+            status:      "POSTED" as any,
+            goalId: null, toAccountId: null, importHash: null,
+          });
+          checkingTx = created.data;
+          const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
+          if (chk) {
+            await client.models.financeAccount.update({
+              id:             checkingAccountId,
+              currentBalance: (chk.currentBalance ?? 0) - total,
+            });
+          }
+        }
+
         const { data: loanTx } = await client.models.financeTransaction.create({
           accountId:   account.id,
           amount:      prin,
@@ -486,14 +593,28 @@ export default function LoanDetailPage() {
           status:      "POSTED" as any,
           goalId: null, toAccountId: null, importHash: null,
         });
-        // Adjust the checking account balance by −total
-        const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
-        if (chk) {
-          await client.models.financeAccount.update({
-            id:             checkingAccountId,
-            currentBalance: (chk.currentBalance ?? 0) - total,
-          });
+
+        // Bump loan account toward zero by +principal
+        {
+          const { data: la } = await client.models.financeAccount.get({ id: account.id });
+          if (la) {
+            await client.models.financeAccount.update({
+              id:             account.id,
+              currentBalance: (la.currentBalance ?? 0) + prin,
+            });
+          }
         }
+        // Bump loan record's cached balance by −principal
+        {
+          const { data: lr } = await client.models.financeLoan.get({ id: loan.id });
+          if (lr) {
+            await client.models.financeLoan.update({
+              id:             loan.id,
+              currentBalance: (lr.currentBalance ?? 0) - prin,
+            });
+          }
+        }
+
         const { data: newPay } = await client.models.financeLoanPayment.create({
           loanId:           loan.id,
           status:           "POSTED" as any,
@@ -582,20 +703,26 @@ export default function LoanDetailPage() {
 
   async function handleBulkPost() {
     if (selectedIds.size === 0) return;
-    if (!confirm(`Post ${selectedIds.size} payment${selectedIds.size === 1 ? "" : "s"} using their scheduled amounts?`)) return;
-
+    // Bulk-post lets the user opt in to the checking-side debit too. Default
+    // is no — most users have already imported the matching debits via CSV.
+    const alsoDebit = confirm(
+      `Post ${selectedIds.size} payment${selectedIds.size === 1 ? "" : "s"}.\n\n` +
+      `OK = also debit the paying account for each (only if you haven't imported them).\n` +
+      `Cancel = post loan-side only (recommended).`,
+    );
     setSaving(true);
     try {
       const toPost = scheduledPayments.filter((p) => selectedIds.has(p.id));
       for (const payment of toPost) {
         await postPayment(payment, {
-          date:        payment.date ?? todayIso(),
-          totalAmount: payment.totalAmount ?? 0,
-          principal:   payment.principal ?? 0,
-          interest:    payment.interest ?? 0,
-          escrow:      payment.escrow ?? null,
-          fees:        payment.fees ?? null,
-          notes:       payment.notes ?? null,
+          date:             payment.date ?? todayIso(),
+          totalAmount:      payment.totalAmount ?? 0,
+          principal:        payment.principal ?? 0,
+          interest:         payment.interest ?? 0,
+          escrow:           payment.escrow ?? null,
+          fees:             payment.fees ?? null,
+          notes:            payment.notes ?? null,
+          createCheckingTx: alsoDebit,
         });
       }
       setSelectedIds(new Set());
@@ -651,6 +778,7 @@ export default function LoanDetailPage() {
       date: todayIso(),
       totalAmount: "", principal: "", interest: 0,
       escrow: "", fees: "", notes: "",
+      createCheckingTx: false,
     });
     setPanel({ kind: "extra" });
   }
@@ -663,6 +791,7 @@ export default function LoanDetailPage() {
       interest: 0,
       escrow: "", fees: "",
       notes: `Reconcile with lender-stated balance`,
+      createCheckingTx: false,    // corrections never create a checking tx
     });
     setPanel({ kind: "correction", delta });
   }
@@ -1375,6 +1504,27 @@ export default function LoanDetailPage() {
                   value={draft.notes}
                   onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
               </div>
+
+              {/* Checking-side debit toggle. Off by default — most users
+                  already import the matching debit from CSV, so creating it
+                  here would double-count. Hidden on the principal-only
+                  correction flow since corrections never touch checking. */}
+              {panel.kind !== "correction" && (
+                <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={draft.createCheckingTx}
+                    onChange={(e) => setDraft((d) => ({ ...d, createCheckingTx: e.target.checked }))}
+                  />
+                  <span>
+                    Also debit the paying account for {fmtCurrency(Number(draft.totalAmount) || 0)}
+                    <span className="block text-[10px] text-gray-400">
+                      Leave off if your bank statement is already imported — it would double-count.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               <SaveButton saving={saving} onSave={handleSingleSave}
                 label={
