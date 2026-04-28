@@ -47,8 +47,12 @@ export default function AccountsPage() {
   const [loading,  setLoading]  = useState(true);
   const [busyId,   setBusyId]   = useState<string | null>(null);   // id of the account whose star is mid-toggle
 
-  // Create-account side panel. Edit and delete live on the detail page (/finance/accounts/[id]).
-  const [panelOpen, setPanelOpen] = useState(false);
+  // Account side panel — handles both create and edit. Brokerage/retirement
+  // accounts still have their own detail page (holdings + per-account tx);
+  // for everything else, click navigates to the filtered transactions list and
+  // edit happens via the per-row Edit button which opens this panel.
+  type PanelMode = null | "new" | { kind: "edit"; id: string };
+  const [panelMode, setPanelMode] = useState<PanelMode>(null);
   const [saving,    setSaving]    = useState(false);
   const [accDraft,  setAccDraft]  = useState<Partial<AccountRecord>>({});
 
@@ -105,14 +109,19 @@ export default function AccountsPage() {
     }
   }
 
-  // ── Create account ───────────────────────────────────
-  // Create-only flow: the new account is persisted, appended to the list, and the
-  // panel closes. User clicks the row to navigate to /finance/accounts/[id] for any
-  // further edits (mapping goals, toggling active, renaming, deleting).
+  // ── Create / edit / delete account ───────────────────────────────────
+  // The same side panel handles new + edit. Mode is encoded in panelMode.
+  // Goal-funding-source mapping is still managed on the brokerage detail
+  // page or the goals page — out of scope here.
 
   function openNewAcc() {
     setAccDraft({ currency: "USD", active: true, currentBalance: 0, type: "CHECKING" as any });
-    setPanelOpen(true);
+    setPanelMode("new");
+  }
+
+  function openEditAcc(acc: AccountRecord) {
+    setAccDraft({ ...acc });
+    setPanelMode({ kind: "edit", id: acc.id });
   }
 
   async function handleSaveAcc() {
@@ -121,7 +130,7 @@ export default function AccountsPage() {
     try {
       const isCredit  = accDraft.type === "CREDIT";
       const isSavings = accDraft.type === "SAVINGS";
-      const { data: newAcc } = await client.models.financeAccount.create({
+      const payload = {
         name:                accDraft.name!,
         type:                (accDraft.type ?? "CHECKING") as any,
         retirementType:      (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
@@ -134,9 +143,32 @@ export default function AccountsPage() {
         statementClosingDay: isCredit  ? accDraft.statementClosingDay ?? null : null,
         apr:                 isCredit  ? accDraft.apr                 ?? null : null,
         apy:                 isSavings ? accDraft.apy                 ?? null : null,
-      });
-      if (newAcc) setAccounts((p) => [...p, newAcc]);
-      setPanelOpen(false);
+      };
+
+      if (panelMode === "new") {
+        const { data: newAcc } = await client.models.financeAccount.create(payload);
+        if (newAcc) setAccounts((p) => [...p, newAcc]);
+      } else if (panelMode && typeof panelMode === "object" && panelMode.kind === "edit") {
+        const id = panelMode.id;
+        await client.models.financeAccount.update({ id, ...payload });
+        setAccounts((p) => p.map((a) => a.id === id ? { ...a, ...payload } as AccountRecord : a));
+      }
+      setPanelMode(null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteAcc() {
+    if (!panelMode || typeof panelMode !== "object" || panelMode.kind !== "edit") return;
+    const id = panelMode.id;
+    const target = accounts.find((a) => a.id === id);
+    if (!confirm(`Delete account "${target?.name ?? id}"? Transactions on this account will not be deleted.`)) return;
+    setSaving(true);
+    try {
+      await client.models.financeAccount.delete({ id });
+      setAccounts((p) => p.filter((a) => a.id !== id));
+      setPanelMode(null);
     } finally {
       setSaving(false);
     }
@@ -259,6 +291,21 @@ export default function AccountsPage() {
         )
       ),
     },
+    {
+      key: "actions",
+      label: "",
+      align: "right",
+      className: "w-16",
+      render: (r) => (
+        <button
+          onClick={(e) => { e.stopPropagation(); openEditAcc(r.account); }}
+          className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+          title="Edit account"
+        >
+          Edit
+        </button>
+      ),
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [busyId]);
 
@@ -345,7 +392,16 @@ export default function AccountsPage() {
               sortKey={ctl.sortKey}
               sortDir={ctl.sortDir}
               onSort={ctl.handleSort}
-              onRowClick={(r) => router.push(`/finance/accounts/${r.account.id}`)}
+              onRowClick={(r) => {
+                // Brokerage / retirement still go to the detail page — that's
+                // where holdings, lots, and "Refresh prices" live. Everything
+                // else goes straight to the filtered transactions list, which
+                // is the place you'd actually do something with the account.
+                const target = isInvestedAccount(r.account.type)
+                  ? `/finance/accounts/${r.account.id}`
+                  : `/finance/transactions?account=${r.account.id}`;
+                router.push(target);
+              }}
               emptyMessage={ctl.search ? "No matches" : "No accounts"}
             />
             <TableControls
@@ -362,12 +418,14 @@ export default function AccountsPage() {
 
         </div>
 
-        {/* Create-account side panel */}
-        {panelOpen && (
+        {/* Account side panel — create or edit */}
+        {panelMode && (
           <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-              <h2 className="text-base font-semibold dark:text-rose text-purple">New Account</h2>
-              <button onClick={() => setPanelOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
+              <h2 className="text-base font-semibold dark:text-rose text-purple">
+                {panelMode === "new" ? "New Account" : "Edit Account"}
+              </h2>
+              <button onClick={() => setPanelMode(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
               <div>
@@ -479,11 +537,27 @@ export default function AccountsPage() {
                 <span className="text-[10px] text-gray-400">(pin to dashboard)</span>
               </label>
 
-              <p className="text-[11px] text-gray-400 italic border-t border-gray-200 dark:border-darkBorder pt-4">
-                Map goals, rename, or delete on the account page after creation.
-              </p>
+              {panelMode === "new" && (
+                <p className="text-[11px] text-gray-400 italic border-t border-gray-200 dark:border-darkBorder pt-4">
+                  Goal mapping for brokerage / retirement accounts is on the account detail page.
+                </p>
+              )}
 
-              <SaveButton saving={saving} onSave={handleSaveAcc} label="Create Account" />
+              <SaveButton
+                saving={saving}
+                onSave={handleSaveAcc}
+                label={panelMode === "new" ? "Create Account" : "Save"}
+              />
+              {panelMode && typeof panelMode === "object" && panelMode.kind === "edit" && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAcc}
+                  disabled={saving}
+                  className="text-[11px] text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30 self-start"
+                >
+                  Delete account
+                </button>
+              )}
             </div>
           </div>
         )}
