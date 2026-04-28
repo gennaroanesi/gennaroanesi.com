@@ -1125,45 +1125,9 @@ export default function LoanDetailPage() {
             </select>
           </div>
 
-          {/* ── Posted payments table ─────────────────────────────────── */}
-          <section className="mb-6">
-            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-              <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
-                Posted · {postedPayments.length}
-              </h2>
-              {postedPayments.length > 0 && (
-                <SearchInput value={postedCtl.search} onChange={postedCtl.setSearch} placeholder="Search posted…" />
-              )}
-            </div>
-            {postedPayments.length === 0 ? (
-              <p className="text-sm text-gray-400 py-4 text-center">No payments posted yet.</p>
-            ) : (
-              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-                <DataTable
-                  rows={postedCtl.paged}
-                  columns={postedColumns}
-                  sortKey={postedCtl.sortKey}
-                  sortDir={postedCtl.sortDir}
-                  onSort={postedCtl.handleSort}
-                  onRowClick={openEditPosted}
-                  emptyMessage={postedCtl.search ? "No matches" : "No payments posted yet"}
-                />
-                <TableControls
-                  page={postedCtl.page}
-                  totalPages={postedCtl.totalPages}
-                  totalItems={postedCtl.totalItems}
-                  totalUnfiltered={postedCtl.totalUnfiltered}
-                  pageSize={postedCtl.pageSize}
-                  setPage={postedCtl.setPage}
-                  setPageSize={postedCtl.setPageSize}
-                />
-              </div>
-            )}
-          </section>
-
           {/* ── Scheduled payments table (+ bulk actions) ───────────── */}
           {scheduledPayments.length > 0 && (
-            <section>
+            <section className="mb-6">
               <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
                   Scheduled · {scheduledPayments.length}
@@ -1249,6 +1213,42 @@ export default function LoanDetailPage() {
               </div>
             </section>
           )}
+
+          {/* ── Posted payments table ─────────────────────────────────── */}
+          <section>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
+                Posted · {postedPayments.length}
+              </h2>
+              {postedPayments.length > 0 && (
+                <SearchInput value={postedCtl.search} onChange={postedCtl.setSearch} placeholder="Search posted…" />
+              )}
+            </div>
+            {postedPayments.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">No payments posted yet.</p>
+            ) : (
+              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                <DataTable
+                  rows={postedCtl.paged}
+                  columns={postedColumns}
+                  sortKey={postedCtl.sortKey}
+                  sortDir={postedCtl.sortDir}
+                  onSort={postedCtl.handleSort}
+                  onRowClick={openEditPosted}
+                  emptyMessage={postedCtl.search ? "No matches" : "No payments posted yet"}
+                />
+                <TableControls
+                  page={postedCtl.page}
+                  totalPages={postedCtl.totalPages}
+                  totalItems={postedCtl.totalItems}
+                  totalUnfiltered={postedCtl.totalUnfiltered}
+                  pageSize={postedCtl.pageSize}
+                  setPage={postedCtl.setPage}
+                  setPageSize={postedCtl.setPageSize}
+                />
+              </div>
+            )}
+          </section>
         </div>
 
         {/* ── Side panel ───────────────────────────────────────────────── */}
