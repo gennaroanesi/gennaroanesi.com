@@ -30,6 +30,14 @@ const PROJECTS: Project[] = [
     link: "/projects/home-hub",
   },
   {
+    date: "2026-02",
+    title: "Flight Log site",
+    description:
+      "3D flight log built around a Cesium globe — KML routes from ForeFlight, archived FAA approach plates, cockpit-video sync to live track. Email-triggered import is the only step I take.",
+    category: "dev",
+    link: "/projects/flying",
+  },
+  {
     date: "2026-03",
     title: "Instrument Checkride",
     description: "Passed at Lubbock, TX.",
