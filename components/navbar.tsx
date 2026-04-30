@@ -40,10 +40,10 @@ const menuItems = [
     name: "Timeline",
     href: "/timeline",
   },
-  /*{
+  {
     name: "Flying",
     href: "/flying",
-  }, */
+  },
 ];
 
 const adminMenu = [

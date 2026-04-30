@@ -126,7 +126,7 @@ export default function ProjectsPage() {
             Timeline
           </h1>
           <p className="text-base text-purple/70 dark:text-rose/70 mb-6 sm:mb-8 flex-shrink-0">
-            A running log of what I've been building, flying, shooting, and
+            A running log of what I've been working on, building, flying and
             playing.
           </p>
 

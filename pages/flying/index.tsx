@@ -59,9 +59,23 @@ function flightMonths(flights: Flight[]): string[] {
   return [...set].sort((a, b) => b.localeCompare(a));
 }
 
-function filterFlights(flights: Flight[], month: MonthFilter): Flight[] {
-  if (!month) return flights;
-  return flights.filter((f) => f.date.startsWith(month));
+// "last90" is a rolling-window sentinel; everything else is a "YYYY-MM" prefix
+// matching f.date. null = no filter (all flights ever).
+const LAST_90_FILTER = "last90";
+
+function isoDaysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+function filterFlights(flights: Flight[], filter: MonthFilter): Flight[] {
+  if (!filter) return flights;
+  if (filter === LAST_90_FILTER) {
+    const cutoff = isoDaysAgo(90);
+    return flights.filter((f) => f.date >= cutoff);
+  }
+  return flights.filter((f) => f.date.startsWith(filter));
 }
 
 // ── Video thumbnail extraction ──────────────────────────────────────────────
@@ -727,11 +741,20 @@ function DesktopHeader({
           <button
             onClick={() => onMonthChange(null)}
             className={`shrink-0 px-3 py-1 rounded-full text-xs font-mono border transition-all
-              ${ !isFiltered
+              ${ monthFilter === null
                 ? "bg-gold/15 border-gold/40 text-gold"
                 : "border-darkBorder text-gray-500 hover:border-gray-500 hover:text-gray-300" }`}
           >
             All
+          </button>
+          <button
+            onClick={() => onMonthChange(LAST_90_FILTER)}
+            className={`shrink-0 px-3 py-1 rounded-full text-xs font-mono border transition-all
+              ${ monthFilter === LAST_90_FILTER
+                ? "bg-gold/15 border-gold/40 text-gold"
+                : "border-darkBorder text-gray-500 hover:border-gray-500 hover:text-gray-300" }`}
+          >
+            Last 90d
           </button>
           {months.map((m) => {
             const [y, mo] = m.split("-");
@@ -800,11 +823,20 @@ function MobileHeader({
         <button
           onClick={() => onMonthChange(null)}
           className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-all
-            ${ !isFiltered
+            ${ monthFilter === null
               ? "bg-gold/15 border-gold/40 text-gold"
               : "border-darkBorder text-gray-600 hover:text-gray-400" }`}
         >
           All
+        </button>
+        <button
+          onClick={() => onMonthChange(LAST_90_FILTER)}
+          className={`shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-all
+            ${ monthFilter === LAST_90_FILTER
+              ? "bg-gold/15 border-gold/40 text-gold"
+              : "border-darkBorder text-gray-600 hover:text-gray-400" }`}
+        >
+          Last 90d
         </button>
         {months.map((m) => {
           const [y, mo] = m.split("-");
@@ -1365,7 +1397,10 @@ export default function FlyingPage() {
   const [loading,    setLoading]    = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drawerState, setDrawerState] = useState<DrawerState>("peek");
-  const [monthFilter, setMonthFilter] = useState<MonthFilter>(null);
+  // Default landing view: trailing 90 days. Showing "all flights ever" was
+  // overwhelming on first paint; showing "this month" was empty in months
+  // without activity. Rolling 90d strikes the balance.
+  const [monthFilter, setMonthFilter] = useState<MonthFilter>(LAST_90_FILTER);
 
   // Approach procedures cache: "ICAO|procedure|transition" -> record
   const approachCache = useRef<Map<string, any>>(new Map());
@@ -1684,7 +1719,13 @@ export default function FlyingPage() {
                   </div>
                 ) : visibleFlights.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center px-6 text-center">
-                    <span className="text-gray-600 text-xs font-mono">No flights this month</span>
+                    <span className="text-gray-600 text-xs font-mono">
+                      {monthFilter === null
+                        ? "No flights yet"
+                        : monthFilter === LAST_90_FILTER
+                          ? "No flights in the last 90 days"
+                          : "No flights this month"}
+                    </span>
                   </div>
                 ) : (
                   years.map(([year, yf]) => (
