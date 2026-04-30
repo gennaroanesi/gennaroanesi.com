@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
+import NextLink from "next/link";
 import DefaultLayout from "@/layouts/default";
 
-type Category = "aviation" | "dev" | "work" | "music" | "photo" | "life";
+type Category = "aviation" | "dev" | "work" | "life";
 
 type Project = {
   date: string; // YYYY-MM (used for sorting + display)
@@ -15,13 +16,19 @@ const CATEGORIES: Record<Category, { label: string; color: string }> = {
   aviation: { label: "Aviation", color: "#DEBA02" },
   dev: { label: "Personal Projects", color: "#60a5fa" },
   work: { label: "Work", color: "#587D71" },
-  music: { label: "Music", color: "#c084fc" },
-  photo: { label: "Photo", color: "#d97757" },
   life: { label: "Life", color: "#a78bfa" },
 };
 
 // Edit freely. Add/remove entries; they're sorted by date descending at render time.
 const PROJECTS: Project[] = [
+  {
+    date: "2026-04",
+    title: "Home Hub",
+    description:
+      "Natural-language household app for two — tasks, bills, calendar, reminders, photos, trips, Home Assistant. Three surfaces (WhatsApp, web, iOS), one schema, one Claude-powered agent.",
+    category: "dev",
+    link: "/projects/home-hub",
+  },
   {
     date: "2026-03",
     title: "Instrument Checkride",
@@ -196,16 +203,31 @@ export default function ProjectsPage() {
                   </div>
 
                   <h3 className="text-lg sm:text-xl font-medium text-purple dark:text-rose leading-snug">
-                    {p.link ? (
-                      <a
-                        href={p.link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="hover:text-gold transition-colors"
-                      >
-                        {p.title}
-                      </a>
-                    ) : (
+                    {p.link ? (() => {
+                      const isExternal = /^https?:\/\//i.test(p.link);
+                      const arrow = isExternal ? "↗" : "→";
+                      const className =
+                        "underline decoration-purple/20 dark:decoration-rose/20 underline-offset-4 hover:decoration-gold hover:text-gold transition-colors";
+                      return isExternal ? (
+                        <a
+                          href={p.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={className}
+                        >
+                          {p.title}
+                          <span className="ml-1.5 text-purple/40 dark:text-rose/40 group-hover:text-gold" aria-hidden>{arrow}</span>
+                        </a>
+                      ) : (
+                        <NextLink
+                          href={p.link}
+                          className={className}
+                        >
+                          {p.title}
+                          <span className="ml-1.5 text-purple/40 dark:text-rose/40 group-hover:text-gold" aria-hidden>{arrow}</span>
+                        </NextLink>
+                      );
+                    })() : (
                       p.title
                     )}
                   </h3>

@@ -171,6 +171,23 @@
     font-weight: 400;
     font-style: normal;
   }
+  /* Hold-the-line page bg. DefaultLayout's outer wrapper is height:100dvh
+     (necessary for fixed-viewport pages — chat, finance dashboards) so when
+     a long-scroll page extends past it, whatever is behind shows through.
+     We also paint html / body / #__next in the same color so any of those
+     elements can be the layer that backs overflowed content. Last-declared
+     wins on equal-specificity utility collisions, so the explicit color is
+     also used in addition to the body className. */
+  html,
+  body,
+  #__next {
+    background-color: #f9fafb; /* gray-50 — light mode */
+  }
+  .dark html,
+  .dark body,
+  .dark #__next {
+    background-color: #1e1e2e; /* darkBg */
+  }
   .fade {
     opacity: 1;
     animation: site-fade-in 2s;
