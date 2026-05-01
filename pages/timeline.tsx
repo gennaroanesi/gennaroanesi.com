@@ -3,6 +3,7 @@ import NextLink from "next/link";
 import DefaultLayout from "@/layouts/default";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
+import { MarkdownText } from "@/components/common/MarkdownText";
 
 type Category = "aviation" | "dev" | "work" | "life";
 
@@ -226,9 +227,10 @@ export default function TimelinePage() {
                     )}
                   </h3>
                   {p.description && (
-                    <p className="mt-1 text-sm sm:text-base text-purple/75 dark:text-rose/75 leading-relaxed">
-                      {p.description}
-                    </p>
+                    <MarkdownText
+                      text={p.description}
+                      className="mt-1 text-sm sm:text-base text-purple/75 dark:text-rose/75"
+                    />
                   )}
 
                   {/* Media row — horizontal scroll of thumbnails. Click opens

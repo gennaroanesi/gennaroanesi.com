@@ -5,6 +5,7 @@ import DefaultLayout from "@/layouts/default";
 import { generateClient } from "aws-amplify/data";
 import { uploadData, remove as s3Remove } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
+import { MarkdownText } from "@/components/common/MarkdownText";
 
 type Category = "aviation" | "dev" | "work" | "life";
 type Entry = Schema["timelineEntry"]["type"];
@@ -408,13 +409,28 @@ export default function AdminTimelinePage() {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium block mb-1">Description</label>
+                <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium block mb-1">
+                  Description <span className="text-gray-400 normal-case tracking-normal">· markdown</span>
+                </label>
                 <textarea
                   value={draft.description}
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                   rows={4}
-                  className="w-full bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-2 py-1.5 text-sm text-gray-800 dark:text-gray-200 resize-y"
+                  placeholder="**bold**, *italic*, [links](https://example.com), - lists…"
+                  className="w-full bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-2 py-1.5 text-sm text-gray-800 dark:text-gray-200 resize-y font-mono"
                 />
+                {/* Live preview — renders as the user types so they can
+                    eyeball formatting without leaving the panel. Hidden
+                    when the field is empty to avoid an empty box. */}
+                {draft.description.trim() && (
+                  <div className="mt-2 rounded border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkBg/40 px-2.5 py-2">
+                    <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium mb-1.5">Preview</p>
+                    <MarkdownText
+                      text={draft.description}
+                      className="text-sm text-gray-700 dark:text-gray-300"
+                    />
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
