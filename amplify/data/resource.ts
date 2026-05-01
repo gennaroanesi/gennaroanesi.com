@@ -784,6 +784,9 @@ const schema = a.schema({
       // Tiebreaker for entries within the same month. Higher = shows first.
       // Default 0; admin can bump to reorder.
       sortOrder:   a.integer().default(0),
+      // Public timeline filters by isActive=true. Defaults to true so newly
+      // created entries are visible immediately.
+      isActive:    a.boolean().default(true),
     })
     .authorization((allow) => [
       allow.publicApiKey().to(["read"]),
@@ -799,6 +802,9 @@ const schema = a.schema({
       slug:      a.string().required(),  // identifier, also the display key
       label:     a.string().required(),  // visible tab text — "flying", "photos"
       sortOrder: a.integer().default(0), // ascending; lowest = leftmost & default
+      // Public site filters categories by isActive=true. Defaults to true so
+      // newly created cats are visible immediately.
+      isActive:  a.boolean().default(true),
     })
     .identifier(["slug"])
     .authorization((allow) => [
@@ -806,13 +812,19 @@ const schema = a.schema({
       allow.group("admins"),
     ]),
 
+  // categorySlug is optional so bulk-imported media can land in an
+  // "Uncategorized inbox" before the admin classifies them.
+  // Public reads must filter out null-slug + isActive=false.
   homeMedia: a
     .model({
-      categorySlug: a.string().required(),  // FK → homeCategory.slug
+      categorySlug: a.string(),             // FK → homeCategory.slug; null = inbox
       kind:         a.enum(["IMAGE", "VIDEO"]),
       s3Key:        a.string().required(),  // e.g. "public/home/flying/foo.mp4"
       caption:      a.string(),
       sortOrder:    a.integer().default(0),
+      // Bulk imports default this to false so the public site doesn't show
+      // un-curated media. Single-add upload still defaults to true.
+      isActive:     a.boolean().default(true),
     })
     .secondaryIndexes((index) => [index("categorySlug")])
     .authorization((allow) => [

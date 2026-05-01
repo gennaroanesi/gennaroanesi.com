@@ -73,6 +73,7 @@ export default function AdminHomepagePage() {
   const [catDraft, setCatDraft] = useState<CatDraft>({ slug: "", label: "", sortOrder: 0 });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const bulkInputRef = useRef<HTMLInputElement | null>(null);
 
   // ── Data load ──────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -115,6 +116,14 @@ export default function AdminHomepagePage() {
 
   const activeCategory = activeSlug ? categories.find((c) => c.slug === activeSlug) ?? null : null;
   const activeMedia    = activeSlug ? (mediaByCat.get(activeSlug) ?? []) : [];
+
+  // Bulk-imported / unassigned media. Lives at public/home/_inbox/{ts}-{name}.
+  const inboxMedia = useMemo(
+    () => media
+      .filter((m) => !m.categorySlug)
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")),
+    [media],
+  );
 
   // ── Category mutations ─────────────────────────────────────────────────
   function openNewCat() {
@@ -222,6 +231,46 @@ export default function AdminHomepagePage() {
     if (data) setMedia((p) => p.map((x) => x.id === m.id ? data : x));
   }
 
+  // Bulk import: drop N files into the inbox as isActive=false. The admin
+  // assigns a category + flips isActive=true from the inbox cards below.
+  async function handleBulkImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const created: HomeMedia[] = [];
+      for (const file of Array.from(files)) {
+        const isVideo = file.type.startsWith("video/");
+        const isImage = file.type.startsWith("image/");
+        if (!isVideo && !isImage) continue;
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const key = `public/home/_inbox/${Date.now()}-${safeName}`;
+        await uploadData({
+          path:    key,
+          data:    file,
+          options: { bucket: BUCKET_NAME, contentType: file.type },
+        }).result;
+        const { data } = await client.models.homeMedia.create({
+          // categorySlug intentionally omitted — lands in inbox.
+          kind:     isVideo ? "VIDEO" : "IMAGE" as any,
+          s3Key:    key,
+          caption:  "",
+          isActive: false,
+        });
+        if (data) created.push(data);
+      }
+      if (created.length) setMedia((p) => [...p, ...created]);
+    } finally {
+      setUploading(false);
+      if (bulkInputRef.current) bulkInputRef.current.value = "";
+    }
+  }
+
+  async function handleCatPatch(slug: string, patch: Partial<HomeCategory>) {
+    const { data } = await client.models.homeCategory.update({ slug, ...patch });
+    if (data) setCategories((p) => p.map((c) => c.slug === slug ? data : c));
+  }
+
   async function handleMediaDelete(m: HomeMedia) {
     if (!confirm("Delete this media item?")) return;
     if (m.s3Key?.startsWith("public/home/")) {
@@ -298,6 +347,22 @@ export default function AdminHomepagePage() {
                 </button>
               )}
               <button
+                onClick={() => bulkInputRef.current?.click()}
+                disabled={uploading}
+                className="px-3 py-1.5 rounded text-xs font-semibold border border-gray-300 dark:border-darkBorder text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-50"
+                title="Upload many files into the inbox; categorize + activate after."
+              >
+                {uploading ? "Uploading…" : "Bulk import → inbox"}
+              </button>
+              <input
+                ref={bulkInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*"
+                onChange={handleBulkImport}
+                className="hidden"
+              />
+              <button
                 onClick={openNewCat}
                 className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
               >
@@ -321,25 +386,40 @@ export default function AdminHomepagePage() {
                     <tr className="text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">
                       <th className="px-3 py-2 w-32">Slug</th>
                       <th className="px-3 py-2">Label</th>
-                      <th className="px-3 py-2 w-24 text-right">Order</th>
-                      <th className="px-3 py-2 w-24 text-right">Media</th>
-                      <th className="px-3 py-2 w-24"></th>
+                      <th className="px-3 py-2 w-20 text-right">Order</th>
+                      <th className="px-3 py-2 w-20 text-right">Media</th>
+                      <th className="px-3 py-2 w-24 text-center">Active</th>
+                      <th className="px-3 py-2 w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {sortedCats.map((c) => {
                       const items = mediaByCat.get(c.slug) ?? [];
-                      const isActive = activeSlug === c.slug;
+                      const isSelected = activeSlug === c.slug;
+                      const catActive  = c.isActive !== false;
                       return (
                         <tr
                           key={c.slug}
                           onClick={() => setActiveSlug(c.slug)}
-                          className={`cursor-pointer transition-colors ${isActive ? "bg-emerald-50/30 dark:bg-emerald-900/10" : "hover:bg-gray-50 dark:hover:bg-white/5"}`}
+                          className={`cursor-pointer transition-colors ${isSelected ? "bg-emerald-50/30 dark:bg-emerald-900/10" : "hover:bg-gray-50 dark:hover:bg-white/5"} ${catActive ? "" : "opacity-60"}`}
                         >
                           <td className="px-3 py-2 font-mono text-xs text-gray-500">{c.slug}</td>
                           <td className="px-3 py-2 text-gray-800 dark:text-gray-200">{c.label}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-xs text-gray-500">{c.sortOrder ?? 0}</td>
                           <td className="px-3 py-2 text-right text-xs text-gray-500 tabular-nums">{items.length}</td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleCatPatch(c.slug!, { isActive: !catActive }); }}
+                              className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest border transition-colors ${
+                                catActive
+                                  ? "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                                  : "border-gray-300 dark:border-darkBorder text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"
+                              }`}
+                              title={catActive ? "Click to hide from public site" : "Click to show on public site"}
+                            >
+                              {catActive ? "On" : "Off"}
+                            </button>
+                          </td>
                           <td className="px-3 py-2 text-right">
                             <button
                               onClick={(e) => { e.stopPropagation(); openEditCat(c); }}
@@ -357,7 +437,7 @@ export default function AdminHomepagePage() {
 
               {/* Media manager for the selected category. */}
               {activeCategory && (
-                <section className="rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-4">
+                <section className="rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-4 mb-6">
                   <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                     <div>
                       <h2 className="text-base font-semibold text-purple dark:text-rose">
@@ -400,6 +480,39 @@ export default function AdminHomepagePage() {
                 </section>
               )}
             </>
+          )}
+
+          {/* Inbox — bulk-imported media awaiting categorization. Shows even
+              when there are no categories yet, so the admin can see where
+              their uploads landed. */}
+          {inboxMedia.length > 0 && (
+            <section className="rounded-lg border border-amber-300/60 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10 p-4">
+              <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                <div>
+                  <h2 className="text-base font-semibold text-amber-700 dark:text-amber-300">
+                    Inbox · {inboxMedia.length}
+                  </h2>
+                  <p className="text-[11px] text-amber-700/70 dark:text-amber-300/70">
+                    Bulk-imported items. Pick a category and toggle Active to publish.
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {inboxMedia.map((m) => {
+                  const url = `${MEDIA_URL_PREFIX}${m.s3Key}`;
+                  return (
+                    <MediaCard
+                      key={m.id}
+                      media={m}
+                      url={url}
+                      categories={sortedCats}
+                      onPatch={(patch) => handleMediaPatch(m, patch)}
+                      onDelete={() => handleMediaDelete(m)}
+                    />
+                  );
+                })}
+              </div>
+            </section>
           )}
         </div>
 
@@ -472,15 +585,19 @@ export default function AdminHomepagePage() {
 // ── Subcomponents ──────────────────────────────────────────────────────────
 
 function MediaCard({
-  media, url, onPatch, onDelete,
+  media, url, categories, onPatch, onDelete,
 }: {
-  media:    HomeMedia;
-  url:      string;
-  onPatch:  (patch: Partial<HomeMedia>) => Promise<void>;
-  onDelete: () => Promise<void> | void;
+  media:      HomeMedia;
+  url:        string;
+  // When provided, renders a category picker — used by the inbox so the user
+  // can move an item into a category.
+  categories?: HomeCategory[];
+  onPatch:    (patch: Partial<HomeMedia>) => Promise<void>;
+  onDelete:   () => Promise<void> | void;
 }) {
   const [caption, setCaption] = useState(media.caption ?? "");
   const [order, setOrder]     = useState(media.sortOrder ?? 0);
+  const isActive = media.isActive !== false;
 
   // Persist edits on blur — small enough scope to skip an explicit Save button.
   const commitCaption = () => {
@@ -491,7 +608,7 @@ function MediaCard({
   };
 
   return (
-    <div className="rounded border border-gray-200 dark:border-darkBorder overflow-hidden bg-gray-50 dark:bg-darkBg/40">
+    <div className={`rounded border border-gray-200 dark:border-darkBorder overflow-hidden bg-gray-50 dark:bg-darkBg/40 ${isActive ? "" : "opacity-70"}`}>
       {media.kind === "VIDEO" ? (
         <video src={`${url}#t=0.1`} className="w-full h-32 object-cover bg-black" muted playsInline preload="metadata" />
       ) : (
@@ -499,6 +616,18 @@ function MediaCard({
         <img src={url} alt={media.caption ?? ""} className="w-full h-32 object-cover" loading="lazy" />
       )}
       <div className="p-2 flex flex-col gap-1.5">
+        {categories && (
+          <select
+            value={media.categorySlug ?? ""}
+            onChange={(e) => onPatch({ categorySlug: e.target.value || null })}
+            className="w-full bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-2 py-1 text-xs text-gray-800 dark:text-gray-200"
+          >
+            <option value="">— Inbox —</option>
+            {categories.map((c) => (
+              <option key={c.slug} value={c.slug ?? ""}>{c.label}</option>
+            ))}
+          </select>
+        )}
         <input
           type="text"
           value={caption}
@@ -516,6 +645,17 @@ function MediaCard({
             className="w-20 bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-2 py-1 text-xs text-gray-800 dark:text-gray-200"
             title="Sort order"
           />
+          <button
+            onClick={() => onPatch({ isActive: !isActive })}
+            className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest border transition-colors ${
+              isActive
+                ? "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                : "border-gray-300 dark:border-darkBorder text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"
+            }`}
+            title={isActive ? "Click to hide from public site" : "Click to show on public site"}
+          >
+            {isActive ? "On" : "Off"}
+          </button>
           <button
             onClick={onDelete}
             className="ml-auto text-[10px] text-gray-400 hover:text-red-500 transition-colors"

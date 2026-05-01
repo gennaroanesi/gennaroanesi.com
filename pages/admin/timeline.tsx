@@ -73,12 +73,13 @@ type DraftState = {
   category:    Category;
   url:         string;
   sortOrder:   number;
+  isActive:    boolean;
 };
 
 function emptyDraft(): DraftState {
   const now = new Date();
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  return { date: ym, title: "", description: "", category: "dev", url: "", sortOrder: 0 };
+  return { date: ym, title: "", description: "", category: "dev", url: "", sortOrder: 0, isActive: true };
 }
 
 type PanelMode = null | { kind: "new" } | { kind: "edit"; id: string };
@@ -160,6 +161,7 @@ export default function AdminTimelinePage() {
       category:    (e.category as Category) ?? "dev",
       url:         e.url ?? "",
       sortOrder:   e.sortOrder ?? 0,
+      isActive:    e.isActive !== false,
     });
     setPanelMode({ kind: "edit", id: e.id });
   }
@@ -178,6 +180,7 @@ export default function AdminTimelinePage() {
         category:    draft.category as any,
         url:         draft.url.trim() || null,
         sortOrder:   draft.sortOrder,
+        isActive:    draft.isActive,
       };
       if (panelMode?.kind === "new") {
         const { data } = await client.models.timelineEntry.create(payload);
@@ -338,16 +341,18 @@ export default function AdminTimelinePage() {
                     <th className="px-3 py-2 w-24">Date</th>
                     <th className="px-3 py-2">Title</th>
                     <th className="px-3 py-2 w-32">Category</th>
-                    <th className="px-3 py-2 w-20 text-right">Media</th>
-                    <th className="px-3 py-2 w-20"></th>
+                    <th className="px-3 py-2 w-16 text-right">Media</th>
+                    <th className="px-3 py-2 w-20 text-center">Active</th>
+                    <th className="px-3 py-2 w-16"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                   {sorted.map((e) => {
                     const cat = CATEGORIES[e.category as Category];
                     const m = mediaByEntry.get(e.id) ?? [];
+                    const entryActive = e.isActive !== false;
                     return (
-                      <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer" onClick={() => openEdit(e)}>
+                      <tr key={e.id} className={`hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer ${entryActive ? "" : "opacity-60"}`} onClick={() => openEdit(e)}>
                         <td className="px-3 py-2 font-mono text-xs text-gray-500">{e.date}</td>
                         <td className="px-3 py-2">
                           <p className="text-gray-800 dark:text-gray-200 font-medium">{e.title}</p>
@@ -362,6 +367,17 @@ export default function AdminTimelinePage() {
                         </td>
                         <td className="px-3 py-2 text-right text-xs text-gray-500 tabular-nums">
                           {m.length || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest border ${
+                              entryActive
+                                ? "border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
+                                : "border-gray-300 dark:border-darkBorder text-gray-400"
+                            }`}
+                          >
+                            {entryActive ? "On" : "Off"}
+                          </span>
                         </td>
                         <td className="px-3 py-2 text-right">
                           <button
@@ -467,6 +483,16 @@ export default function AdminTimelinePage() {
                 />
                 <p className="text-[10px] text-gray-400 mt-0.5">Optional. Internal paths use SPA nav; external opens in new tab.</p>
               </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 select-none">
+                <input
+                  type="checkbox"
+                  checked={draft.isActive}
+                  onChange={(e) => setDraft((d) => ({ ...d, isActive: e.target.checked }))}
+                  className="h-4 w-4"
+                />
+                <span>Active</span>
+                <span className="text-[10px] text-gray-400">— uncheck to hide from /timeline without deleting.</span>
+              </label>
 
               {/* Media — only available once the entry exists, since uploads are keyed by id. */}
               <div className="border-t border-gray-200 dark:border-darkBorder pt-4">

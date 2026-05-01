@@ -67,7 +67,7 @@ export default function TimelinePage() {
           client.models.timelineMedia.list({ authMode: "apiKey", limit: 1000 }),
         ]);
         if (cancelled) return;
-        setEntries(eRes.data ?? []);
+        setEntries((eRes.data ?? []).filter((e) => e.isActive !== false));
         setMedia(mRes.data ?? []);
       } catch (err) {
         console.warn("[timeline] load failed:", err);
@@ -281,7 +281,9 @@ export default function TimelinePage() {
 
             {!loading && filtered.length === 0 && (
               <li className="pl-8 text-sm text-purple/60 dark:text-rose/60">
-                No projects in this filter.
+                {entries.length === 0
+                  ? "No timeline entries yet."
+                  : "No projects in this filter."}
               </li>
             )}
           </ol>

@@ -46,10 +46,14 @@ export default function IndexPage() {
           client.models.homeMedia.list({ authMode: "apiKey", limit: 1000 }),
         ]);
         if (cancelled) return;
-        const cats = (catsRes.data ?? []).slice().sort(
-          (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+        const cats = (catsRes.data ?? [])
+          .filter((c) => c.isActive !== false)
+          .slice()
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        // Drop inbox (null categorySlug) + inactive items before grouping.
+        const mediaArr = (mediaRes.data ?? []).filter(
+          (m) => m.isActive !== false && !!m.categorySlug,
         );
-        const mediaArr = mediaRes.data ?? [];
         const built: Slide[] = cats.map((c) => {
           const items = mediaArr
             .filter((m) => m.categorySlug === c.slug)
