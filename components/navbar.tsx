@@ -68,6 +68,10 @@ const adminMenu = [
     href: "/admin/timeline",
   },
   {
+    name: "Projects",
+    href: "/admin/projects",
+  },
+  {
     name: "Notes",
     href: "/notes",
   },

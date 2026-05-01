@@ -790,6 +790,25 @@ const schema = a.schema({
       allow.group("admins"),
     ]),
 
+  // ── Project writeup ─────────────────────────────────────────────────────
+  // Long-form markdown articles served at /projects/<slug>. Replaces the
+  // filesystem-based content/projects/*.md flow with a model so they can be
+  // edited through an admin UI. slug doubles as the page URL identifier.
+  projectWriteup: a
+    .model({
+      slug:        a.string().required(),  // "home-hub", "flying", etc. — URL slug
+      title:       a.string().required(),  // <Head> title and (currently) the H1 from inside the markdown
+      description: a.string(),               // <Head> description for share previews
+      markdown:    a.string().required(),  // full body content
+      published:   a.boolean().default(true),
+      sortOrder:   a.integer().default(0),
+    })
+    .identifier(["slug"])
+    .authorization((allow) => [
+      allow.publicApiKey().to(["read"]),
+      allow.group("admins"),
+    ]),
+
   // Media attached to a timeline entry. Files live at
   // public/timeline/{entryId}/{filename} so they're guest-readable from S3
   // (matches the "public/*" path policy in backend.ts).
