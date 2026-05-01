@@ -467,7 +467,8 @@ export default function AdminTimelinePage() {
                             <div key={m.id} className="relative group rounded overflow-hidden border border-gray-200 dark:border-darkBorder">
                               {m.kind === "VIDEO" ? (
                                 <div className="relative w-24 h-16 bg-black flex items-center justify-center">
-                                  <video src={url} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                                  {/* #t=0.1 — see same trick on /timeline. */}
+                                  <video src={`${url}#t=0.1`} className="w-full h-full object-cover" muted playsInline preload="metadata" />
                                   <span className="absolute text-white text-base" aria-hidden>▶</span>
                                 </div>
                               ) : (

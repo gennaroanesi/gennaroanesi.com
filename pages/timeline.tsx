@@ -247,8 +247,11 @@ export default function TimelinePage() {
                           >
                             {m.kind === "VIDEO" ? (
                               <div className="relative w-32 h-20 bg-black flex items-center justify-center">
+                                {/* #t=0.1 forces the browser to fetch + render the
+                                    frame at 100ms with preload="metadata", giving
+                                    us a real poster instead of a black box. */}
                                 <video
-                                  src={url}
+                                  src={`${url}#t=0.1`}
                                   className="w-full h-full object-cover"
                                   muted
                                   playsInline
