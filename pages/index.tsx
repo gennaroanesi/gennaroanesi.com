@@ -1,119 +1,103 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaVolumeUp, FaVolumeMute } from "react-icons/fa";
+import { generateClient } from "aws-amplify/data";
+import type { Schema } from "@/amplify/data/resource";
 import DefaultLayout from "@/layouts/default";
 
-type MediaKind = "photo" | "flying" | "guitar";
+// Hard-coded SLIDES are gone — content now comes from homeCategory +
+// homeMedia. The admin manages both via /admin/homepage.
+
+type HomeCategory = Schema["homeCategory"]["type"];
+type HomeMedia    = Schema["homeMedia"]["type"];
 
 type Item = {
-  type: "image" | "video";
-  src: string;
+  id:      string;
+  type:    "image" | "video";
+  src:     string;
   caption: string;
 };
 
 type Slide = {
-  key: MediaKind;
+  key:   string;  // category slug
   label: string;
   items: Item[];
 };
 
-// Swap these for real assets when ready.
-const SLIDES: Slide[] = [
-  {
-    key: "flying",
-    label: "flying",
-    items: [
-      {
-        type: "video",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/videos/partial_panel.web.mp4",
-        caption: "Partial panel at Kileen TX, Nov 2026",
-      },
-      {
-        type: "video",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/videos/telluride_approach.web.mp4",
-        caption: "Approach at Telluride CO, Dec 2025",
-      },
-      {
-        type: "video",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/videos/night_approach_kgtu.web.mp4",
-        caption: "Night Approach at Georgetown TX, Mar 2026",
-      },
-      
-    ]
-  },
-    {
-    key: "photo",
-    label: "photos",
-    items: [
-      {
-        type: "image",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/images/455A8627.web.jpg",
-        caption: "Santorini, Oct 2025",
-      },
-      {
-        type: "image",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/images/455A1335.web.jpg",
-        caption: "Copper, Dec 2023",
-      },
-      {
-        type: "image",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/images/455A7313.web.jpg",
-        caption: "London, Jul 2022",
-      },
-      {
-        type: "image",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/images/455A8481.web.jpg",
-        caption: "Capri, Jul 2023",
-      },
-    ],
-  },
-  {
-    key: "guitar",
-    label: "guitar",
-    items: [
-      {
-        type: "video",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/videos/money_heist.mp4",
-        caption: "Money Heist Theme",
-      },
-      {
-        type: "video",
-        src: "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/public/videos/deja_blues.mp4",
-        caption: "Michael Lee Firkins - Deja Blues",
-      },
-    ],
-  },
-];
-
+const MEDIA_URL_PREFIX = "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/";
 const IMAGE_INTERVAL_MS = 5000;
 
+const client = generateClient<Schema>();
+
 export default function IndexPage() {
-  const [active, setActive] = useState<MediaKind>("photo");
+  const [slides, setSlides] = useState<Slide[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [active, setActive] = useState<string>("");   // active category slug
   const [itemIdx, setItemIdx] = useState(0);
   const [muted, setMuted] = useState(true);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
-  const activeSlide = SLIDES.find((s) => s.key === active)!;
-  const safeItemIdx = Math.min(itemIdx, activeSlide.items.length - 1);
-  const activeItem = activeSlide.items[safeItemIdx];
+  // ── Public load via apiKey ─────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [catsRes, mediaRes] = await Promise.all([
+          client.models.homeCategory.list({ authMode: "apiKey", limit: 100 }),
+          client.models.homeMedia.list({ authMode: "apiKey", limit: 1000 }),
+        ]);
+        if (cancelled) return;
+        const cats = (catsRes.data ?? []).slice().sort(
+          (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
+        );
+        const mediaArr = mediaRes.data ?? [];
+        const built: Slide[] = cats.map((c) => {
+          const items = mediaArr
+            .filter((m) => m.categorySlug === c.slug)
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+            .map((m) => ({
+              id:      m.id,
+              type:    m.kind === "VIDEO" ? "video" : "image" as Item["type"],
+              src:     `${MEDIA_URL_PREFIX}${m.s3Key}`,
+              caption: m.caption ?? "",
+            }));
+          return { key: c.slug ?? "", label: c.label ?? c.slug ?? "", items };
+        }).filter((s) => s.items.length > 0);
+        setSlides(built);
+        if (built.length > 0) setActive(built[0].key);
+      } catch (err) {
+        console.warn("[home] load failed:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const activeSlide = useMemo(
+    () => slides.find((s) => s.key === active) ?? slides[0] ?? null,
+    [slides, active],
+  );
+  const safeItemIdx = activeSlide ? Math.min(itemIdx, activeSlide.items.length - 1) : 0;
+  const activeItem  = activeSlide ? activeSlide.items[safeItemIdx] : null;
 
   // Reset carousel when switching slides.
-  useEffect(() => {
-    setItemIdx(0);
-  }, [active]);
+  useEffect(() => { setItemIdx(0); }, [active]);
 
   // Auto-advance when the active item is an image and slide has multiple items.
   useEffect(() => {
+    if (!activeSlide || !activeItem) return;
     if (activeSlide.items.length <= 1) return;
     if (activeItem.type !== "image") return;
     const id = setInterval(() => {
       setItemIdx((i) => (i + 1) % activeSlide.items.length);
     }, IMAGE_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [active, itemIdx, activeSlide.items.length, activeItem.type]);
+  }, [active, itemIdx, activeSlide, activeItem]);
 
   // Play only the active video; pause every other video (including inactive slides).
   useEffect(() => {
-    for (const slide of SLIDES) {
+    for (const slide of slides) {
       slide.items.forEach((item, i) => {
         if (item.type !== "video") return;
         const el = videoRefs.current[`${slide.key}-${i}`];
@@ -126,11 +110,11 @@ export default function IndexPage() {
         }
       });
     }
-  }, [active, itemIdx]);
+  }, [active, itemIdx, slides]);
 
-  const advanceFromVideo = (slideKey: MediaKind, itemIndex: number) => {
-    const slide = SLIDES.find((s) => s.key === slideKey)!;
-    if (slide.items.length <= 1) return;
+  const advanceFromVideo = (slideKey: string, itemIndex: number) => {
+    const slide = slides.find((s) => s.key === slideKey);
+    if (!slide || slide.items.length <= 1) return;
     if (slideKey !== active || itemIndex !== itemIdx) return;
     setItemIdx((i) => (i + 1) % slide.items.length);
   };
@@ -146,7 +130,7 @@ export default function IndexPage() {
   const onTouchEnd = (e: React.TouchEvent) => {
     const startX = touchStartX.current;
     touchStartX.current = null;
-    if (startX === null) return;
+    if (startX === null || !activeSlide) return;
     const delta = e.changedTouches[0].clientX - startX;
     if (Math.abs(delta) < SWIPE_THRESHOLD) return;
     if (activeSlide.items.length <= 1) return;
@@ -165,7 +149,7 @@ export default function IndexPage() {
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        {SLIDES.map((slide) => (
+        {slides.map((slide) => (
           <div
             key={slide.key}
             className={`absolute inset-0 transition-opacity duration-700 ${
@@ -178,18 +162,19 @@ export default function IndexPage() {
               const showOpacity = i === (slide.key === active ? itemIdx : 0);
               return (
                 <div
-                  key={item.src}
+                  key={item.id}
                   className={`absolute inset-0 transition-opacity duration-[1200ms] ${
                     showOpacity ? "opacity-100" : "opacity-0"
                   }`}
                 >
                   {item.type === "image" ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                       src={item.src}
                       alt=""
                       className="h-full w-full object-cover"
                       loading={
-                        slide.key === "photo" && i === 0 ? "eager" : "lazy"
+                        slide.key === active && i === 0 ? "eager" : "lazy"
                       }
                     />
                   ) : (
@@ -214,14 +199,22 @@ export default function IndexPage() {
 
         <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/80 pointer-events-none" />
 
-        <div
-          className="absolute top-20 right-4 sm:top-24 sm:right-10 z-10"
-          style={{ paddingTop: "env(safe-area-inset-top)" }}
-        >
-          <span className="text-sm sm:text-base uppercase tracking-widest text-white/75">
-            {activeItem.caption}
-          </span>
-        </div>
+        {!loading && slides.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-white/60 text-sm">
+            No home page content yet.
+          </div>
+        )}
+
+        {activeItem && activeItem.caption && (
+          <div
+            className="absolute top-20 right-4 sm:top-24 sm:right-10 z-10"
+            style={{ paddingTop: "env(safe-area-inset-top)" }}
+          >
+            <span className="text-sm sm:text-base uppercase tracking-widest text-white/75">
+              {activeItem.caption}
+            </span>
+          </div>
+        )}
 
         <button
           type="button"
@@ -229,7 +222,7 @@ export default function IndexPage() {
           aria-label={muted ? "Unmute" : "Mute"}
           aria-pressed={!muted}
           className={`absolute bottom-28 right-4 sm:bottom-32 sm:right-10 z-10 h-11 w-11 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-sm transition-opacity duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/80 ${
-            activeItem.type === "video"
+            activeItem?.type === "video"
               ? "opacity-100"
               : "opacity-0 pointer-events-none"
           }`}
@@ -244,13 +237,13 @@ export default function IndexPage() {
           {/* Carousel dots — only shown when the active slide has multiple items */}
           <div
             className={`flex items-center gap-2 mb-4 transition-opacity duration-300 ${
-              activeSlide.items.length > 1
+              activeSlide && activeSlide.items.length > 1
                 ? "opacity-100"
                 : "opacity-0 pointer-events-none"
             }`}
-            aria-hidden={activeSlide.items.length <= 1}
+            aria-hidden={!activeSlide || activeSlide.items.length <= 1}
           >
-            {activeSlide.items.map((_, i) => (
+            {activeSlide?.items.map((_, i) => (
               <button
                 key={i}
                 type="button"
@@ -269,7 +262,7 @@ export default function IndexPage() {
 
           <nav className="flex justify-center">
             <ul className="flex items-center gap-8 sm:gap-16">
-              {SLIDES.map((s) => {
+              {slides.map((s) => {
                 const isActive = s.key === active;
                 return (
                   <li key={s.key}>

@@ -790,6 +790,36 @@ const schema = a.schema({
       allow.group("admins"),
     ]),
 
+  // ── Home page slideshow ──────────────────────────────────────────────────
+  // Replaces the hard-coded SLIDES array on /. Each homeCategory is a tab on
+  // the home carousel ("flying", "photos", "guitar", …) with N homeMedia
+  // items underneath. Both rows and images live in S3 under public/home/.
+  homeCategory: a
+    .model({
+      slug:      a.string().required(),  // identifier, also the display key
+      label:     a.string().required(),  // visible tab text — "flying", "photos"
+      sortOrder: a.integer().default(0), // ascending; lowest = leftmost & default
+    })
+    .identifier(["slug"])
+    .authorization((allow) => [
+      allow.publicApiKey().to(["read"]),
+      allow.group("admins"),
+    ]),
+
+  homeMedia: a
+    .model({
+      categorySlug: a.string().required(),  // FK → homeCategory.slug
+      kind:         a.enum(["IMAGE", "VIDEO"]),
+      s3Key:        a.string().required(),  // e.g. "public/home/flying/foo.mp4"
+      caption:      a.string(),
+      sortOrder:    a.integer().default(0),
+    })
+    .secondaryIndexes((index) => [index("categorySlug")])
+    .authorization((allow) => [
+      allow.publicApiKey().to(["read"]),
+      allow.group("admins"),
+    ]),
+
   // ── Project writeup ─────────────────────────────────────────────────────
   // Long-form markdown articles served at /projects/<slug>. Replaces the
   // filesystem-based content/projects/*.md flow with a model so they can be

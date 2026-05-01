@@ -18,6 +18,7 @@ import {
   DropdownTrigger,
   Dropdown,
   DropdownMenu,
+  DropdownSection,
 } from "@heroui/dropdown";
 import { Button } from "@heroui/button";
 import { Link } from "@heroui/link";
@@ -46,43 +47,23 @@ const menuItems = [
   },
 ];
 
-const adminMenu = [
-  {
-    name: "Admin Home",
-    href: "/admin",
-  },
-  {
-    name: "Calendar",
-    href: "/calendar",
-  },
-  {
-    name: "Inventory",
-    href: "/inventory",
-  },
-  {
-    name: "Finance",
-    href: "/finance",
-  },
-  {
-    name: "Timeline",
-    href: "/admin/timeline",
-  },
-  {
-    name: "Projects",
-    href: "/admin/projects",
-  },
-  {
-    name: "Notes",
-    href: "/notes",
-  },
-  {
-    name: "Tasks",
-    href: "/tasks",
-  },
-  {
-    name: "Flights",
-    href: "/admin/flights",
-  },
+// Admin dropdown is split into two groups:
+//  - "Public configs" — pages that manage content the public site shows
+//  - "Tools" — internal-only apps + utilities
+type AdminItem = { name: string; href: string };
+const adminPublicConfigs: AdminItem[] = [
+  { name: "Home page", href: "/admin/homepage" },
+  { name: "Projects",  href: "/admin/projects" },
+  { name: "Timeline",  href: "/admin/timeline" },
+];
+const adminTools: AdminItem[] = [
+  { name: "Admin Home", href: "/admin" },
+  { name: "Calendar",   href: "/calendar" },
+  { name: "Inventory",  href: "/inventory" },
+  { name: "Finance",    href: "/finance" },
+  { name: "Notes",      href: "/notes" },
+  { name: "Tasks",      href: "/tasks" },
+  { name: "Flights",    href: "/admin/flights" },
 ];
 
 const AdminDropdown = () => {
@@ -107,11 +88,32 @@ const AdminDropdown = () => {
             title: "text-gray-200",
           }}
         >
-          {adminMenu.map((opt, idx) => (
-            <DropdownItem key={idx} href={opt.href} className="rounded-none">
-              {opt.name}
-            </DropdownItem>
-          ))}
+          <DropdownSection
+            title="Public configs"
+            classNames={{
+              heading: "text-[10px] uppercase tracking-widest text-gray-500 px-2 pt-1",
+              divider: "bg-darkBorder",
+            }}
+            showDivider
+          >
+            {adminPublicConfigs.map((opt) => (
+              <DropdownItem key={opt.href} href={opt.href} className="rounded-none">
+                {opt.name}
+              </DropdownItem>
+            ))}
+          </DropdownSection>
+          <DropdownSection
+            title="Tools"
+            classNames={{
+              heading: "text-[10px] uppercase tracking-widest text-gray-500 px-2 pt-1",
+            }}
+          >
+            {adminTools.map((opt) => (
+              <DropdownItem key={opt.href} href={opt.href} className="rounded-none">
+                {opt.name}
+              </DropdownItem>
+            ))}
+          </DropdownSection>
         </DropdownMenu>
       </Dropdown>
     </div>
@@ -252,12 +254,12 @@ export const Navbar = () => {
         ))}
         {isLoggedIn && (
           <>
-            <NavbarMenuItem key="Admin" className="text-whiteishText">
-              Admin
+            <NavbarMenuItem key="AdminPublic" className="text-whiteishText">
+              Admin · Public configs
             </NavbarMenuItem>
-            {adminMenu.map((item, index) => (
+            {adminPublicConfigs.map((item, index) => (
               <NavbarMenuItem
-                key={`10-${item}-${index}`}
+                key={`pub-${item.href}-${index}`}
                 className="text-whiteishText"
               >
                 <Link
@@ -265,7 +267,29 @@ export const Navbar = () => {
                   className="indent-8 lg:block text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
                   size="lg"
                   href="#"
-                  onPress={(e) => {
+                  onPress={() => {
+                    router.push(item.href);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  {item.name}
+                </Link>
+              </NavbarMenuItem>
+            ))}
+            <NavbarMenuItem key="AdminTools" className="text-whiteishText">
+              Admin · Tools
+            </NavbarMenuItem>
+            {adminTools.map((item, index) => (
+              <NavbarMenuItem
+                key={`tool-${item.href}-${index}`}
+                className="text-whiteishText"
+              >
+                <Link
+                  as={NextLink}
+                  className="indent-8 lg:block text-inherit w-full transparent h-[40px] lg:leading-[40px] lg:align-middle lg:uppercase lg:mix-blend-difference"
+                  size="lg"
+                  href="#"
+                  onPress={() => {
                     router.push(item.href);
                     setIsMenuOpen(false);
                   }}
