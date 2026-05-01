@@ -770,6 +770,44 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index("conversationId")])
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Timeline ─────────────────────────────────────────────────────────────
+  // Public-facing project / event log on /timeline. Replaces the previous
+  // hard-coded array. Public read, admin write. Each entry can have N
+  // attached media items (timelineMedia) for thumbnails.
+  timelineEntry: a
+    .model({
+      date:        a.string().required(),  // "YYYY-MM" — sortable lexicographically
+      title:       a.string().required(),
+      description: a.string(),
+      category:    a.enum(["aviation", "dev", "work", "life"]),
+      url:         a.string(),              // optional link (internal "/foo" or external "https://…")
+      // Tiebreaker for entries within the same month. Higher = shows first.
+      // Default 0; admin can bump to reorder.
+      sortOrder:   a.integer().default(0),
+    })
+    .authorization((allow) => [
+      allow.publicApiKey().to(["read"]),
+      allow.group("admins"),
+    ]),
+
+  // Media attached to a timeline entry. Files live at
+  // public/timeline/{entryId}/{filename} so they're guest-readable from S3
+  // (matches the "public/*" path policy in backend.ts).
+  timelineMedia: a
+    .model({
+      entryId:  a.id().required(),  // FK → timelineEntry.id
+      kind:     a.enum(["IMAGE", "VIDEO"]),
+      s3Key:    a.string().required(),
+      caption:  a.string(),
+      // Order within the entry's media row (left-to-right). Default 0.
+      sortOrder: a.integer().default(0),
+    })
+    .secondaryIndexes((index) => [index("entryId")])
+    .authorization((allow) => [
+      allow.publicApiKey().to(["read"]),
+      allow.group("admins"),
+    ]),
+
   gennaroAgentAction: a.customType({
     tool:   a.string().required(),
     result: a.json(),

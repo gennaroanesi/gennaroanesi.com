@@ -64,6 +64,10 @@ const adminMenu = [
     href: "/finance",
   },
   {
+    name: "Timeline",
+    href: "/admin/timeline",
+  },
+  {
     name: "Notes",
     href: "/notes",
   },

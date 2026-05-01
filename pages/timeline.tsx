@@ -1,16 +1,13 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import NextLink from "next/link";
 import DefaultLayout from "@/layouts/default";
+import { generateClient } from "aws-amplify/data";
+import type { Schema } from "@/amplify/data/resource";
 
 type Category = "aviation" | "dev" | "work" | "life";
 
-type Project = {
-  date: string; // YYYY-MM (used for sorting + display)
-  title: string;
-  description: string;
-  category: Category;
-  link?: string;
-};
+type Entry = Schema["timelineEntry"]["type"];
+type Media = Schema["timelineMedia"]["type"];
 
 const CATEGORIES: Record<Category, { label: string; color: string }> = {
   aviation: { label: "Aviation", color: "#DEBA02" },
@@ -19,81 +16,13 @@ const CATEGORIES: Record<Category, { label: string; color: string }> = {
   life: { label: "Life", color: "#a78bfa" },
 };
 
-// Edit freely. Add/remove entries; they're sorted by date descending at render time.
-const PROJECTS: Project[] = [
-  {
-    date: "2026-04",
-    title: "Home Hub",
-    description:
-      "Natural-language household app for two — tasks, bills, calendar, reminders, photos, trips, Home Assistant. Three surfaces (WhatsApp, web, iOS), one schema, one Claude-powered agent.",
-    category: "dev",
-    link: "/projects/home-hub",
-  },
-  {
-    date: "2026-02",
-    title: "Flight Log site",
-    description:
-      "3D flight log built around a Cesium globe — KML routes from ForeFlight, archived FAA approach plates, cockpit-video sync to live track. Email-triggered import is the only step I take.",
-    category: "dev",
-    link: "/projects/flying",
-  },
-  {
-    date: "2026-03",
-    title: "Instrument Checkride",
-    description: "Passed at Lubbock, TX.",
-    category: "aviation",
-  },
-  {
-    date: "2026-03",
-    title: "Created 91 Dispatcher",
-    description: "A safety-oriented aviation app.",
-    category: "dev",
-    link: "https://91dispatcher.ai",
-  },
-  {
-    date: "2026-02",
-    title: "gennaroanesi.com 'rewrite' with Claude Code",
-    description:
-      "Next.js + Amplify Gen2. Flight log, photo hub, this timeline.",
-    category: "dev"
-  },
-  {
-    date: "2025-12",
-    title: "Mountain Flying course",
-    description:
-      "Flying on the rockies with approaches at Telluride, Aspen and Eagle.",
-    category: "aviation",
-  },
-  {
-    date: "2025-10",
-    title: "Started leading a team of Data Scientists at Meta supporting Sales AI",
-    description:
-      "Extensive use of Claude, Gemini and Llama to boost efficiency and deliver data insights to unlock key product decisions.",
-    category: "work",
-  },
-  {
-    date: "2025-08",
-    title: "Private Pilot Checkride",
-    description: "Passed at Lubbock, TX.",
-    category: "aviation",
-  },
-  {
-    date: "2025-02",
-    title: "Created Paid Messaging Long-Range Plan",
-    description:
-      "Outlined how a nascent product could achieve multi-billion dollar revenue in 5–10 years. Direct conversations with CRO and multiple product, sales, and marketing VPs.",
-    category: "work",
-  },
-  {
-    date: "2024-04",
-    title: "Created 0->1 Sales Pitch Recommendation System",
-    description:
-      "Created a ranking metric to compare fundamentally different products; elected the best based on sales capacity and delivered pitch recommendations with personalized insights to improve adoption rates. This work is now staffed by a full DS team and is one of the main drivers of sales conversations with clients.",
-    category: "work",
-  },
-];
+// Public bucket — files under public/* are guest-readable per the bucket
+// policy in amplify/backend.ts. Direct URLs are simpler than presigning.
+const MEDIA_URL_PREFIX = "https://s3.us-east-1.amazonaws.com/gennaroanesi.com/";
 
 const ALL = new Set<Category>(Object.keys(CATEGORIES) as Category[]);
+
+const client = generateClient<Schema>();
 
 function formatDate(ym: string) {
   const [y, m] = ym.split("-");
@@ -103,24 +32,65 @@ function formatDate(ym: string) {
   return `${month} ${y}`;
 }
 
-export default function ProjectsPage() {
-  const [active, setActive] = useState<Set<Category>>(new Set(ALL));
+export default function TimelinePage() {
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [media, setMedia]     = useState<Media[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [active, setActive]   = useState<Set<Category>>(new Set(ALL));
 
+  // Public read via apiKey — visitors aren't authenticated.
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [eRes, mRes] = await Promise.all([
+          client.models.timelineEntry.list({ authMode: "apiKey", limit: 500 }),
+          client.models.timelineMedia.list({ authMode: "apiKey", limit: 1000 }),
+        ]);
+        if (cancelled) return;
+        setEntries(eRes.data ?? []);
+        setMedia(mRes.data ?? []);
+      } catch (err) {
+        console.warn("[timeline] load failed:", err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Group media by entry id, sort by sortOrder asc within each entry.
+  const mediaByEntry = useMemo(() => {
+    const m = new Map<string, Media[]>();
+    for (const it of media) {
+      if (!it.entryId) continue;
+      if (!m.has(it.entryId)) m.set(it.entryId, []);
+      m.get(it.entryId)!.push(it);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+    }
+    return m;
+  }, [media]);
+
+  // Sort entries by date desc, then by sortOrder desc within the same date.
   const sorted = useMemo(
-    () => [...PROJECTS].sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [],
+    () => [...entries].sort((a, b) => {
+      const dc = (b.date ?? "").localeCompare(a.date ?? "");
+      if (dc !== 0) return dc;
+      return (b.sortOrder ?? 0) - (a.sortOrder ?? 0);
+    }),
+    [entries],
   );
-  const filtered = sorted.filter((p) => active.has(p.category));
+  const filtered = sorted.filter((p) => active.has(p.category as Category));
 
   const toggle = (c: Category) => {
     setActive((prev) => {
-      // If this category is the only one selected, clicking it again resets to All.
       if (prev.size === 1 && prev.has(c)) return new Set(ALL);
-      // Otherwise, selecting a category shows only that category.
       return new Set([c]);
     });
   };
-
   const showAll = () => setActive(new Set(ALL));
 
   return (
@@ -154,7 +124,6 @@ export default function ProjectsPage() {
             {(Object.keys(CATEGORIES) as Category[]).map((c) => {
               const cat = CATEGORIES[c];
               const on = active.has(c) && active.size !== ALL.size;
-              // Treat "all on" as a neutral state so individual chips aren't "lit" by default.
               const allOn = active.size === ALL.size;
               return (
                 <button
@@ -188,10 +157,17 @@ export default function ProjectsPage() {
           <ol className="relative flex-1 min-h-0 overflow-y-auto pb-8 scrollbar-hide">
             <div className="absolute left-[7px] top-2 bottom-2 w-px bg-darkBorder" />
 
-            {filtered.map((p, i) => {
-              const cat = CATEGORIES[p.category];
+            {loading && entries.length === 0 ? (
+              <li className="pl-8 text-sm text-purple/60 dark:text-rose/60 animate-pulse">
+                Loading…
+              </li>
+            ) : filtered.map((p) => {
+              const cat = CATEGORIES[p.category as Category];
+              if (!cat) return null;
+              const url = p.url ?? null;
+              const items = mediaByEntry.get(p.id) ?? [];
               return (
-                <li key={`${p.date}-${p.title}-${i}`} className="relative pl-8 pb-8 sm:pb-10 last:pb-0">
+                <li key={p.id} className="relative pl-8 pb-8 sm:pb-10 last:pb-0">
                   <span
                     className="absolute left-0 top-[6px] h-[15px] w-[15px] rounded-full ring-4 ring-gray-50 dark:ring-darkBg"
                     style={{ backgroundColor: cat.color }}
@@ -211,42 +187,77 @@ export default function ProjectsPage() {
                   </div>
 
                   <h3 className="text-lg sm:text-xl font-medium text-purple dark:text-rose leading-snug">
-                    {p.link ? (() => {
-                      const isExternal = /^https?:\/\//i.test(p.link);
+                    {url ? (() => {
+                      const isExternal = /^https?:\/\//i.test(url);
                       const arrow = isExternal ? "↗" : "→";
                       const className =
                         "underline decoration-purple/20 dark:decoration-rose/20 underline-offset-4 hover:decoration-gold hover:text-gold transition-colors";
                       return isExternal ? (
-                        <a
-                          href={p.link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={className}
-                        >
+                        <a href={url} target="_blank" rel="noreferrer" className={className}>
                           {p.title}
-                          <span className="ml-1.5 text-purple/40 dark:text-rose/40 group-hover:text-gold" aria-hidden>{arrow}</span>
+                          <span className="ml-1.5 text-purple/40 dark:text-rose/40" aria-hidden>{arrow}</span>
                         </a>
                       ) : (
-                        <NextLink
-                          href={p.link}
-                          className={className}
-                        >
+                        <NextLink href={url} className={className}>
                           {p.title}
-                          <span className="ml-1.5 text-purple/40 dark:text-rose/40 group-hover:text-gold" aria-hidden>{arrow}</span>
+                          <span className="ml-1.5 text-purple/40 dark:text-rose/40" aria-hidden>{arrow}</span>
                         </NextLink>
                       );
                     })() : (
                       p.title
                     )}
                   </h3>
-                  <p className="mt-1 text-sm sm:text-base text-purple/75 dark:text-rose/75 leading-relaxed">
-                    {p.description}
-                  </p>
+                  {p.description && (
+                    <p className="mt-1 text-sm sm:text-base text-purple/75 dark:text-rose/75 leading-relaxed">
+                      {p.description}
+                    </p>
+                  )}
+
+                  {/* Media row — horizontal scroll of thumbnails. Click opens
+                      the original in a new tab. */}
+                  {items.length > 0 && (
+                    <div className="mt-3 flex gap-2 overflow-x-auto scrollbar-hide">
+                      {items.map((m) => {
+                        const url = `${MEDIA_URL_PREFIX}${m.s3Key}`;
+                        return (
+                          <a
+                            key={m.id}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={m.caption ?? undefined}
+                            className="flex-shrink-0 block rounded overflow-hidden border border-darkBorder hover:border-purple dark:hover:border-rose transition-colors"
+                          >
+                            {m.kind === "VIDEO" ? (
+                              <div className="relative w-32 h-20 bg-black flex items-center justify-center">
+                                <video
+                                  src={url}
+                                  className="w-full h-full object-cover"
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                />
+                                <span className="absolute text-white/90 text-xl drop-shadow" aria-hidden>▶</span>
+                              </div>
+                            ) : (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={url}
+                                alt={m.caption ?? ""}
+                                className="w-32 h-20 object-cover"
+                                loading="lazy"
+                              />
+                            )}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
                 </li>
               );
             })}
 
-            {filtered.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <li className="pl-8 text-sm text-purple/60 dark:text-rose/60">
                 No projects in this filter.
               </li>
