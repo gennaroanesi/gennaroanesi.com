@@ -37,6 +37,24 @@ export default function TimelinePage() {
   const [media, setMedia]     = useState<Media[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive]   = useState<Set<Category>>(new Set(ALL));
+  // Lightbox: which media item (if any) is full-screen. Closing on ESC or
+  // backdrop click. We hold the whole record so render doesn't re-derive
+  // anything from the entry/media maps.
+  const [lightbox, setLightbox] = useState<Media | null>(null);
+
+  // ESC closes the lightbox. Listener only attaches while one is open.
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setLightbox(null); };
+    window.addEventListener("keydown", onKey);
+    // Lock background scroll while open.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightbox]);
 
   // Public read via apiKey — visitors aren't authenticated.
   useEffect(() => {
@@ -214,19 +232,18 @@ export default function TimelinePage() {
                   )}
 
                   {/* Media row — horizontal scroll of thumbnails. Click opens
-                      the original in a new tab. */}
+                      the lightbox modal. */}
                   {items.length > 0 && (
                     <div className="mt-3 flex gap-2 overflow-x-auto scrollbar-hide">
                       {items.map((m) => {
                         const url = `${MEDIA_URL_PREFIX}${m.s3Key}`;
                         return (
-                          <a
+                          <button
                             key={m.id}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
+                            type="button"
+                            onClick={() => setLightbox(m)}
                             title={m.caption ?? undefined}
-                            className="flex-shrink-0 block rounded overflow-hidden border border-darkBorder hover:border-purple dark:hover:border-rose transition-colors"
+                            className="flex-shrink-0 block rounded overflow-hidden border border-darkBorder hover:border-purple dark:hover:border-rose transition-colors p-0"
                           >
                             {m.kind === "VIDEO" ? (
                               <div className="relative w-32 h-20 bg-black flex items-center justify-center">
@@ -248,7 +265,7 @@ export default function TimelinePage() {
                                 loading="lazy"
                               />
                             )}
-                          </a>
+                          </button>
                         );
                       })}
                     </div>
@@ -265,6 +282,60 @@ export default function TimelinePage() {
           </ol>
         </div>
       </div>
+
+      {/* Lightbox — full-screen image / video viewer.
+          Backdrop click closes; the inner figure stops propagation so
+          clicks on the media itself don't dismiss. ESC also closes (see
+          the effect above).
+          Sizing: caps media at 78vh (mobile-portrait friendly) so caption
+          + close button always have breathing room; figure becomes
+          scrollable past that for tall captions on tiny viewports. */}
+      {lightbox && (() => {
+        const url = `${MEDIA_URL_PREFIX}${lightbox.s3Key}`;
+        return (
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setLightbox(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-3 sm:p-8"
+          >
+            <button
+              type="button"
+              onClick={() => setLightbox(null)}
+              className="absolute top-2 right-2 sm:top-4 sm:right-4 p-3 text-white/70 hover:text-white text-3xl leading-none"
+              aria-label="Close"
+            >
+              ×
+            </button>
+            <figure
+              onClick={(e) => e.stopPropagation()}
+              className="flex flex-col items-center gap-3 max-w-full max-h-full overflow-y-auto"
+            >
+              {lightbox.kind === "VIDEO" ? (
+                <video
+                  src={url}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-w-full max-h-[78vh] rounded shadow-2xl"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={url}
+                  alt={lightbox.caption ?? ""}
+                  className="max-w-full max-h-[78vh] rounded shadow-2xl object-contain"
+                />
+              )}
+              {lightbox.caption && (
+                <figcaption className="text-sm text-white/70 text-center max-w-2xl px-3">
+                  {lightbox.caption}
+                </figcaption>
+              )}
+            </figure>
+          </div>
+        );
+      })()}
     </DefaultLayout>
   );
 }
