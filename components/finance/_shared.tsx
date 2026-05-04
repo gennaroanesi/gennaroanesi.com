@@ -377,15 +377,23 @@ export function buildQuoteMap(quotes: TickerQuoteRecord[]): QuoteMap {
 export type TickerAggregate = {
   ticker:       string;
   assetType:    AssetType | null;
-  lots:         HoldingLotRecord[];
-  totalQty:     number;
-  totalCost:    number | null;
+  lots:         HoldingLotRecord[];   // all lots (vested + unvested) — used for the expanded sub-rows
+  totalQty:     number;               // vested-only — drives "Qty" column on the holdings table
+  totalCost:    number | null;        // vested-only
   price:        number | null;
   fetchedAt:    string | null;
-  marketValue:  number | null;
-  gainLoss:     number | null;
-  gainLossPct:  number | null;
+  marketValue:  number | null;        // vested-only — drives "Value" column
+  gainLoss:     number | null;        // vested-only
+  gainLossPct:  number | null;        // vested-only
+  unvestedQty:  number;               // sum of unvested-lot quantities for this ticker
+  unvestedValue: number | null;       // unvested qty × price (null if no quote)
+  unvestedLotsCount: number;
 };
+
+/** A lot is "vested" by default — only false when the admin explicitly flips it. */
+export function isLotVested(l: HoldingLotRecord): boolean {
+  return l.isVested !== false;
+}
 
 /** Aggregate a set of lots for one ticker, joined with a quote map. */
 export function tickerAggregate(
@@ -394,12 +402,14 @@ export function tickerAggregate(
   quotes: QuoteMap,
 ): TickerAggregate {
   const tickerUpper = ticker.toUpperCase();
-  const myLots = lots.filter((l) => (l.ticker ?? "").toUpperCase() === tickerUpper);
-  const totalQty = myLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
-  const anyMissingCost = myLots.some((l) => l.costBasis == null);
+  const myLots       = lots.filter((l) => (l.ticker ?? "").toUpperCase() === tickerUpper);
+  const vestedLots   = myLots.filter(isLotVested);
+  const unvestedLots = myLots.filter((l) => !isLotVested(l));
+  const totalQty = vestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
+  const anyMissingCost = vestedLots.some((l) => l.costBasis == null);
   const totalCost = anyMissingCost
     ? null
-    : myLots.reduce((s, l) => s + (l.costBasis ?? 0), 0);
+    : vestedLots.reduce((s, l) => s + (l.costBasis ?? 0), 0);
   const quote = quotes.get(tickerUpper) ?? null;
   const price = quote?.price ?? null;
   const fetchedAt = quote?.fetchedAt ?? null;
@@ -410,6 +420,8 @@ export function tickerAggregate(
     : null;
   // assetType: take the first lot's value; if lots disagree, first wins (user error)
   const assetType = (myLots.find((l) => l.assetType)?.assetType ?? null) as AssetType | null;
+  const unvestedQty = unvestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
+  const unvestedValue = price != null ? price * unvestedQty : null;
 
   return {
     ticker: tickerUpper,
@@ -422,6 +434,9 @@ export function tickerAggregate(
     marketValue,
     gainLoss,
     gainLossPct,
+    unvestedQty,
+    unvestedValue,
+    unvestedLotsCount: unvestedLots.length,
   };
 }
 
@@ -437,7 +452,8 @@ export function uniqueTickers(lots: HoldingLotRecord[]): string[] {
 /**
  * Total value of an account including holdings.
  * For non-invested accounts this is just `currentBalance`.
- * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(lot qty * quote price).
+ * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(vested lot qty * quote price).
+ * Unvested RSU lots are excluded — see `unvestedValueByHorizon` for forward-looking projections.
  * Lots with no quote contribute 0 — UI should surface unpriced tickers.
  */
 export function accountTotalValue(
@@ -447,13 +463,39 @@ export function accountTotalValue(
 ): number {
   const cash = acc.currentBalance ?? 0;
   if (!isInvestedAccount(acc.type)) return cash;
-  const myLots = lots.filter((l) => l.accountId === acc.id);
+  const myLots = lots.filter((l) => l.accountId === acc.id && isLotVested(l));
   const holdingsValue = myLots.reduce((s, l) => {
     const q = quotes.get((l.ticker ?? "").toUpperCase());
     if (!q?.price) return s;
     return s + (l.quantity ?? 0) * q.price;
   }, 0);
   return cash + holdingsValue;
+}
+
+/**
+ * Value of an account's unvested lots scheduled to vest by `horizonIso` (YYYY-MM-DD inclusive).
+ * Used by net-worth projections so RSUs that vest before the horizon contribute to the
+ * projected number even though they don't count today. Lots without a vestDate are
+ * excluded — they're indeterminate and shouldn't silently inflate the projection.
+ */
+export function unvestedValueByHorizon(
+  acc: AccountRecord,
+  lots: HoldingLotRecord[] = [],
+  quotes: QuoteMap = new Map(),
+  horizonIso: string,
+): number {
+  if (!isInvestedAccount(acc.type)) return 0;
+  const myLots = lots.filter(
+    (l) => l.accountId === acc.id
+      && !isLotVested(l)
+      && !!l.vestDate
+      && (l.vestDate as string) <= horizonIso,
+  );
+  return myLots.reduce((s, l) => {
+    const q = quotes.get((l.ticker ?? "").toUpperCase());
+    if (!q?.price) return s;
+    return s + (l.quantity ?? 0) * q.price;
+  }, 0);
 }
 
 /** Whether a quote is stale (older than N hours; default 24). */
@@ -1616,6 +1658,11 @@ export function daysToEOY(): number {
   const now = new Date();
   const eoy = new Date(now.getFullYear(), 11, 31);
   return Math.max(0, Math.ceil((eoy.getTime() - now.getTime()) / (24 * 3600 * 1000)));
+}
+
+/** YYYY-MM-DD for the last day of the current calendar year. */
+export function eoyIso(): string {
+  return `${new Date().getFullYear()}-12-31`;
 }
 
 /**

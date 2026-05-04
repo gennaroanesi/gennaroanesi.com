@@ -14,7 +14,7 @@ import {
   totalAssetValue, assetGainLoss,
   computeGoalAllocations, effectiveGoalAmount, goalHasFundingSource,
   projectGoal, resolvedGrowthRate,
-  projectBalance, isProjectableAccount, daysToEOY,
+  projectBalance, isProjectableAccount, daysToEOY, eoyIso, unvestedValueByHorizon,
   estimateTimeToZero,
   AccountBadge,
   listAll,
@@ -232,15 +232,18 @@ export default function FinanceDashboard() {
   // by each projectable account's (conservative − current) delta. Non-projectable
   // accounts (brokerage, retirement, checking) contribute zero delta — market
   // noise or pass-through float that isn't sensibly extrapolated.
+  // Exception: unvested RSU lots on invested accounts whose vestDate ≤ EOY do
+  // contribute their market value to the projection.
   const projectedNetWorthEOY = useMemo(() => {
     let delta = 0;
+    const horizon = eoyIso();
     for (const acc of activeAccounts) {
       const p = eoyProjectionByAccount.get(acc.id);
-      if (!p) continue;
-      delta += p.conservative - p.current;
+      if (p) delta += p.conservative - p.current;
+      delta += unvestedValueByHorizon(acc, lots, quoteMap, horizon);
     }
     return netWorth + delta;
-  }, [activeAccounts, eoyProjectionByAccount, netWorth]);
+  }, [activeAccounts, eoyProjectionByAccount, netWorth, lots, quoteMap]);
 
   const today = todayIso();
   const in30  = addMonths(today, 1);

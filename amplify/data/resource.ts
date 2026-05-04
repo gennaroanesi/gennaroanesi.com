@@ -681,6 +681,14 @@ const schema = a.schema({
       costBasis: a.float(),                  // total $ paid for this lot (optional)
       purchaseDate: a.date(),                // when this lot was acquired (optional)
       notes: a.string(),
+      // Unvested RSU support. `isVested=false` excludes the lot from the
+      // account's *current* market value but still counts toward EOY net-worth
+      // projection if `vestDate` <= horizon. Defaults to true so existing lots
+      // and ordinary purchases keep their previous behavior.
+      // The user manually flips isVested on each vest date; vestDate is
+      // informational + projection horizon (we don't auto-vest based on date).
+      isVested:    a.boolean().default(true),
+      vestDate:    a.date(),
     })
     .secondaryIndexes((index) => [index("accountId"), index("ticker")])
     .authorization((allow) => [allow.group("admins")]),

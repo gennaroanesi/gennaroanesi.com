@@ -198,6 +198,8 @@ export default function AccountDetailPage() {
           costBasis:    lotDraft.costBasis ?? null,
           purchaseDate: lotDraft.purchaseDate ?? null,
           notes:        lotDraft.notes ?? null,
+          isVested:     lotDraft.isVested ?? true,
+          vestDate:     lotDraft.vestDate ?? null,
         });
         if (newLot) setLots((p) => [...p, newLot]);
       } else if (panel?.kind === "edit-lot") {
@@ -209,6 +211,8 @@ export default function AccountDetailPage() {
           costBasis:    lotDraft.costBasis ?? null,
           purchaseDate: lotDraft.purchaseDate ?? null,
           notes:        lotDraft.notes ?? null,
+          isVested:     lotDraft.isVested ?? true,
+          vestDate:     lotDraft.vestDate ?? null,
         });
         setLots((p) => p.map((l) => l.id === panel.lot.id ? { ...l, ...lotDraft, ticker } as HoldingLotRecord : l));
       }
@@ -587,6 +591,14 @@ export default function AccountDetailPage() {
                                     <p className="text-[10px] text-gray-400">
                                       {agg.assetType ? ASSET_TYPE_LABELS[agg.assetType] : ""}
                                       {agg.lots.length > 1 && ` · ${agg.lots.length} lots`}
+                                      {agg.unvestedLotsCount > 0 && (
+                                        <span
+                                          className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-amber-400/15 text-amber-600 dark:text-amber-400"
+                                          title={`${agg.unvestedQty.toLocaleString("en-US", { maximumFractionDigits: 4 })} shares unvested${agg.unvestedValue != null ? ` · ${fmtCurrency(agg.unvestedValue, cur)}` : ""}`}
+                                        >
+                                          +{agg.unvestedLotsCount} unvested
+                                        </span>
+                                      )}
                                     </p>
                                   </div>
                                 </div>
@@ -629,15 +641,21 @@ export default function AccountDetailPage() {
                               const lotValue = agg.price != null ? (lot.quantity ?? 0) * agg.price : null;
                               const lotGain  = lot.costBasis != null && lotValue != null ? lotValue - lot.costBasis : null;
                               const lotPct   = lotGain != null && lot.costBasis ? lotGain / lot.costBasis : null;
+                              const lotUnvested = lot.isVested === false;
                               return (
                                 <tr
                                   key={lot.id}
-                                  className="bg-gray-50/50 dark:bg-white/[0.02] hover:bg-gray-100 dark:hover:bg-white/5 cursor-pointer transition-colors"
+                                  className={`bg-gray-50/50 dark:bg-white/[0.02] hover:bg-gray-100 dark:hover:bg-white/5 cursor-pointer transition-colors ${lotUnvested ? "opacity-70" : ""}`}
                                   onClick={() => openEditLot(lot)}
                                 >
                                   <td className="px-4 py-1.5 pl-12">
                                     <p className="text-xs text-gray-500 dark:text-gray-400">
                                       Lot · {lot.purchaseDate ? fmtDate(lot.purchaseDate) : "no date"}
+                                      {lotUnvested && (
+                                        <span className="ml-1.5 text-amber-600 dark:text-amber-400">
+                                          · unvested{lot.vestDate ? ` · vests ${fmtDate(lot.vestDate)}` : ""}
+                                        </span>
+                                      )}
                                     </p>
                                   </td>
                                   <td className="px-4 py-1.5 text-right tabular-nums text-xs text-gray-500 dark:text-gray-400">
@@ -782,6 +800,30 @@ export default function AccountDetailPage() {
                       value={lotDraft.purchaseDate ?? ""}
                       onChange={(e) => setLotDraft((d) => ({ ...d, purchaseDate: e.target.value || (null as any) }))} />
                     <p className="text-[10px] text-gray-400 mt-0.5">Optional — helps distinguish lots</p>
+                  </div>
+                  {/* Vesting — leave Vested checked for ordinary purchases. Uncheck
+                      to record an unvested RSU tranche that's excluded from current
+                      value but counts toward EOY net-worth projection if vestDate
+                      ≤ year-end. Flip Vested back on at each vest date. */}
+                  <div className="rounded border border-gray-200 dark:border-darkBorder p-3 flex flex-col gap-2 bg-gray-50/50 dark:bg-white/[0.02]">
+                    <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 select-none">
+                      <input
+                        type="checkbox"
+                        checked={lotDraft.isVested !== false}
+                        onChange={(e) => setLotDraft((d) => ({ ...d, isVested: e.target.checked }))}
+                        className="h-4 w-4"
+                      />
+                      <span>Vested</span>
+                    </label>
+                    <div>
+                      <label className={labelCls}>Vest Date</label>
+                      <input type="date" className={inputCls}
+                        value={lotDraft.vestDate ?? ""}
+                        onChange={(e) => setLotDraft((d) => ({ ...d, vestDate: e.target.value || (null as any) }))} />
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        Used by EOY projection when not yet vested. Flip Vested on at the actual vest date.
+                      </p>
+                    </div>
                   </div>
                   <div>
                     <label className={labelCls}>Notes</label>
