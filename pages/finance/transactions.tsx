@@ -14,6 +14,7 @@ import {
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
   parseBankCsv, type ParsedTransaction,
   type TxType,
+  isTradeType, realizedGain,
   listAll,
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
@@ -110,7 +111,15 @@ export default function TransactionsPage() {
       openNewTx();
       router.replace("/finance/transactions", undefined, { shallow: true });
     }
-  }, [router.isReady, router.query.new]);
+    // ?action=buy|sell&account=<id> deep-links to a pre-typed new-tx panel —
+    // the brokerage account detail page links here via "+ Buy" / "+ Sell".
+    const action = router.query.action;
+    if (typeof action === "string" && (action === "buy" || action === "sell")) {
+      const qAcc = typeof router.query.account === "string" ? router.query.account : "";
+      openNewTx(action === "buy" ? "BUY" : "SELL", qAcc || undefined);
+      router.replace("/finance/transactions", undefined, { shallow: true });
+    }
+  }, [router.isReady, router.query.new, router.query.action]);
 
   // Preselect account filter from ?account= query param
   useEffect(() => {
@@ -123,8 +132,17 @@ export default function TransactionsPage() {
 
   // ── Openers ───────────────────────────────────────────────────────────────
 
-  function openNewTx() {
-    setTxDraft({ date: todayIso(), status: "POSTED", type: "EXPENSE" });
+  function openNewTx(initialType: TxType = "EXPENSE", initialAccountId?: string) {
+    const isIncome = initialType === "INCOME" || initialType === "SELL";
+    setTxDraft({
+      date:      todayIso(),
+      status:    "POSTED",
+      type:      initialType,
+      accountId: initialAccountId,
+      // Income/Sell positive, others negative — matches the sign convention
+      // used elsewhere in the panel.
+      amount:    isIncome ? 0 : -0,
+    });
     setPanel({ kind: "new-tx" });
   }
 
@@ -146,44 +164,118 @@ export default function TransactionsPage() {
 
   async function handleSaveTx() {
     if (!txDraft.accountId || txDraft.amount == null || !txDraft.date) return;
+    const txType = (txDraft.type ?? "EXPENSE") as TxType;
+    if (isTradeType(txType)) {
+      if (!txDraft.ticker || !txDraft.quantity || txDraft.quantity <= 0) {
+        alert("Ticker and quantity are required for BUY/SELL.");
+        return;
+      }
+      if (txType === "SELL" && !txDraft.lotId) {
+        alert("Pick the lot to sell from.");
+        return;
+      }
+    }
     setSaving(true);
     try {
       const isPosted = txDraft.status === "POSTED";
 
       if (panel?.kind === "new-tx") {
+        // Default a readable description when blank — handy for the tx list.
+        const autoDesc = isTradeType(txType)
+          ? `${txType === "BUY" ? "Buy" : "Sell"} ${txDraft.quantity} ${(txDraft.ticker ?? "").toUpperCase()}`
+          : null;
+        const description = txDraft.description?.trim() ? txDraft.description.trim() : autoDesc;
+
+        // ── BUY: create lot first so we can persist lotId on the transaction.
+        let createdLotId: string | null = null;
+        let createdLot: HoldingLotRecord | null = null;
+        if (txType === "BUY") {
+          const { data } = await client.models.financeHoldingLot.create({
+            accountId:    txDraft.accountId!,
+            ticker:       (txDraft.ticker ?? "").toUpperCase(),
+            assetType:    "STOCK" as any,
+            quantity:     txDraft.quantity!,
+            costBasis:    Math.abs(txDraft.amount ?? 0) || null,
+            purchaseDate: txDraft.date!,
+            isVested:     true,
+            notes:        null,
+          });
+          if (data) { createdLot = data; createdLotId = data.id; }
+        }
+
+        // ── SELL: snapshot the lot before mutation so we can compute consumed
+        // cost basis, then decrement (or delete) the lot.
+        let consumedCostBasis: number | null = null;
+        if (txType === "SELL" && txDraft.lotId) {
+          const lot = lots.find((l) => l.id === txDraft.lotId);
+          if (!lot || (lot.quantity ?? 0) < (txDraft.quantity ?? 0)) {
+            alert("Selected lot doesn't have enough quantity.");
+            setSaving(false);
+            return;
+          }
+          const lotQty   = lot.quantity ?? 0;
+          const sellQty  = txDraft.quantity!;
+          const fraction = sellQty / lotQty;
+          consumedCostBasis = lot.costBasis != null ? lot.costBasis * fraction : null;
+          const remaining = lotQty - sellQty;
+          if (remaining < 1e-6) {
+            await client.models.financeHoldingLot.delete({ id: lot.id });
+            setLots((p) => p.filter((l) => l.id !== lot.id));
+          } else {
+            const newCost = lot.costBasis != null && consumedCostBasis != null
+              ? lot.costBasis - consumedCostBasis
+              : lot.costBasis ?? null;
+            await client.models.financeHoldingLot.update({
+              id:        lot.id,
+              quantity:  remaining,
+              costBasis: newCost,
+            });
+            setLots((p) => p.map((l) => l.id === lot.id ? { ...l, quantity: remaining, costBasis: newCost } : l));
+          }
+        }
+
         const { data: newTx } = await client.models.financeTransaction.create({
-          accountId:   txDraft.accountId!,
-          amount:      txDraft.amount!,
-          type:        (txDraft.type ?? "EXPENSE") as any,
-          category:    txDraft.category ?? null,
-          description: txDraft.description ?? null,
-          date:        txDraft.date!,
-          status:      (txDraft.status ?? "POSTED") as any,
-          goalId:      txDraft.goalId ?? null,
-          toAccountId: txDraft.toAccountId ?? null,
-          importHash:  txDraft.importHash ?? null,
+          accountId:         txDraft.accountId!,
+          amount:            txDraft.amount!,
+          type:              txType as any,
+          category:          txDraft.category ?? null,
+          description:       description,
+          date:              txDraft.date!,
+          status:            (txDraft.status ?? "POSTED") as any,
+          goalId:            txDraft.goalId ?? null,
+          toAccountId:       txDraft.toAccountId ?? null,
+          importHash:        txDraft.importHash ?? null,
+          ticker:            isTradeType(txType) ? (txDraft.ticker ?? "").toUpperCase() : null,
+          quantity:          isTradeType(txType) ? txDraft.quantity ?? null : null,
+          lotId:             txType === "BUY" ? createdLotId : (txType === "SELL" ? txDraft.lotId ?? null : null),
+          consumedCostBasis: consumedCostBasis,
         });
         if (newTx) {
-          // Auto-match against recurring rules. High-confidence hits link
-          // immediately and advance the rule's nextDate. Lower-confidence
-          // suggestions are deferred to UI (not surfaced here).
-          const candidates = findRecurringMatches(newTx, recurrings);
+          if (createdLot) setLots((p) => [...p, createdLot!]);
+          // Auto-match against recurring rules — skip for trade types since
+          // they don't represent recurring cash patterns.
+          const candidates = isTradeType(txType) ? [] : findRecurringMatches(newTx, recurrings);
           let linked: TransactionRecord = newTx;
           if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
             await applyRecurringMatch(client, newTx, candidates[0].rule);
             linked = { ...newTx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord;
           }
           setTransactions((prev) => [linked, ...prev]);
-          if (isPosted) await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
+          if (isPosted) await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txType);
         }
 
       } else if (panel?.kind === "edit-tx") {
         const prev = panel.tx;
+        // Edit-tx for trade rows: only allow non-mutating fields. Changing
+        // amount/qty/lot would require reversing the lot mutation — skip for v1.
+        const editingTrade = isTradeType(prev.type as any);
         await client.models.financeTransaction.update({
           id:          prev.id,
-          accountId:   txDraft.accountId!,
-          amount:      txDraft.amount!,
-          type:        (txDraft.type ?? "EXPENSE") as any,
+          // For trades, force the original accountId/amount/type/lot/qty/ticker
+          // through unchanged so an accidental form mutation can't drift them.
+          accountId:   editingTrade ? prev.accountId : txDraft.accountId!,
+          amount:      editingTrade ? prev.amount    : txDraft.amount!,
+          type:        editingTrade ? (prev.type as any) : ((txDraft.type ?? "EXPENSE") as any),
           category:    txDraft.category ?? null,
           description: txDraft.description ?? null,
           date:        txDraft.date!,
@@ -193,9 +285,19 @@ export default function TransactionsPage() {
           recurringId: txDraft.recurringId ?? null,
         });
 
-        // Reverse old balance effect, apply new
-        if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
-        if (isPosted)                 await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
+        // Reverse old balance effect, apply new (skipped for trades since
+        // amount can't change in edit mode).
+        if (!editingTrade) {
+          if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
+          if (isPosted)                 await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
+        } else {
+          // Trades: only status flip from PENDING ↔ POSTED matters for cash.
+          if (prev.status !== "POSTED" && isPosted) {
+            await adjustBalance(prev.accountId!, prev.amount ?? 0, null, prev.type as TxType);
+          } else if (prev.status === "POSTED" && !isPosted) {
+            await adjustBalance(prev.accountId!, -(prev.amount ?? 0), null, prev.type as TxType);
+          }
+        }
 
         setTransactions((p) => p.map((t) => t.id === prev.id ? { ...t, ...txDraft } as TransactionRecord : t));
         // Refetch accounts to get updated balances
@@ -212,7 +314,13 @@ export default function TransactionsPage() {
   // ── Delete transaction ────────────────────────────────────────────────────
 
   async function handleDeleteTx(tx: TransactionRecord) {
-    if (!confirm("Delete this transaction?")) return;
+    // For trades, the lot mutation isn't reversed automatically — only the
+    // cash side is. Warn the user so they can clean up the lot manually if
+    // needed (BUY left a lot behind; SELL shrunk/deleted one).
+    const msg = isTradeType(tx.type as any)
+      ? "Delete this trade? The cash side will be reversed but the lot side won't be — you may need to fix up the holding lot manually."
+      : "Delete this transaction?";
+    if (!confirm(msg)) return;
     setSaving(true);
     try {
       if (tx.status === "POSTED") await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
@@ -370,9 +478,33 @@ export default function TransactionsPage() {
       },
       render: (t) => {
         const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
+        const trade = isTradeType(t.type as any);
+        const gain = realizedGain(t);
         return (
           <div className="flex flex-col gap-0.5">
-            <span className="text-gray-800 dark:text-gray-200 block max-w-[240px] truncate">{t.description || "—"}</span>
+            <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
+              {trade && (
+                <span
+                  className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
+                  style={{
+                    backgroundColor: t.type === "BUY" ? "#10b98122" : "#f59e0b22",
+                    color:           t.type === "BUY" ? "#10b981"   : "#f59e0b",
+                  }}
+                >
+                  {t.type}
+                </span>
+              )}
+              {t.description || "—"}
+            </span>
+            {gain != null && (
+              <span
+                className="text-[10px] tabular-nums"
+                style={{ color: amountColor(gain) }}
+                title="Realized gain on this sale (proceeds − consumed cost basis)"
+              >
+                Realized {fmtCurrency(gain, "USD", true)}
+              </span>
+            )}
             {rule && (
               <span
                 className="inline-flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400"
@@ -481,7 +613,7 @@ export default function TransactionsPage() {
                 style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}>
                 Import CSV
               </button>
-              <button onClick={openNewTx} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
+              <button onClick={() => openNewTx()} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
                 + Transaction
               </button>
             </div>
@@ -551,6 +683,8 @@ export default function TransactionsPage() {
               <option value="INCOME">Income</option>
               <option value="EXPENSE">Expense</option>
               <option value="TRANSFER">Transfer</option>
+              <option value="BUY">Buy</option>
+              <option value="SELL">Sell</option>
             </select>
             <div className="ml-auto">
               <SearchInput value={txCtl.search} onChange={txCtl.setSearch} placeholder="Search description, category, account…" />
@@ -619,20 +753,25 @@ export default function TransactionsPage() {
                     <div>
                       <label className={labelCls}>Type</label>
                       <select className={inputCls} value={txDraft.type ?? "EXPENSE"}
+                        disabled={panel.kind === "edit-tx" && isTradeType(panel.tx.type as any)}
                         onChange={(e) => {
                           const newType = e.target.value as TxType;
                           setTxDraft((d) => {
                             const raw = Math.abs(d.amount ?? 0);
+                            // INCOME + SELL bring cash IN (positive); rest go OUT (negative).
+                            const positive = newType === "INCOME" || newType === "SELL";
                             return {
                               ...d,
                               type: newType as any,
-                              amount: newType === "INCOME" ? raw : -raw,
+                              amount: positive ? raw : -raw,
                             };
                           });
                         }}>
                         <option value="INCOME">Income</option>
                         <option value="EXPENSE">Expense</option>
                         <option value="TRANSFER">Transfer</option>
+                        <option value="BUY">Buy</option>
+                        <option value="SELL">Sell</option>
                       </select>
                     </div>
                     <div>
@@ -645,16 +784,106 @@ export default function TransactionsPage() {
                     </div>
                   </div>
                   <div>
-                    <label className={labelCls}>Amount *</label>
+                    <label className={labelCls}>
+                      {txDraft.type === "BUY"  ? "Total Cost *"
+                        : txDraft.type === "SELL" ? "Proceeds *"
+                        : "Amount *"}
+                    </label>
                     <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
+                      disabled={panel.kind === "edit-tx" && isTradeType(panel.tx.type as any)}
                       value={Math.abs(txDraft.amount ?? 0) || ""}
                       onChange={(e) => {
                         const raw = parseFloat(e.target.value) || 0;
-                        // Income = positive, Expense = negative, Transfer = negative (leaving source account)
-                        const signed = txDraft.type === "INCOME" ? Math.abs(raw) : -Math.abs(raw);
+                        // Income + Sell bring cash in; everything else leaves the account.
+                        const positive = txDraft.type === "INCOME" || txDraft.type === "SELL";
+                        const signed = positive ? Math.abs(raw) : -Math.abs(raw);
                         setTxDraft((d) => ({ ...d, amount: signed }));
                       }} />
+                    {txDraft.type === "BUY" && (
+                      <p className="text-[10px] text-gray-400 mt-0.5">Becomes the new lot's cost basis.</p>
+                    )}
                   </div>
+                  {/* Trade fields — render for BUY (qty + ticker) and SELL (qty + ticker + lot picker).
+                      In edit mode for trades, fields render readonly for visibility. */}
+                  {isTradeType(txDraft.type as any) && (() => {
+                    const isEditingTrade = panel.kind === "edit-tx" && isTradeType(panel.tx.type as any);
+                    // Lots available to sell from, scoped to the selected account + ticker (if entered).
+                    const sellableLots = txDraft.type === "SELL"
+                      ? lots.filter((l) =>
+                          l.accountId === txDraft.accountId
+                          && (l.quantity ?? 0) > 0
+                          && (!txDraft.ticker || (l.ticker ?? "").toUpperCase() === (txDraft.ticker ?? "").toUpperCase()),
+                        )
+                      : [];
+                    const selectedLot = txDraft.lotId ? lots.find((l) => l.id === txDraft.lotId) ?? null : null;
+                    return (
+                      <div className="rounded border border-gray-200 dark:border-darkBorder p-3 flex flex-col gap-3 bg-gray-50/50 dark:bg-white/[0.02]">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className={labelCls}>Ticker *</label>
+                            <input type="text" className={inputCls} placeholder="SWPPX"
+                              disabled={isEditingTrade}
+                              value={txDraft.ticker ?? ""}
+                              onChange={(e) => setTxDraft((d) => ({
+                                ...d,
+                                ticker: e.target.value.toUpperCase(),
+                                // Clear lot selection if ticker changes — old lot may be wrong.
+                                ...(txDraft.type === "SELL" ? { lotId: null as any } : {}),
+                              }))} />
+                          </div>
+                          <div>
+                            <label className={labelCls}>Quantity *</label>
+                            <input type="number" step="0.0001" min="0" className={inputCls} placeholder="0"
+                              disabled={isEditingTrade}
+                              value={txDraft.quantity ?? ""}
+                              onChange={(e) => setTxDraft((d) => ({ ...d, quantity: parseFloat(e.target.value) || 0 }))} />
+                          </div>
+                        </div>
+                        {txDraft.type === "SELL" && !isEditingTrade && (
+                          <div>
+                            <label className={labelCls}>Lot to consume *</label>
+                            <select className={inputCls} value={txDraft.lotId ?? ""}
+                              onChange={(e) => setTxDraft((d) => ({ ...d, lotId: e.target.value || (null as any) }))}>
+                              <option value="">Pick a lot…</option>
+                              {sellableLots.map((l) => (
+                                <option key={l.id} value={l.id}>
+                                  {l.ticker} · {l.quantity?.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
+                                  {l.purchaseDate ? ` · ${l.purchaseDate}` : ""}
+                                  {l.costBasis != null ? ` · cost ${fmtCurrency(l.costBasis, "USD")}` : ""}
+                                </option>
+                              ))}
+                            </select>
+                            {sellableLots.length === 0 && txDraft.accountId && (
+                              <p className="text-[10px] text-amber-500 mt-0.5">
+                                No matching lots on this account. Add a lot or BUY first.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {/* Live realized-gain preview on SELL when a lot + qty are picked. */}
+                        {txDraft.type === "SELL" && selectedLot && txDraft.quantity && txDraft.amount != null && (() => {
+                          const lotQty   = selectedLot.quantity ?? 0;
+                          const sellQty  = txDraft.quantity;
+                          if (sellQty <= 0 || sellQty > lotQty || selectedLot.costBasis == null) return null;
+                          const consumed = selectedLot.costBasis * (sellQty / lotQty);
+                          const gain     = (txDraft.amount ?? 0) - consumed;
+                          return (
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                              Cost basis consumed: {fmtCurrency(consumed, "USD")} ·{" "}
+                              <span className="font-semibold tabular-nums" style={{ color: amountColor(gain) }}>
+                                Realized {fmtCurrency(gain, "USD", true)}
+                              </span>
+                            </p>
+                          );
+                        })()}
+                        {isEditingTrade && (
+                          <p className="text-[10px] text-gray-400">
+                            Trade-side fields are locked in edit mode. Delete and recreate to change ticker, qty, or amount.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div>
                     <label className={labelCls}>Date *</label>
                     <input type="date" className={inputCls} value={txDraft.date ?? ""}

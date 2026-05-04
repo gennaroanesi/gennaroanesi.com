@@ -125,8 +125,23 @@ export function isInvestedAccount(type: string | null | undefined): boolean {
   return type === "BROKERAGE" || type === "RETIREMENT";
 }
 
-export const TX_TYPES    = ["INCOME", "EXPENSE", "TRANSFER"] as const;
+export const TX_TYPES    = ["INCOME", "EXPENSE", "TRANSFER", "BUY", "SELL"] as const;
 export type  TxType      = (typeof TX_TYPES)[number];
+
+/** BUY/SELL are brokerage trade events that mutate a financeHoldingLot. */
+export function isTradeType(type: TxType | string | null | undefined): boolean {
+  return type === "BUY" || type === "SELL";
+}
+
+/**
+ * Realized gain on a SELL transaction. proceeds − consumedCostBasis.
+ * Returns null for non-SELL rows or when consumedCostBasis is missing.
+ */
+export function realizedGain(tx: TransactionRecord): number | null {
+  if (tx.type !== "SELL") return null;
+  if (tx.consumedCostBasis == null) return null;
+  return (tx.amount ?? 0) - tx.consumedCostBasis;
+}
 
 export const TX_STATUSES = ["POSTED", "PENDING"] as const;
 export type  TxStatus    = (typeof TX_STATUSES)[number];

@@ -517,10 +517,27 @@ export default function AccountDetailPage() {
                   {aggregates.length > 0 && (
                     <SearchInput value={holdingsCtl.search} onChange={holdingsCtl.setSearch} placeholder="Search ticker…" />
                   )}
+                  <NextLink
+                    href={`/finance/transactions?action=buy&account=${accountId}`}
+                    className="text-xs font-semibold px-3 py-1 rounded border transition-colors hover:opacity-80"
+                    style={{ borderColor: "#10b98188", color: "#10b981" }}
+                    title="Record a purchase: creates a transaction + a new lot"
+                  >
+                    + Buy
+                  </NextLink>
+                  <NextLink
+                    href={`/finance/transactions?action=sell&account=${accountId}`}
+                    className="text-xs font-semibold px-3 py-1 rounded border transition-colors hover:opacity-80"
+                    style={{ borderColor: "#f59e0b88", color: "#f59e0b" }}
+                    title="Record a sale: creates a transaction + consumes a lot"
+                  >
+                    + Sell
+                  </NextLink>
                   <button
                     onClick={openNewLot}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors"
                     style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                    title="Add a lot directly without creating a transaction (RSU vesting, manual fix-ups)"
                   >
                     + Add lot
                   </button>

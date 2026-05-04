@@ -503,7 +503,11 @@ const schema = a.schema({
     .model({
       accountId: a.id().required(), // FK → financeAccount.id
       amount: a.float().required(), // positive = in, negative = out
-      type: a.enum(["INCOME", "EXPENSE", "TRANSFER"]),
+      // BUY / SELL are brokerage trade events. They share the same cash-side
+      // semantics as EXPENSE / INCOME (BUY = cash leaves, negative amount;
+      // SELL = cash enters, positive amount) but additionally mutate a
+      // financeHoldingLot via the trade fields below.
+      type: a.enum(["INCOME", "EXPENSE", "TRANSFER", "BUY", "SELL"]),
       category: a.string(),
       description: a.string(),
       date: a.date().required(), // YYYY-MM-DD
@@ -516,6 +520,17 @@ const schema = a.schema({
       // Never set by the "Post now" flow — that path already advances the
       // rule's nextDate server-side via the rule update.
       recurringId: a.id(),
+      // ── Trade fields (BUY / SELL only) ────────────────────────────
+      // ticker + quantity describe what was traded. lotId points at the
+      // financeHoldingLot the trade created (BUY) or consumed (SELL).
+      // consumedCostBasis is set on SELL only — it captures the cost basis
+      // that was extracted from the lot at sale time. Realized gain is
+      // amount − consumedCostBasis (computed at display time). Stored so
+      // it stays correct even after subsequent partial sells deplete the lot.
+      ticker:            a.string(),
+      quantity:          a.float(),
+      lotId:             a.id(),
+      consumedCostBasis: a.float(),
     })
     .secondaryIndexes((index) => [index("recurringId")])
     .authorization((allow) => [allow.group("admins")]),
