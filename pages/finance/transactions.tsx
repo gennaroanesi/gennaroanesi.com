@@ -445,6 +445,20 @@ export default function TransactionsPage() {
     initialPageSize: 100,
   });
 
+  // Sum of post-filter (account/status/type/search) row amounts. Shown next
+  // to the count when any filter is active, so the user can read off the net
+  // impact of whatever they're looking at — e.g. total spend at a vendor.
+  const hasActiveFilter =
+    !!filterAccount || !!filterStatus || !!filterType || !!txCtl.search.trim();
+  const filteredSum = useMemo(
+    () => txCtl.filtered.reduce((s, t) => s + (t.amount ?? 0), 0),
+    [txCtl.filtered],
+  );
+  // Prefer the filtered account's currency; fall back to USD. Multi-currency
+  // sums would be misleading anyway, so picking one is good enough.
+  const filteredCurrency =
+    (filterAccount && accountById.get(filterAccount)?.currency) || "USD";
+
   if (authState !== "authenticated") return null;
 
   return (
@@ -567,6 +581,11 @@ export default function TransactionsPage() {
                 pageSize={txCtl.pageSize}
                 setPage={txCtl.setPage}
                 setPageSize={txCtl.setPageSize}
+                summary={hasActiveFilter ? (
+                  <span className="tabular-nums font-semibold" style={{ color: amountColor(filteredSum) }}>
+                    Σ {fmtCurrency(filteredSum, filteredCurrency, true)}
+                  </span>
+                ) : undefined}
               />
             </div>
           )}

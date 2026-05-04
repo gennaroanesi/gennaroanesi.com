@@ -174,6 +174,7 @@ export function TableControls({
   page, totalPages, totalItems, pageSize,
   setPage, setPageSize,
   totalUnfiltered,
+  summary,
 }: {
   page: number;
   totalPages: number;
@@ -183,6 +184,8 @@ export function TableControls({
   setPageSize: (n: number) => void;
   /** If provided and different from totalItems, renders "X of Y" to hint at filtering. */
   totalUnfiltered?: number;
+  /** Optional inline summary (e.g. sum of filtered values). Rendered after the count. */
+  summary?: React.ReactNode;
 }) {
   const start = Math.min((page - 1) * pageSize + 1, totalItems);
   const end   = Math.min(page * pageSize, totalItems);
@@ -196,6 +199,7 @@ export function TableControls({
           : filtered
             ? `${start}–${end} of ${totalItems} (filtered from ${totalUnfiltered})`
             : `${start}–${end} of ${totalItems}`}
+        {summary != null && <span className="ml-2">· {summary}</span>}
       </span>
 
       {totalPages > 1 && (
