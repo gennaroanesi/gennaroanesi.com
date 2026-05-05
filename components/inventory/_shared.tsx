@@ -48,8 +48,9 @@ export type AmmoRecord = Schema["inventoryAmmo"]["type"];
 export type FilamentRecord = Schema["inventoryFilament"]["type"];
 export type InstrumentRecord = Schema["inventoryInstrument"]["type"];
 export type PhotographyRecord = Schema["inventoryPhotography"]["type"];
+export type ElectronicRecord = Schema["inventoryElectronic"]["type"];
 
-export type Category = "FIREARM" | "AMMO" | "FILAMENT" | "INSTRUMENT" | "PHOTOGRAPHY" | "OTHER";
+export type Category = "FIREARM" | "AMMO" | "FILAMENT" | "INSTRUMENT" | "PHOTOGRAPHY" | "ELECTRONICS" | "OTHER";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ export const CATEGORY_CONFIG: Record<
   FILAMENT:    { label: "Filament",    color: "#8B5CF6", href: "/inventory/filaments" },
   INSTRUMENT:  { label: "Instrument",  color: "#EC4899", href: "/inventory/instruments" },
   PHOTOGRAPHY: { label: "Photography", color: "#0EA5E9", href: "/inventory/photography" },
+  ELECTRONICS: { label: "Electronics", color: "#10B981", href: "/inventory/electronics" },
   OTHER:       { label: "Other",       color: "#BCABAE", href: "/inventory/other" },
 };
 
@@ -81,6 +83,23 @@ export const PHOTOGRAPHY_TYPES = ["CAMERA","LENS","DRONE","GIMBAL","TRIPOD","LIG
 export const PHOTOGRAPHY_ICONS: Record<string, string> = {
   CAMERA: "📷", LENS: "🔎", DRONE: "🛸", GIMBAL: "🎥",
   TRIPOD: "📐", LIGHT: "💡", ACCESSORY: "🎒", OTHER: "📸",
+};
+export const ELECTRONICS_TYPES = [
+  "RESISTOR","CAPACITOR","INDUCTOR","DIODE","LED","TRANSISTOR",
+  "IC","MODULE","BREADBOARD","WIRE_CONNECTOR","TOOL","CONSUMABLE","OTHER",
+] as const;
+export const ELECTRONICS_LABELS: Record<string, string> = {
+  RESISTOR: "Resistor", CAPACITOR: "Capacitor", INDUCTOR: "Inductor",
+  DIODE: "Diode", LED: "LED", TRANSISTOR: "Transistor",
+  IC: "IC", MODULE: "Module", BREADBOARD: "Breadboard",
+  WIRE_CONNECTOR: "Wire / Connector", TOOL: "Tool",
+  CONSUMABLE: "Consumable", OTHER: "Other",
+};
+export const ELECTRONICS_ICONS: Record<string, string> = {
+  RESISTOR: "🟫", CAPACITOR: "🔋", INDUCTOR: "🌀", DIODE: "▶️",
+  LED: "💡", TRANSISTOR: "🔺", IC: "🔲", MODULE: "🧩",
+  BREADBOARD: "📋", WIRE_CONNECTOR: "🔌", TOOL: "🔧",
+  CONSUMABLE: "🧴", OTHER: "⚡",
 };
 export const INSTRUMENT_PART_TYPES = ["TUBES","BRIDGE","PICKUPS","TUNERS","STRINGS","NUT","STRAP","CASE","OTHER"] as const;
 export const INSTRUMENT_PART_LABELS: Record<string, string> = {

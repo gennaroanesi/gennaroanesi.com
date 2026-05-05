@@ -6,7 +6,8 @@ import InventoryLayout from "@/layouts/inventory";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import {
-  ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord, PhotographyRecord,
+  ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord, PhotographyRecord, ElectronicRecord,
+  ELECTRONICS_LABELS,
   CATEGORY_CONFIG, Category,
   fmtCurrency, fmtDate,
   labelCls, tdCls,
@@ -22,6 +23,7 @@ type Detail =
   | { kind: "FILAMENT";   data: FilamentRecord }
   | { kind: "INSTRUMENT"; data: InstrumentRecord }
   | { kind: "PHOTOGRAPHY"; data: PhotographyRecord }
+  | { kind: "ELECTRONICS"; data: ElectronicRecord }
   | { kind: "OTHER" }
   | null;
 
@@ -77,6 +79,11 @@ export default function ItemDetailPage() {
           filter: { itemId: { eq: itemId } }, limit: 1,
         });
         setDetail(data?.[0] ? { kind: "PHOTOGRAPHY", data: data[0] } : { kind: "OTHER" });
+      } else if (cat === "ELECTRONICS") {
+        const { data } = await client.models.inventoryElectronic.list({
+          filter: { itemId: { eq: itemId } }, limit: 1,
+        });
+        setDetail(data?.[0] ? { kind: "ELECTRONICS", data: data[0] } : { kind: "OTHER" });
       } else {
         setDetail({ kind: "OTHER" });
       }
@@ -183,6 +190,7 @@ export default function ItemDetailPage() {
             {detail?.kind === "FILAMENT"   && <FilamentDetail   data={detail.data} />}
             {detail?.kind === "INSTRUMENT" && <InstrumentDetail data={detail.data} />}
             {detail?.kind === "PHOTOGRAPHY" && <PhotographyDetail data={detail.data} />}
+            {detail?.kind === "ELECTRONICS" && <ElectronicsDetail data={detail.data} />}
 
             {item.notes && (
               <Section title="Notes">
@@ -329,6 +337,23 @@ function PhotographyDetail({ data }: { data: PhotographyRecord }) {
       <Row label="Weight"        value={data.weightG ? `${data.weightG} g` : undefined} />
       <Row label="Max flight"    value={data.maxFlightTimeMin ? `${data.maxFlightTimeMin} min` : undefined} />
       <Row label="Under 250 g"   value={data.subC250g == null ? undefined : data.subC250g ? "Yes" : "No"} />
+    </Section>
+  );
+}
+
+function ElectronicsDetail({ data }: { data: ElectronicRecord }) {
+  return (
+    <Section title="Electronics Details">
+      <Row label="Type"        value={data.type ? (ELECTRONICS_LABELS[data.type] ?? data.type) : undefined} />
+      <Row label="Value"       value={data.valueText} />
+      <Row label="Part #"      value={data.partNumber} />
+      <Row label="Package"     value={data.packaging} />
+      <Row label="Quantity"    value={data.quantity?.toLocaleString()} />
+      <Row label="Voltage"     value={data.voltageRating != null ? `${data.voltageRating} V` : undefined} />
+      <Row label="Current"     value={data.currentRatingA != null ? `${data.currentRatingA} A` : undefined} />
+      <Row label="Power"       value={data.powerRatingW != null ? `${data.powerRatingW} W` : undefined} />
+      <Row label="Tolerance"   value={data.tolerancePct != null ? `${data.tolerancePct}%` : undefined} />
+      <Row label="Color"       value={data.color} />
     </Section>
   );
 }

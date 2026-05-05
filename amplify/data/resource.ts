@@ -11,7 +11,7 @@ const schema = a.schema({
       name: a.string().required(),
       brand: a.string(),
       description: a.string(),
-      category: a.enum(["FIREARM", "AMMO", "FILAMENT", "INSTRUMENT", "PHOTOGRAPHY", "OTHER"]),
+      category: a.enum(["FIREARM", "AMMO", "FILAMENT", "INSTRUMENT", "PHOTOGRAPHY", "ELECTRONICS", "OTHER"]),
       datePurchased: a.date(),
       vendor: a.string(),
       url: a.url(),
@@ -134,6 +134,39 @@ const schema = a.schema({
       weightG: a.integer(),
       maxFlightTimeMin: a.integer(), // drones
       subC250g: a.boolean(),         // drones: under FAA 250g registration threshold
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Electronics detail ──────────────────────────────────────────────────
+  // Components (resistors, caps, ICs, etc.), modules (Arduino, ESP32),
+  // and shop supplies (breadboards, wires, tools, consumables).
+  inventoryElectronic: a
+    .model({
+      itemId: a.id().required(),     // FK → inventoryItem.id
+      type: a.enum([
+        "RESISTOR",
+        "CAPACITOR",
+        "INDUCTOR",
+        "DIODE",
+        "LED",
+        "TRANSISTOR",
+        "IC",
+        "MODULE",
+        "BREADBOARD",
+        "WIRE_CONNECTOR",
+        "TOOL",
+        "CONSUMABLE",
+        "OTHER",
+      ]),
+      partNumber: a.string(),         // 2N3904, NE555, ATmega328P, MFR-25FBF52-1K
+      packaging: a.string(),          // THT, SMD-0805, DIP-8, SOIC-14, TO-220
+      quantity: a.integer(),          // current count on hand
+      valueText: a.string(),          // "10kΩ", "100µF 25V", "5V" — display value
+      voltageRating: a.float(),       // V (capacitors, diodes, regulators)
+      currentRatingA: a.float(),      // A (diodes, transistors, fuses)
+      powerRatingW: a.float(),        // W (resistors, regulators)
+      tolerancePct: a.float(),        // % (resistors, capacitors)
+      color: a.string(),              // LED color, wire jacket, etc.
     })
     .authorization((allow) => [allow.group("admins")]),
 
