@@ -58,11 +58,8 @@ const adminPublicConfigs: AdminItem[] = [
 ];
 const adminTools: AdminItem[] = [
   { name: "Admin Home", href: "/admin" },
-  { name: "Calendar",   href: "/calendar" },
   { name: "Inventory",  href: "/inventory" },
   { name: "Finance",    href: "/finance" },
-  { name: "Notes",      href: "/notes" },
-  { name: "Tasks",      href: "/tasks" },
   { name: "Flights",    href: "/admin/flights" },
 ];
 

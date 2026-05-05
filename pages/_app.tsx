@@ -6,7 +6,6 @@ import { useRouter } from "next/router";
 import { useCallback } from "react";
 
 import "@/styles/globals.css";
-import "react-big-calendar/lib/css/react-big-calendar.css";
 
 import { Amplify } from "aws-amplify";
 import outputs from "@/amplify_outputs.json";

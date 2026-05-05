@@ -14,8 +14,6 @@ import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction as LambdaFunctionTarget } from "aws-cdk-lib/aws-events-targets";
 import { Duration, Size } from "aws-cdk-lib";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
-import { CfnApi, CfnIntegration, CfnRoute, CfnStage } from "aws-cdk-lib/aws-apigatewayv2";
-import { CfnOutput } from "aws-cdk-lib";
 
 
 import { auth } from "./auth/resource";
@@ -23,7 +21,6 @@ import { data } from "./data/resource";
 import { sendNotification } from "./functions/sendNotification/resource";
 import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
-import { notesApi } from "./functions/notesApi/resource";
 import { gennaroAgent } from "./functions/gennaroAgent/resource";
 import { financeSnapshots } from "./functions/financeSnapshots/resource";
 
@@ -33,7 +30,6 @@ const backend = defineBackend({
   sendNotification,
   checkAmmoThresholds,
   importLogbook,
-  notesApi,
   gennaroAgent,
   financeSnapshots,
   //storage,
@@ -289,116 +285,6 @@ importFn.addToRolePolicy(
   }),
 );
 
-// ── notesApi infrastructure ─────────────────────────────────────────────────
-// HTTP API Gateway → Lambda → S3 PARA/
-// Auth: Bearer token stored in gennaroanesi/notes secret
-// Create once:
-//   aws secretsmanager create-secret --name gennaroanesi/notes \
-//     --secret-string '{"token":"<generate a strong random token>"}'
-//
-// After deploy, the API URL is printed in the stack outputs as NotesApiUrl.
-// Use it in Claude as: https://<id>.execute-api.us-east-1.amazonaws.com
-
-{
-  // Lambda lives in the "data" resource group (same nested stack as other data functions).
-  // API Gateway constructs go in backend.stack (root) to avoid circular dependencies.
-  const notesFn    = backend.notesApi.resources.lambda as LambdaFunction;
-  const notesScope = backend.stack;
-
-  // Secret: the bearer token Claude will use
-  const notesSecret = Secret.fromSecretNameV2(
-    notesScope,
-    "NotesApiSecret",
-    "gennaroanesi/notes",
-  );
-  notesSecret.grantRead(notesFn);
-
-  // Env vars — injected via cfnFn to avoid cross-stack addEnvironment issues
-  const cfnNotesFn = notesFn.node.defaultChild as any;
-  Object.assign(cfnNotesFn, {
-    environment: {
-      variables: {
-        BUCKET_NAME:      "gennaroanesi.com",
-        NOTES_API_TOKEN:  notesSecret.secretValueFromJson("token").unsafeUnwrap(),
-      },
-    },
-  });
-
-  // S3 permissions — PARA/ prefix only
-  notesFn.addToRolePolicy(new PolicyStatement({
-    effect:  Effect.ALLOW,
-    actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-    resources: ["arn:aws:s3:::gennaroanesi.com/PARA/*"],
-  }));
-  notesFn.addToRolePolicy(new PolicyStatement({
-    effect:    Effect.ALLOW,
-    actions:   ["s3:ListBucket"],
-    resources: ["arn:aws:s3:::gennaroanesi.com"],
-    conditions: { StringLike: { "s3:prefix": ["PARA/", "PARA/*"] } },
-  }));
-
-  // HTTP API (L1 constructs — no alpha packages needed)
-  const cfnApi = new CfnApi(notesScope, "NotesHttpApi", {
-    name:         "notesApi",
-    description:  "Household PARA vault CRUD",
-    protocolType: "HTTP",
-    corsConfiguration: {
-      allowHeaders: ["Authorization", "Content-Type"],
-      allowMethods: ["GET", "PUT", "DELETE", "OPTIONS"],
-      allowOrigins: ["*"],
-    },
-  });
-
-  // Auto-deploy $default stage
-  new CfnStage(notesScope, "NotesDefaultStage", {
-    apiId:      cfnApi.ref,
-    stageName:  "$default",
-    autoDeploy: true,
-  });
-
-  // Lambda proxy integration
-  const cfnIntegration = new CfnIntegration(notesScope, "NotesLambdaIntegration", {
-    apiId:                cfnApi.ref,
-    integrationType:      "AWS_PROXY",
-    integrationUri:       notesFn.functionArn,
-    payloadFormatVersion: "2.0",
-  });
-
-  // Grant API Gateway permission to invoke the Lambda
-  notesFn.addPermission("NotesApiGatewayInvoke", {
-    principal:   new ServicePrincipal("apigateway.amazonaws.com"),
-    action:      "lambda:InvokeFunction",
-    sourceArn:   `arn:aws:execute-api:${notesScope.region}:${notesScope.account}:${cfnApi.ref}/*`,
-  });
-
-  // Routes
-  new CfnRoute(notesScope, "NotesListRoute", {
-    apiId:    cfnApi.ref,
-    routeKey: "GET /notes",
-    target:   `integrations/${cfnIntegration.ref}`,
-  });
-  new CfnRoute(notesScope, "NotesGetRoute", {
-    apiId:    cfnApi.ref,
-    routeKey: "GET /notes/{key+}",
-    target:   `integrations/${cfnIntegration.ref}`,
-  });
-  new CfnRoute(notesScope, "NotesPutRoute", {
-    apiId:    cfnApi.ref,
-    routeKey: "PUT /notes/{key+}",
-    target:   `integrations/${cfnIntegration.ref}`,
-  });
-  new CfnRoute(notesScope, "NotesDeleteRoute", {
-    apiId:    cfnApi.ref,
-    routeKey: "DELETE /notes/{key+}",
-    target:   `integrations/${cfnIntegration.ref}`,
-  });
-
-  // Output URL — printed after deploy, needed to configure Claude
-  new CfnOutput(notesScope, "NotesApiUrl", {
-    value:       `https://${cfnApi.ref}.execute-api.us-east-1.amazonaws.com`,
-    description: "Notes API base URL — use as NOTES_API_URL in Claude",
-  });
-}
 
 // Allow S3 to invoke the Lambda (also done in setup-ses-inbound.sh for SES direct invoke)
 importFn.addPermission("S3InvokeImportLogbook", {

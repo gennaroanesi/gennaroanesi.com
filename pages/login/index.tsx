@@ -36,7 +36,7 @@ export default function LoginPage() {
   // Held in state so confirmSignIn() can be called after FORCE_CHANGE_PASSWORD
   const [pendingSignIn, setPendingSignIn] = useState<Awaited<ReturnType<typeof signIn>> | null>(null);
 
-  const redirectTo = (router.query.redirect as string) || "/calendar";
+  const redirectTo = (router.query.redirect as string) || "/admin";
   const authError  = router.query.error as string | undefined;
 
   // ── If already authenticated, skip the login page ────────────────────────
