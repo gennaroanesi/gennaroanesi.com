@@ -13,6 +13,7 @@ import {
   ImageUploader, ImageUploaderHandle,
   InventoryTable, ColDef, useThumbnails, useSuggestions,
   useTableControls, TableControls,
+  SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -191,7 +192,16 @@ export default function FirearmsPage() {
     { key: "date",    label: "Date",       render: (r) => fmtDate(r.datePurchased),                           mobileHidden: true, sortValue: (r) => r.datePurchased ?? "" },
   ];
 
-  const tableControls = useTableControls(items, (item, key) => {
+  const getSearchableText = useCallback((it: ItemRecord) => {
+    const fw = details.get(it.id);
+    return [
+      it.name, it.brand, it.vendor, it.description, it.notes,
+      fw?.type, fw?.caliber, fw?.serialNumber, fw?.action, fw?.finish, fw?.barrelLength,
+    ];
+  }, [details]);
+  const { search, setSearch, filtered } = useInventorySearch(items, getSearchableText);
+
+  const tableControls = useTableControls(filtered, (item, key) => {
     const col = columns.find((c) => c.key === key);
     return col?.sortValue?.(item);
   });
@@ -210,6 +220,10 @@ export default function FirearmsPage() {
               className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
               + Add Firearm
             </button>
+          </div>
+
+          <div className="mb-4">
+            <SearchBar value={search} onChange={setSearch} placeholder="Search firearms…" />
           </div>
 
           {loading ? (

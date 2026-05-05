@@ -12,6 +12,7 @@ import {
   ImageUploader, ImageUploaderHandle, useSuggestions,
   InventoryTable, ColDef, useThumbnails,
   useTableControls, TableControls,
+  SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -146,7 +147,12 @@ export default function OtherPage() {
     { key: "vendor",label: "Vendor",     render: (r) => r.vendor ?? "—",                               sortValue: (r) => r.vendor ?? "",        mobileHidden: true },
   ];
 
-  const tableControls = useTableControls(items, (item, key) => {
+  const getSearchableText = useCallback((it: ItemRecord) => {
+    return [it.name, it.brand, it.vendor, it.description, it.notes];
+  }, []);
+  const { search, setSearch, filtered } = useInventorySearch(items, getSearchableText);
+
+  const tableControls = useTableControls(filtered, (item, key) => {
     const col = columns.find((c) => c.key === key);
     return col?.sortValue?.(item);
   });
@@ -165,6 +171,10 @@ export default function OtherPage() {
               className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
               + Add Item
             </button>
+          </div>
+
+          <div className="mb-4">
+            <SearchBar value={search} onChange={setSearch} placeholder="Search items…" />
           </div>
 
           {loading ? (

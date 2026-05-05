@@ -4,6 +4,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useMemo,
   useCallback,
   forwardRef,
   useImperativeHandle,
@@ -617,6 +618,53 @@ function TrashIcon() {
   );
 }
 
+// ── SearchBar + useInventorySearch ───────────────────────────────────────────
+//
+// Reusable case-insensitive substring search across user-provided fields.
+// Each inventory page passes the strings to search (base item fields + any
+// detail-row fields) via getSearchableText.
+
+const searchInputCls =
+  "border rounded px-3 py-1.5 text-sm bg-white text-gray-800 border-gray-300 " +
+  "dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder w-full sm:w-64";
+
+export function SearchBar({
+  value,
+  onChange,
+  placeholder = "Search…",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      type="text"
+      placeholder={placeholder}
+      className={searchInputCls}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+export function useInventorySearch<T>(
+  items: T[],
+  getSearchableText: (item: T) => Array<string | null | undefined>,
+) {
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((it) =>
+      getSearchableText(it)
+        .filter((s): s is string => Boolean(s))
+        .some((s) => s.toLowerCase().includes(q)),
+    );
+  }, [items, search, getSearchableText]);
+  return { search, setSearch, filtered };
+}
+
 // ── InventoryTable ────────────────────────────────────────────────────────────
 //
 // Inventory-specific wrapper: thumbnails column, hardcoded View/Edit/Delete
@@ -648,10 +696,6 @@ export function InventoryTable<
   sortDir?: _SortDir;
   onSort?: (key: string) => void;
 }) {
-  const DUMMY_ID = "__dummy__";
-  const dummyRow = { id: DUMMY_ID, name: null } as unknown as T;
-  const rows = [dummyRow, ...items];
-
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full">
@@ -687,82 +731,67 @@ export function InventoryTable<
                 Loading…
               </td>
             </tr>
+          ) : items.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length + 2} className="text-center py-8 text-sm text-gray-400">
+                No matches.
+              </td>
+            </tr>
           ) : (
-            rows.map((item, rowIdx) => {
-              const isDummy = item.id === DUMMY_ID;
-              return (
-                <tr
-                  key={item.id}
-                  className={[
-                    "border-b border-gray-100 dark:border-darkBorder transition-colors",
-                    rowIdx % 2 === 1 ? "bg-gray-50/50 dark:bg-white/[0.02]" : "",
-                    isDummy
-                      ? "opacity-30 pointer-events-none select-none"
-                      : "hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer",
-                  ].join(" ")}
-                >
-                  <td className={tdCls}>
-                    {isDummy ? (
-                      <div className="w-10 h-10 rounded-md bg-gray-200 dark:bg-darkElevated" />
-                    ) : (
-                      <button onClick={() => onEdit(item)} className="block focus:outline-none" tabIndex={-1}>
-                        <Thumbnail url={thumbnails.get(item.id)} name={item.name} />
+            items.map((item, rowIdx) => (
+              <tr
+                key={item.id}
+                className={[
+                  "border-b border-gray-100 dark:border-darkBorder transition-colors",
+                  rowIdx % 2 === 1 ? "bg-gray-50/50 dark:bg-white/[0.02]" : "",
+                  "hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer",
+                ].join(" ")}
+              >
+                <td className={tdCls}>
+                  <button onClick={() => onEdit(item)} className="block focus:outline-none" tabIndex={-1}>
+                    <Thumbnail url={thumbnails.get(item.id)} name={item.name} />
+                  </button>
+                </td>
+
+                {columns.map((col) => (
+                  <td
+                    key={col.key}
+                    className={`${tdCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}
+                  >
+                    {col.render(item)}
+                  </td>
+                ))}
+
+                <td className={tdCls}>
+                  <div className="flex items-center justify-end gap-1">
+                    <Tooltip content="View detail" size="sm">
+                      <NextLink
+                        href={`/inventory/item/${item.id}`}
+                        className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex"
+                      >
+                        <EyeIcon />
+                      </NextLink>
+                    </Tooltip>
+                    <Tooltip content="Edit" size="sm">
+                      <button
+                        onClick={() => onEdit(item)}
+                        className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                      >
+                        <PencilIcon />
                       </button>
-                    )}
-                  </td>
-
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`${tdCls} ${col.mobileHidden ? "hidden md:table-cell" : ""} ${col.className ?? ""}`}
-                    >
-                      {isDummy ? (
-                        <span className="inline-block w-20 h-3 rounded bg-gray-200 dark:bg-darkElevated" />
-                      ) : (
-                        col.render(item)
-                      )}
-                    </td>
-                  ))}
-
-                  <td className={tdCls}>
-                    <div className="flex items-center justify-end gap-1">
-                      <Tooltip content="View detail" size="sm">
-                        <span>
-                          {isDummy ? (
-                            <span className="p-1.5 inline-flex text-gray-200 dark:text-gray-700"><EyeIcon /></span>
-                          ) : (
-                            <NextLink
-                              href={`/inventory/item/${item.id}`}
-                              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex"
-                            >
-                              <EyeIcon />
-                            </NextLink>
-                          )}
-                        </span>
-                      </Tooltip>
-                      <Tooltip content="Edit" size="sm">
-                        <button
-                          onClick={() => onEdit(item)}
-                          disabled={isDummy}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:pointer-events-none"
-                        >
-                          <PencilIcon />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Delete" size="sm" color="danger">
-                        <button
-                          onClick={() => onDelete(item)}
-                          disabled={isDummy}
-                          className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-gray-400 hover:text-red-500 disabled:pointer-events-none"
-                        >
-                          <TrashIcon />
-                        </button>
-                      </Tooltip>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })
+                    </Tooltip>
+                    <Tooltip content="Delete" size="sm" color="danger">
+                      <button
+                        onClick={() => onDelete(item)}
+                        className="p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-gray-400 hover:text-red-500"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </td>
+              </tr>
+            ))
           )}
         </tbody>
       </table>

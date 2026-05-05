@@ -131,3 +131,36 @@ All admin sections use a **shared layout with a left sidebar** (desktop) and **t
 - Tailwind classes in use — no custom CSS files; everything inline via Tailwind utility classes
 - Amber is used for interactive/highlight elements (approach chip links, active states)
 - Dark backgrounds (`bg-navy-*`) are standard for cards and overlays
+
+---
+
+## 11. Inventory page layout — required for any new inventory model
+
+Every per-category page under `/inventory/*` must follow this layout. Reuse the shared building blocks from `components/inventory/_shared.tsx` so the look and behavior stay identical across categories.
+
+**Page skeleton (top to bottom):**
+
+1. **Header row** — `<h1>` title on the left, `+ Add <Item>` button on the right, `flex items-center justify-between mb-4`.
+2. **Search bar** — `<SearchBar value={search} onChange={setSearch} placeholder="Search …" />` wrapped in `<div className="mb-4">`. Required on every list page; do not skip.
+3. **Optional filters / summary pills** — category-specific (e.g. ammo `FilterTypeahead` for caliber/bullet type, instruments/photography type pills). Place after the search bar.
+4. **Loading / empty / table block** — `loading` spinner, `<EmptyState />` when zero items, otherwise `<InventoryTable>` + `<TableControls>` inside a `rounded-lg border …` wrapper.
+5. **Side panel** — fixed-width edit/create panel (`md:w-96`) with `<BaseItemFields>` + category-specific `…Details` fields + `<ImageUploader>`.
+
+**Wiring search:**
+
+```ts
+const getSearchableText = useCallback((it: ItemRecord) => {
+  const detail = details.get(it.id);
+  return [it.name, it.brand, it.vendor, it.description, it.notes, detail?.foo, detail?.bar];
+}, [details]);
+const { search, setSearch, filtered } = useInventorySearch(items, getSearchableText);
+const tableControls = useTableControls(filtered, /* sort accessor */);
+```
+
+The hook is case-insensitive substring matching across all returned strings. Always include the base item fields (`name/brand/vendor/description/notes`) and any detail-row fields a user might recall an item by (serial number, caliber, mount, color, etc.). Pass `filtered` (not `items`) into `useTableControls` so search composes cleanly with sort + pagination.
+
+**Other rules:**
+
+- Do not add a "blank skeleton row" to the table — `InventoryTable` renders an empty-state row itself when there are no rows.
+- Categories with detail tables follow the `inventoryItem` + `inventory<Category>` pair, FK on `itemId`, `.authorization((allow) => [allow.group("admins")])`. Add a `CATEGORY_CONFIG` entry and an icon map in `_shared.tsx`.
+- Add a nav entry in `layouts/inventory.tsx` (both the desktop sidebar and the "Add New" shortcut list).

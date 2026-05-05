@@ -14,6 +14,7 @@ import {
   InventoryTable, ColDef, useThumbnails,
   useTableControls, TableControls,
   FilamentColorDots, ColorDot, resolveFilamentColor,
+  SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -207,7 +208,16 @@ export default function FilamentsPage() {
     { key: "date",     label: "Date",     render: (r) => fmtDate(r.datePurchased),                                mobileHidden: true, sortValue: (r) => r.datePurchased ?? "" },
   ];
 
-  const tableControls = useTableControls(items, (item, key) => {
+  const getSearchableText = useCallback((it: ItemRecord) => {
+    const fl = details.get(it.id);
+    return [
+      it.name, it.brand, it.vendor, it.description, it.notes,
+      fl?.material, fl?.variant, fl?.color, fl?.diameter,
+    ];
+  }, [details]);
+  const { search, setSearch, filtered } = useInventorySearch(items, getSearchableText);
+
+  const tableControls = useTableControls(filtered, (item, key) => {
     const col = columns.find((c) => c.key === key);
     return col?.sortValue?.(item);
   });
@@ -240,6 +250,10 @@ export default function FilamentsPage() {
               className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
               + Add Filament
             </button>
+          </div>
+
+          <div className="mb-4">
+            <SearchBar value={search} onChange={setSearch} placeholder="Search filaments…" />
           </div>
 
           {/* Material summary cards with color dots */}

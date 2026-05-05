@@ -25,7 +25,8 @@ import {
   useSuggestions,
   useTableControls,
   TableControls,
-  FilterTypeahead,
+  SearchBar,
+  useInventorySearch,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -102,10 +103,6 @@ export default function AmmoPage() {
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [logResults, setLogResults] = useState<LogResult[]>([]);
   const [logUseCaliber, setLogUseCaliber] = useState<string>("");
-
-  // Table + card filters
-  const [filterCaliber, setFilterCaliber] = useState<string>("");
-  const [filterBulletType, setFilterBulletType] = useState<string>("");
 
   const imgRef = useRef<ImageUploaderHandle>(null);
 
@@ -461,28 +458,17 @@ export default function AmmoPage() {
     },
   ];
 
-  // ── Filtered items (for table + cards) ──────────────────────────────────────────────
-  const filteredItems = items.filter((item) => {
-    const ammo = details.get(item.id);
-    if (filterCaliber && ammo?.caliber !== filterCaliber) return false;
-    if (filterBulletType && ammo?.bulletType !== filterBulletType) return false;
-    return true;
-  });
-
-  const caliberOptions = Array.from(
-    new Set(
-      Array.from(details.values())
-        .map((a) => a.caliber)
-        .filter(Boolean),
-    ),
-  ) as string[];
-  const bulletTypeOptions = Array.from(
-    new Set(
-      Array.from(details.values())
-        .map((a) => a.bulletType)
-        .filter(Boolean),
-    ),
-  ) as string[];
+  // ── Free-text search across base + ammo fields ────────────────────────────────
+  const getSearchableText = useCallback((it: ItemRecord) => {
+    const am = details.get(it.id);
+    return [
+      it.name, it.brand, it.vendor, it.description, it.notes,
+      am?.caliber, am?.unit, am?.bulletType,
+      am?.grain != null ? `${am.grain}gr` : null,
+      am?.velocityFps != null ? `${am.velocityFps}fps` : null,
+    ];
+  }, [details]);
+  const { search, setSearch, filtered: filteredItems } = useInventorySearch(items, getSearchableText);
 
   const tableControls = useTableControls(filteredItems, (item, key) => {
     const col = columns.find((c) => c.key === key);
@@ -537,23 +523,9 @@ export default function AmmoPage() {
             </div>
           </div>
 
-          {/* Filters */}
-          {(caliberOptions.length > 0 || bulletTypeOptions.length > 0) && (
-            <div className="flex flex-wrap gap-2 mb-3 items-center">
-              <FilterTypeahead
-                label="Caliber"
-                value={filterCaliber}
-                options={caliberOptions.slice().sort()}
-                onChange={setFilterCaliber}
-              />
-              <FilterTypeahead
-                label="Type"
-                value={filterBulletType}
-                options={bulletTypeOptions.slice().sort()}
-                onChange={setFilterBulletType}
-              />
-            </div>
-          )}
+          <div className="mb-4">
+            <SearchBar value={search} onChange={setSearch} placeholder="Search ammo…" />
+          </div>
 
           {/* Caliber summary pills */}
           {Object.keys(caliberTotals).length > 0 && (

@@ -13,6 +13,7 @@ import {
   ImageUploader, ImageUploaderHandle, useSuggestions,
   InventoryTable, ColDef, useThumbnails,
   useTableControls, TableControls,
+  SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -203,7 +204,16 @@ export default function PhotographyPage() {
     { key: "date",   label: "Date",   render: (r) => fmtDate(r.datePurchased),                                                   mobileHidden: true,              sortValue: (r) => r.datePurchased ?? "" },
   ];
 
-  const tableControls = useTableControls(items, (item, key) => {
+  const getSearchableText = useCallback((it: ItemRecord) => {
+    const ph = details.get(it.id);
+    return [
+      it.name, it.brand, it.vendor, it.description, it.notes,
+      ph?.type, ph?.serialNumber, ph?.mount, ph?.sensorFormat,
+    ];
+  }, [details]);
+  const { search, setSearch, filtered } = useInventorySearch(items, getSearchableText);
+
+  const tableControls = useTableControls(filtered, (item, key) => {
     const col = columns.find((c) => c.key === key);
     return col?.sortValue?.(item);
   });
@@ -235,6 +245,10 @@ export default function PhotographyPage() {
               style={{ backgroundColor: ACCENT }}>
               + Add Photography Item
             </button>
+          </div>
+
+          <div className="mb-4">
+            <SearchBar value={search} onChange={setSearch} placeholder="Search photography…" />
           </div>
 
           {/* Type summary pills */}
