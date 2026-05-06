@@ -36,6 +36,19 @@ function buildChatContext(path: string): Record<string, unknown> {
   return { currentPath: path };
 }
 
+/** actionsTaken is stored as a JSON-stringified array (AWSJSON requirement).
+ *  Older rows or future shape drift may give us a string OR an already-parsed
+ *  array — handle both. Returns undefined for empty/missing/unparseable. */
+function parseActionsTaken(raw: unknown): ChatMessage["actionsTaken"] {
+  if (raw == null) return undefined;
+  let value: unknown = raw;
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch { return undefined; }
+  }
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return value as ChatMessage["actionsTaken"];
+}
+
 export default function AdminHomePage() {
   const { authState } = useRequireAuth();
   const router = useRouter();
@@ -95,7 +108,7 @@ export default function AdminHomePage() {
         id:           m.id,
         role:         (m.role as "user" | "assistant") ?? "user",
         content:      m.content ?? "",
-        actionsTaken: (m.actionsTaken as any) ?? undefined,
+        actionsTaken: parseActionsTaken(m.actionsTaken),
         createdAt:    m.createdAt ?? undefined,
       })));
     } finally {
@@ -138,11 +151,14 @@ export default function AdminHomePage() {
   }
 
   async function persistUserMessage(conversationId: string, content: string): Promise<ConvMessage | null> {
-    const { data } = await client.models.gennaroAgentConversationMessage.create({
+    const { data, errors } = await client.models.gennaroAgentConversationMessage.create({
       conversationId,
       role:    "user",
       content,
     });
+    if (errors?.length) {
+      console.error("[persistUserMessage] errors:", errors);
+    }
     return data ?? null;
   }
 
@@ -151,12 +167,20 @@ export default function AdminHomePage() {
     content: string,
     actionsTaken: ChatMessage["actionsTaken"],
   ): Promise<ConvMessage | null> {
-    const { data } = await client.models.gennaroAgentConversationMessage.create({
+    // AppSync's AWSJSON scalar wants a JSON-stringified value, not a raw
+    // object. The typed client's create() does NOT auto-stringify a.json()
+    // fields, so passing the array directly returns "invalid value" in
+    // errors and silently drops the row. (Same gotcha as
+    // invokeGennaroAgent's history/chatContext args.)
+    const { data, errors } = await client.models.gennaroAgentConversationMessage.create({
       conversationId,
       role:         "assistant",
       content,
-      actionsTaken: (actionsTaken ?? []) as any,
+      actionsTaken: JSON.stringify(actionsTaken ?? []) as any,
     });
+    if (errors?.length) {
+      console.error("[persistAssistantMessage] errors:", errors);
+    }
     return data ?? null;
   }
 
