@@ -75,9 +75,80 @@ async function listAll<T>(
   return out.slice(0, cap);
 }
 
+// Inventory write helper. Splits the agent's flat input into base inventoryItem
+// fields + category detail fields, creates the item first, then the detail row
+// keyed on the new itemId. If the detail create fails we delete the orphan item
+// so the failure is atomic from the user's point of view.
+async function createInventory(
+  c: any,
+  input: Record<string, any>,
+  category: string,
+  detailModel: { create: (args: any) => Promise<any>; },
+  detailFields: readonly string[],
+): Promise<string> {
+  if (!input.name || typeof input.name !== "string" || !input.name.trim()) {
+    return stringify({ ok: false, error: "name is required" });
+  }
+  // Carve the base inventoryItem fields out of the flat input.
+  const itemPayload: any = {
+    name:          input.name.trim(),
+    brand:         input.brand        ?? null,
+    description:   input.description  ?? null,
+    category,
+    datePurchased: input.datePurchased ?? null,
+    vendor:        input.vendor        ?? null,
+    url:           input.url           ?? null,
+    pricePaid:     input.pricePaid     ?? null,
+    currency:      input.currency      ?? "USD",
+    notes:         input.notes         ?? null,
+    active:        true,
+  };
+  const { data: newItem, errors: itemErrors } =
+    await c.models.inventoryItem.create(itemPayload);
+  if (itemErrors?.length || !newItem) {
+    return stringify({ ok: false, error: itemErrors?.[0]?.message ?? "inventoryItem create failed" });
+  }
+
+  // Build the detail payload from the agreed-on field list.
+  const detailPayload: Record<string, any> = { itemId: newItem.id };
+  for (const k of detailFields) {
+    if (input[k] !== undefined) detailPayload[k] = input[k];
+  }
+
+  const { data: newDetail, errors: detailErrors } = await detailModel.create(detailPayload);
+  if (detailErrors?.length || !newDetail) {
+    // Roll back the orphan item so the user retains the chance to fix and retry.
+    try { await c.models.inventoryItem.delete({ id: newItem.id }); } catch { /* best-effort */ }
+    return stringify({
+      ok: false,
+      error: detailErrors?.[0]?.message ?? "detail create failed",
+    });
+  }
+
+  return stringify({
+    ok: true,
+    data: { itemId: newItem.id, detailId: newDetail.id, name: newItem.name },
+  });
+}
+
 // ── Tool definitions ────────────────────────────────────────────────────────
 // Shape matches Anthropic.Tool[]. Descriptions teach the model when each tool
 // applies — keep them specific.
+
+// Properties shared by all create_<category> tools — the base inventoryItem
+// fields. Each create tool spreads this in then layers its category-specific
+// detail fields on top.
+const BASE_ITEM_PROPS = {
+  name:          { type: "string", description: "Display name. Required." },
+  brand:         { type: "string" },
+  description:   { type: "string" },
+  vendor:        { type: "string" },
+  url:           { type: "string", description: "Product URL." },
+  pricePaid:     { type: "number", description: "Price per unit in `currency`." },
+  currency:      { type: "string", description: "ISO 4217 code. Defaults to USD." },
+  datePurchased: { type: "string", description: "YYYY-MM-DD." },
+  notes:         { type: "string" },
+} as const;
 
 const tools: Anthropic.Tool[] = [
   {
@@ -347,6 +418,145 @@ const tools: Anthropic.Tool[] = [
       },
     },
   },
+  {
+    name: "list_electronics",
+    description:
+      "List electronics inventory (components, modules, breadboards, wires, tools, consumables). Each row has type, partNumber, packaging, valueText, quantity, electrical ratings, color, joined with the base item.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type:           { type: "string", description: "Filter to one type: RESISTOR, CAPACITOR, INDUCTOR, DIODE, LED, TRANSISTOR, IC, MODULE, BREADBOARD, WIRE_CONNECTOR, TOOL, CONSUMABLE, OTHER." },
+        partContains:   { type: "string", description: "Substring match on partNumber (e.g. '2N3904', 'NE555')." },
+        valueContains:  { type: "string", description: "Substring match on valueText (e.g. '10k', '100µF')." },
+        activeOnly:     { type: "boolean", description: "Only active items. Default true." },
+      },
+    },
+  },
+
+  // ── Inventory writes ────────────────────────────────────────────────────
+  // Each create_<category> tool atomically creates the base inventoryItem +
+  // its category-specific detail row. Use ONLY after the user has explicitly
+  // confirmed a preview — see the "Bulk import flow" section of the system
+  // prompt.
+  {
+    name: "create_firearm",
+    description:
+      "Create one firearm: writes the base inventoryItem (category=FIREARM) and the matching inventoryFirearm detail row in one operation. Returns the new IDs.",
+    input_schema: {
+      type: "object" as const,
+      required: ["name"],
+      properties: {
+        ...BASE_ITEM_PROPS,
+        type:         { type: "string", description: "HANDGUN, RIFLE, SHOTGUN, SBR, SUPPRESSOR, OTHER." },
+        caliber:      { type: "string" },
+        serialNumber: { type: "string" },
+        action:       { type: "string", description: "semi-auto, bolt, revolver, etc." },
+        finish:       { type: "string" },
+        barrelLength: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "create_ammo",
+    description:
+      "Create one ammo entry: base inventoryItem (category=AMMO) + inventoryAmmo detail. Returns the new IDs.",
+    input_schema: {
+      type: "object" as const,
+      required: ["name", "caliber", "quantity"],
+      properties: {
+        ...BASE_ITEM_PROPS,
+        caliber:         { type: "string" },
+        quantity:        { type: "integer", description: "Number of units purchased." },
+        unit:            { type: "string", description: "ROUNDS, BOX, or CASE." },
+        roundsPerUnit:   { type: "integer", description: "Rounds per box/case (1 if unit=ROUNDS)." },
+        grain:           { type: "integer", description: "Bullet weight in grains." },
+        bulletType:      { type: "string", description: "FMJ, HP, SP, etc." },
+        velocityFps:     { type: "integer" },
+        roundsAvailable: { type: "integer", description: "Current on-hand round count. Defaults to quantity*roundsPerUnit if omitted." },
+      },
+    },
+  },
+  {
+    name: "create_filament",
+    description:
+      "Create one 3D-printer filament spool entry: base inventoryItem (category=FILAMENT) + inventoryFilament detail.",
+    input_schema: {
+      type: "object" as const,
+      required: ["name"],
+      properties: {
+        ...BASE_ITEM_PROPS,
+        material: { type: "string", description: "PLA, ABS, PETG, TPU, ASA, NYLON, PC, PLA_CF, PETG_CF, PA, PA_CF, PA6_GF, PVA, HIPS, OTHER." },
+        variant:  { type: "string", description: "HF, CF, Translucent, Matte, Silk, etc." },
+        color:    { type: "string" },
+        weightG:  { type: "integer", description: "Spool weight in grams." },
+        diameter: { type: "string", description: "d175 (1.75mm) or d285 (2.85mm)." },
+        quantity: { type: "integer", description: "Number of spools. Default 1." },
+      },
+    },
+  },
+  {
+    name: "create_instrument",
+    description:
+      "Create one musical instrument: base inventoryItem (category=INSTRUMENT) + inventoryInstrument detail.",
+    input_schema: {
+      type: "object" as const,
+      required: ["name"],
+      properties: {
+        ...BASE_ITEM_PROPS,
+        type:         { type: "string", description: "GUITAR, BASS, AMPLIFIER, PEDAL, KEYBOARD, OTHER." },
+        color:        { type: "string" },
+        strings:      { type: "integer" },
+        tuning:       { type: "string" },
+        bodyMaterial: { type: "string" },
+        finish:       { type: "string" },
+      },
+    },
+  },
+  {
+    name: "create_photography",
+    description:
+      "Create one photography item (camera, lens, drone, etc.): base inventoryItem (category=PHOTOGRAPHY) + inventoryPhotography detail.",
+    input_schema: {
+      type: "object" as const,
+      required: ["name"],
+      properties: {
+        ...BASE_ITEM_PROPS,
+        type:             { type: "string", description: "CAMERA, LENS, DRONE, GIMBAL, TRIPOD, LIGHT, ACCESSORY, OTHER." },
+        serialNumber:     { type: "string" },
+        mount:            { type: "string", description: "E, RF, L, EF, M4/3, DJI, etc." },
+        sensorFormat:     { type: "string", description: "FF, APS-C, M43, 1\", 1/2.3\"." },
+        focalLengthMin:   { type: "number", description: "mm; equal to max for primes." },
+        focalLengthMax:   { type: "number", description: "mm." },
+        apertureMax:      { type: "number", description: "f-stop, e.g. 2.8." },
+        stabilized:       { type: "boolean" },
+        weightG:          { type: "integer" },
+        maxFlightTimeMin: { type: "integer", description: "Drones only." },
+        subC250g:         { type: "boolean", description: "Drones: under FAA 250g registration threshold." },
+      },
+    },
+  },
+  {
+    name: "create_electronic",
+    description:
+      "Create one electronics item (component, module, breadboard, wire, tool, consumable): base inventoryItem (category=ELECTRONICS) + inventoryElectronic detail.",
+    input_schema: {
+      type: "object" as const,
+      required: ["name"],
+      properties: {
+        ...BASE_ITEM_PROPS,
+        type:           { type: "string", description: "RESISTOR, CAPACITOR, INDUCTOR, DIODE, LED, TRANSISTOR, IC, MODULE, BREADBOARD, WIRE_CONNECTOR, TOOL, CONSUMABLE, OTHER." },
+        partNumber:     { type: "string", description: "2N3904, NE555, ATmega328P, etc." },
+        packaging:      { type: "string", description: "THT, SMD-0805, DIP-8, SOIC-14, TO-220." },
+        quantity:       { type: "integer", description: "Current count on hand." },
+        valueText:      { type: "string", description: "Human-readable value: '10kΩ', '100µF 25V', '5V'." },
+        voltageRating:  { type: "number", description: "V (caps, diodes, regulators)." },
+        currentRatingA: { type: "number", description: "A (diodes, transistors, fuses)." },
+        powerRatingW:   { type: "number", description: "W (resistors, regulators)." },
+        tolerancePct:   { type: "number" },
+        color:          { type: "string", description: "LED color, wire jacket, etc." },
+      },
+    },
+  },
 ];
 
 // ── Tool dispatcher ─────────────────────────────────────────────────────────
@@ -550,6 +760,48 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           .filter((d) => d.item);
         return stringify({ ok: true, data: { photography: joined, count: joined.length } });
       }
+      case "list_electronics": {
+        const activeOnly = input.activeOnly !== false;
+        const itemMap = await buildItemMap("ELECTRONICS", activeOnly);
+        const filter: any = {};
+        if (input.type)          filter.type       = { eq: input.type };
+        if (input.partContains)  filter.partNumber = { contains: input.partContains };
+        if (input.valueContains) filter.valueText  = { contains: input.valueContains };
+        const details = await listAll(c.models.inventoryElectronic, Object.keys(filter).length ? filter : undefined);
+        const joined = details
+          .map((d) => ({ ...d, item: itemMap.get(d.itemId ?? "") }))
+          .filter((d) => d.item);
+        return stringify({ ok: true, data: { electronics: joined, count: joined.length } });
+      }
+
+      // ── Inventory writes ────────────────────────────────────────────────
+      case "create_firearm":
+        return await createInventory(c, input, "FIREARM", c.models.inventoryFirearm, [
+          "type", "caliber", "serialNumber", "action", "finish", "barrelLength",
+        ]);
+      case "create_ammo":
+        return await createInventory(c, input, "AMMO", c.models.inventoryAmmo, [
+          "caliber", "quantity", "unit", "roundsPerUnit", "grain", "bulletType", "velocityFps", "roundsAvailable",
+        ]);
+      case "create_filament":
+        return await createInventory(c, input, "FILAMENT", c.models.inventoryFilament, [
+          "material", "variant", "color", "weightG", "diameter", "quantity",
+        ]);
+      case "create_instrument":
+        return await createInventory(c, input, "INSTRUMENT", c.models.inventoryInstrument, [
+          "type", "color", "strings", "tuning", "bodyMaterial", "finish",
+        ]);
+      case "create_photography":
+        return await createInventory(c, input, "PHOTOGRAPHY", c.models.inventoryPhotography, [
+          "type", "serialNumber", "mount", "sensorFormat",
+          "focalLengthMin", "focalLengthMax", "apertureMax",
+          "stabilized", "weightG", "maxFlightTimeMin", "subC250g",
+        ]);
+      case "create_electronic":
+        return await createInventory(c, input, "ELECTRONICS", c.models.inventoryElectronic, [
+          "type", "partNumber", "packaging", "quantity", "valueText",
+          "voltageRating", "currentRatingA", "powerRatingW", "tolerancePct", "color",
+        ]);
 
       default:
         return stringify({ ok: false, error: `Unknown tool: ${name}` });
@@ -593,7 +845,16 @@ function buildSystemPrompt(chatContext: unknown): string {
 
 Today is ${dateFmt.format(now)} (${TZ}).
 
-Available capabilities are strictly READ-ONLY — you can list, filter, and summarize, but you cannot create, update, or delete anything. If the user asks for a change, explain that writes aren't wired up yet and point them to the relevant page.
+Capabilities:
+- Reads (list_*, get_*) cover both finance and inventory and are always safe to call.
+- Writes are limited to inventory creation: create_firearm, create_ammo, create_filament, create_instrument, create_photography, create_electronic. Each creates the base inventoryItem AND its category detail row in one call. Finance writes are NOT wired up.
+
+Bulk import flow (when the user pastes spreadsheet rows or asks to create multiple items):
+1. PARSE FIRST. Extract rows, infer the category, and map columns to tool fields. Show a numbered preview (max ~30 rows shown if more, with the count); explain any column-to-field mapping decisions you made.
+2. WAIT FOR EXPLICIT CONFIRMATION before calling any create_* tool. Look for "create them", "go", "confirm", "yes do it" — anything ambiguous, ask. Until then, do NOT call create_*.
+3. ON CONFIRM, call the matching create_* tool once per row in sequence. Track ok vs failed counts; report a short summary at the end (e.g. "Created 47 of 50. 3 failed: …").
+4. If the user wants to tweak the preview (rename a column, drop rows, change a default), do that before any create call.
+5. For a single-item create ("add this resistor"), confirmation is still required but a one-line readback is enough.
 
 Guidelines:
 - Prefer concrete numbers over vague phrases. Format currency with a $ and thousands separators (e.g. $1,234.56).
@@ -602,9 +863,10 @@ Guidelines:
 - Manual ticker quotes (source="manual") are user-managed and may be stale even if fresh looking.
 - Balances in BROKERAGE/RETIREMENT accounts are cash only — add Σ(lot.quantity × quote.price) for market value.
 - Credit account balances are negative when money is owed. creditLimit and APR are informational.
-- For inventory questions, pick the category-specific tool (list_firearms, list_ammo, list_instruments, …) — each returns items already joined with their base record (name/brand). Only use list_inventory_items for cross-category name/brand searches.
+- For inventory questions, pick the category-specific tool (list_firearms, list_ammo, list_instruments, list_photography, list_electronics, …) — each returns items already joined with their base record (name/brand). Only use list_inventory_items for cross-category name/brand searches.
 - Ammo calibers are free-text (e.g. "9mm", "9mm Luger", "9x19 Parabellum"). Use contains-match. For "how many X do I have", list_ammo returns totalRoundsAvailable — use that directly.
 - Instrument types are uppercase enums: GUITAR, BASS, AMPLIFIER, PEDAL, KEYBOARD. "Guitars" maps to type=GUITAR.
+- Electronics types are uppercase enums: RESISTOR, CAPACITOR, INDUCTOR, DIODE, LED, TRANSISTOR, IC, MODULE, BREADBOARD, WIRE_CONNECTOR, TOOL, CONSUMABLE, OTHER. Pick the most specific bucket.
 - Keep responses terse and direct. Don't narrate tool calls; just use the results.${ctxBlock}`;
 }
 
