@@ -4,7 +4,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
-  HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord,
+  HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord, LoanPaymentRecord,
   GoalFundingSourceRecord, AccountSnapshotRecord,
   FINANCE_COLOR, CADENCE_LABELS,
   PHYSICAL_ASSET_TYPE_LABELS,
@@ -52,6 +52,7 @@ export default function FinanceDashboard() {
 
   const [assets,       setAssets]       = useState<AssetRecord[]>([]);
   const [loans,        setLoans]        = useState<LoanRecord[]>([]);
+  const [loanPayments, setLoanPayments] = useState<LoanPaymentRecord[]>([]);
   const [loadingAssets, setLoadingAssets] = useState(true);
 
   // Upcoming section: optional account filter for projected-balance view
@@ -118,12 +119,17 @@ export default function FinanceDashboard() {
   const fetchAssets = useCallback(async () => {
     setLoadingAssets(true);
     try {
-      const [assetRecs, loanRecs] = await Promise.all([
+      const [assetRecs, loanRecs, loanPayRecs] = await Promise.all([
         listAll(client.models.financeAsset),
         listAll(client.models.financeLoan),
+        // SCHEDULED rows feed loan EOY projection. POSTED rows aren't needed
+        // here (current balance already reflects them) but the table is small
+        // enough to fetch in one call.
+        listAll(client.models.financeLoanPayment),
       ]);
       setAssets(assetRecs);
       setLoans(loanRecs);
+      setLoanPayments(loanPayRecs);
     } finally {
       setLoadingAssets(false);
     }
@@ -175,21 +181,21 @@ export default function FinanceDashboard() {
     const m = new Map<string, ReturnType<typeof projectBalance>>();
     for (const acc of accounts) {
       if (!isProjectableAccount(acc.type)) continue;
-      m.set(acc.id, projectBalance(acc, snapshots, recurrings, horizon));
+      m.set(acc.id, projectBalance(acc, snapshots, recurrings, transactions, horizon, loans, loanPayments));
     }
     return m;
-  }, [accounts, snapshots, recurrings]);
+  }, [accounts, snapshots, recurrings, transactions, loans, loanPayments]);
 
   // Time-to-zero for CREDIT / LOAN accounts (trending toward zero balance).
   const timeToZeroByAccount = useMemo(() => {
     const m = new Map<string, NonNullable<ReturnType<typeof estimateTimeToZero>>>();
     for (const acc of accounts) {
       if (acc.type !== "CREDIT" && acc.type !== "LOAN") continue;
-      const r = estimateTimeToZero(acc, snapshots, recurrings);
+      const r = estimateTimeToZero(acc, snapshots, recurrings, transactions, loans, loanPayments);
       if (r) m.set(acc.id, r);
     }
     return m;
-  }, [accounts, snapshots, recurrings]);
+  }, [accounts, snapshots, recurrings, transactions, loans, loanPayments]);
 
   const activeAssets = useMemo(() => assets.filter((a) => a.active !== false), [assets]);
   const assetsTotal  = useMemo(() => totalAssetValue(assets), [assets]);
@@ -426,29 +432,90 @@ export default function FinanceDashboard() {
                               )}
                             </p>
                           )}
-                          {/* EOY projection — cash-ish accounts only. Shows the
-                              CONSERVATIVE P20 floor ("~80% chance of being at
-                              least this"), not the mean. Hover for the full
-                              breakdown with the mean + band. */}
-                          {proj && Math.abs(proj.conservative - proj.current) > 1 && (() => {
+                          {/* EOY projection for invested accounts: deterministic
+                              add-on of unvested RSU lots that vest on/before EOY.
+                              No band — vesting is a fixed event, not stochastic. */}
+                          {invested && (() => {
+                            const horizon = eoyIso();
+                            const addOn = unvestedValueByHorizon(acc, lots, quoteMap, horizon);
+                            if (addOn <= 1) return null;
                             const currency = acc.currency ?? "USD";
-                            const rpad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
+                            const vestingLots = lots.filter(
+                              (l) => l.accountId === acc.id
+                                && l.isVested === false
+                                && !!l.vestDate
+                                && (l.vestDate as string) <= horizon,
+                            );
                             const breakdown =
-                              `EOY projection (${proj.horizonDays}d horizon, 90d trailing data)\n` +
-                              `  ${rpad("Current",       16)}${fmtCurrency(proj.current,       currency)}\n` +
-                              `  ${rpad("+ Recurring",   16)}${fmtCurrency(proj.deterministic, currency, true)}\n` +
-                              `  ${rpad("+ Trailing",    16)}${fmtCurrency(proj.stochastic,    currency, true)}\n` +
-                              `  ${"─".repeat(28)}\n` +
-                              `  ${rpad("Mean",          16)}${fmtCurrency(proj.projected,     currency)}\n` +
-                              `  ${rpad("≥ P20 (shown)", 16)}${fmtCurrency(proj.conservative,  currency)}\n` +
-                              `  ${rpad("≤ P80",         16)}${fmtCurrency(proj.optimistic,    currency)}\n` +
-                              `Method: ${proj.method === "blended" ? "blended (recurring + trailing drift)" : "recurring-only (not enough snapshot history)"}`;
+                              `EOY projection (vesting add-on)\n` +
+                              `  Current      ${fmtCurrency(totalValue, currency)}\n` +
+                              `  + Vesting    ${fmtCurrency(addOn, currency, true)}\n` +
+                              `  ─────────────────────────\n` +
+                              `  EOY          ${fmtCurrency(totalValue + addOn, currency)}\n\n` +
+                              `Lots vesting by ${horizon}:\n` +
+                              vestingLots.map((l) => {
+                                const q = quoteMap.get((l.ticker ?? "").toUpperCase());
+                                const v = q?.price ? (l.quantity ?? 0) * q.price : 0;
+                                return `  ${l.vestDate}  ${l.ticker}  ${(l.quantity ?? 0).toFixed(2)} sh  ${fmtCurrency(v, currency)}`;
+                              }).join("\n");
                             return (
                               <p
                                 className="text-[11px] text-gray-400 tabular-nums cursor-help"
                                 title={breakdown}
                               >
-                                → EOY ≥ {fmtCurrency(proj.conservative, currency)}
+                                → EOY {fmtCurrency(totalValue + addOn, currency)}
+                              </p>
+                            );
+                          })()}
+                          {/* EOY projection for cash-ish / credit / loan accounts.
+                              Display varies by method:
+                              - blended / recurring-only: P20 conservative floor
+                              - cohort (credit): mean (cycles symmetric around 0)
+                              - amortization (loan): exact deterministic
+                          */}
+                          {proj && Math.abs(proj.projected - proj.current) > 1 && (() => {
+                            const currency = acc.currency ?? "USD";
+                            const rpad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
+                            const isCohort  = proj.method === "cohort";
+                            const isAmort   = proj.method === "amortization";
+                            const detLabel  = isCohort ? "+ Cycle drift" : "+ Recurring";
+                            const stoLabel  = isCohort ? "" : isAmort ? "" : "+ Trailing";
+                            const detValue  = isCohort ? proj.stochastic : proj.deterministic;
+                            const methodNote =
+                              isAmort  ? "amortization (scheduled loan principal)" :
+                              isCohort ? "cohort (avg of last 8 billing cycles, ceiling 0)" :
+                              proj.method === "blended" ? "blended (recurring + trailing drift)" :
+                                                          "recurring-only (not enough snapshot history)";
+                            const lines: string[] = [
+                              `EOY projection (${proj.horizonDays}d horizon)`,
+                              `  ${rpad("Current",       16)}${fmtCurrency(proj.current,    currency)}`,
+                              `  ${rpad(detLabel,        16)}${fmtCurrency(detValue,        currency, true)}`,
+                            ];
+                            if (stoLabel) {
+                              lines.push(`  ${rpad(stoLabel, 16)}${fmtCurrency(proj.stochastic, currency, true)}`);
+                            }
+                            lines.push(
+                              `  ${"─".repeat(28)}`,
+                              `  ${rpad("Projected",     16)}${fmtCurrency(proj.projected,  currency)}`,
+                            );
+                            if (!isAmort) {
+                              lines.push(
+                                `  ${rpad("≥ P20",         16)}${fmtCurrency(proj.conservative, currency)}`,
+                                `  ${rpad("≤ P80",         16)}${fmtCurrency(proj.optimistic,   currency)}`,
+                              );
+                            }
+                            lines.push(`Method: ${methodNote}`);
+                            const display = isAmort
+                              ? `→ EOY ${fmtCurrency(proj.projected, currency)}`
+                              : isCohort
+                                ? `→ EOY ${fmtCurrency(proj.projected, currency)}`
+                                : `→ EOY ≥ ${fmtCurrency(proj.conservative, currency)}`;
+                            return (
+                              <p
+                                className="text-[11px] text-gray-400 tabular-nums cursor-help"
+                                title={lines.join("\n")}
+                              >
+                                {display}
                               </p>
                             );
                           })()}

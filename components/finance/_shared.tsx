@@ -1545,7 +1545,7 @@ export type BalanceProjection = {
   /** ±1σ band (≈P16/P84). Useful as a secondary "typical range" hint. */
   low:            number;
   high:           number;
-  method:         "recurring-only" | "blended";
+  method:         "recurring-only" | "blended" | "cohort" | "amortization";
   horizonDays:    number;
   deterministic:  number;
   stochastic:     number;
@@ -1555,12 +1555,163 @@ export type BalanceProjection = {
 // 0.8416×σ from the mean gives the 20th percentile (P20).
 const Z_P20 = 0.8416;
 
+function daysBetweenIso(aIso: string, bIso: string): number {
+  const a = new Date(aIso + "T12:00:00").getTime();
+  const b = new Date(bIso + "T12:00:00").getTime();
+  return Math.round((b - a) / (24 * 3600 * 1000));
+}
+
+/**
+ * Credit-card projection using payment-bounded cohorts instead of trailing
+ * daily drift. For revolving cards the natural unit isn't a calendar day —
+ * it's a billing cycle: a stretch of purchases (negative tx) closed by a
+ * payment (positive tx). Per cycle, delta = Σ(purchases) + payment, which
+ * is the *carryover* — typically ~0 for autopay-in-full, negative when
+ * carrying a balance. Average that across the last N cycles, multiply by
+ * cycles-to-horizon, project. Ceiling clamped at 0 (a credit card can't
+ * realistically run a positive balance).
+ *
+ * Falls back to caller (returns null) when there aren't ≥2 payments in
+ * trailing data — no cohort can be formed.
+ */
+function projectCreditCohorts(
+  account:      AccountRecord,
+  transactions: TransactionRecord[],
+  horizonDays:  number,
+  maxCohorts:   number,
+): BalanceProjection | null {
+  const current = account.currentBalance ?? 0;
+
+  // Sort POSTED tx for this account ascending. Payments = positive amount.
+  const myTxs = transactions
+    .filter((t) => t.accountId === account.id && t.status !== "PENDING" && t.date)
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+  const paymentIdx: number[] = [];
+  myTxs.forEach((t, i) => { if ((t.amount ?? 0) > 0) paymentIdx.push(i); });
+  if (paymentIdx.length < 2) return null;
+
+  // Each cohort spans (prev payment, current payment] — trailing payment closes.
+  const startCohort = Math.max(1, paymentIdx.length - maxCohorts);
+  const cohorts: { delta: number; days: number }[] = [];
+  for (let k = startCohort; k < paymentIdx.length; k++) {
+    const fromIdx = paymentIdx[k - 1] + 1;
+    const toIdx   = paymentIdx[k];
+    let delta = 0;
+    for (let j = fromIdx; j <= toIdx; j++) delta += myTxs[j].amount ?? 0;
+    const days = daysBetweenIso(myTxs[paymentIdx[k - 1]].date!, myTxs[toIdx].date!);
+    cohorts.push({ delta, days });
+  }
+  if (cohorts.length === 0) return null;
+
+  const avgDelta = cohorts.reduce((s, c) => s + c.delta, 0) / cohorts.length;
+  const avgDays  = cohorts.reduce((s, c) => s + c.days,  0) / cohorts.length;
+  const cycles   = avgDays > 0 ? horizonDays / avgDays : 0;
+
+  const variance = cohorts.length > 1
+    ? cohorts.reduce((s, c) => s + (c.delta - avgDelta) ** 2, 0) / (cohorts.length - 1)
+    : 0;
+  const cohortStdev = Math.sqrt(variance);
+  // Sum-over-N: scale by √cycles for the band on the projected total.
+  const scaledStdev = cohortStdev * Math.sqrt(Math.max(0, cycles));
+  const pad  = Z_P20 * scaledStdev;
+  const band = scaledStdev;
+
+  const stochastic = avgDelta * cycles;
+  const projectedRaw = current + stochastic;
+  // Ceiling: credit cards can't realistically carry a positive balance.
+  // Clamp every output channel at ≤ 0 so the mean / band / extremes all
+  // respect the ceiling. `conservative` (worst case = most debt) is already
+  // ≤ projected so it almost never hits the cap, but the clamp is symmetric
+  // to keep the invariant low ≤ projected ≤ high after capping.
+  const cap = (n: number) => Math.min(0, n);
+
+  return {
+    current:       round2(current),
+    projected:     round2(cap(projectedRaw)),
+    conservative:  round2(cap(projectedRaw - pad)),
+    optimistic:    round2(cap(projectedRaw + pad)),
+    low:           round2(cap(projectedRaw - band)),
+    high:          round2(cap(projectedRaw + band)),
+    method:        "cohort",
+    horizonDays,
+    deterministic: 0,
+    stochastic:    round2(stochastic),
+  };
+}
+
+/**
+ * Loan-account projection from amortization schedule. The financeLoanPayment
+ * SCHEDULED rows are the deterministic forward path — no need for stochastic
+ * drift on top. Sum principal portions whose `date` lands in (today, horizon]
+ * and shift the (negative) account balance toward 0 by that amount.
+ *
+ * Returns null when no scheduled payments exist (caller falls back).
+ */
+function projectLoanAmortization(
+  account:      AccountRecord,
+  loans:        LoanRecord[],
+  loanPayments: LoanPaymentRecord[],
+  horizonDays:  number,
+): BalanceProjection | null {
+  const current = account.currentBalance ?? 0;
+  const todayStr = todayIso();
+  const horizonEnd = addDays(todayStr, horizonDays);
+
+  const loan = loans.find((l) => l.accountId === account.id);
+  if (!loan) return null;
+
+  const upcoming = loanPayments.filter(
+    (p) => p.loanId === loan.id
+      && p.status === "SCHEDULED"
+      && p.date
+      && p.date > todayStr
+      && p.date <= horizonEnd,
+  );
+  if (upcoming.length === 0) return null;
+
+  const principalSum = upcoming.reduce((s, p) => s + (p.principal ?? 0), 0);
+  // Loan account.currentBalance is negative (debt). Each principal payment
+  // pushes it toward 0 (less negative). Ceiling at 0 (loan paid off).
+  const projected = Math.min(0, current + principalSum);
+
+  return {
+    current:       round2(current),
+    projected:     round2(projected),
+    conservative:  round2(projected),
+    optimistic:    round2(projected),
+    low:           round2(projected),
+    high:          round2(projected),
+    method:        "amortization",
+    horizonDays,
+    deterministic: round2(principalSum),
+    stochastic:    0,
+  };
+}
+
 export function projectBalance(
-  account:     AccountRecord,
-  snapshots:   AccountSnapshotRecord[],
-  recurrings:  RecurringRecord[],
-  horizonDays: number,
+  account:      AccountRecord,
+  snapshots:    AccountSnapshotRecord[],
+  recurrings:   RecurringRecord[],
+  transactions: TransactionRecord[],
+  horizonDays:  number,
+  loans:        LoanRecord[]        = [],
+  loanPayments: LoanPaymentRecord[] = [],
 ): BalanceProjection {
+  // CREDIT cards: cohort method (last 8 cycles), ceiling at 0. Falls
+  // through to the legacy blended path when fewer than 2 payments exist.
+  if (account.type === "CREDIT") {
+    const cohort = projectCreditCohorts(account, transactions, horizonDays, 8);
+    if (cohort) return cohort;
+  }
+
+  // LOAN: deterministic from SCHEDULED amortization rows. Falls through
+  // to the blended path when no schedule is available (legacy import or
+  // post-import correction state).
+  if (account.type === "LOAN") {
+    const amort = projectLoanAmortization(account, loans, loanPayments, horizonDays);
+    if (amort) return amort;
+  }
+
   const current = account.currentBalance ?? 0;
   const todayStr = todayIso();
   const horizonEnd = addDays(todayStr, horizonDays);
@@ -1687,13 +1838,16 @@ export function eoyIso(): string {
  * dedicated `recalculateLoan` scenario and shouldn't use this.
  */
 export function estimateTimeToZero(
-  account:    AccountRecord,
-  snapshots:  AccountSnapshotRecord[],
-  recurrings: RecurringRecord[],
+  account:      AccountRecord,
+  snapshots:    AccountSnapshotRecord[],
+  recurrings:   RecurringRecord[],
+  transactions: TransactionRecord[],
+  loans:        LoanRecord[]        = [],
+  loanPayments: LoanPaymentRecord[] = [],
 ): { months: number; method: BalanceProjection["method"] } | null {
   const current = account.currentBalance ?? 0;
   if (Math.abs(current) < 0.01) return null;
-  const proj = projectBalance(account, snapshots, recurrings, 30);
+  const proj = projectBalance(account, snapshots, recurrings, transactions, 30, loans, loanPayments);
   const monthlyChange = proj.projected - current;
   // Trending toward zero required: negative current → positive change; positive current → negative change.
   if (current < 0 && monthlyChange <= 0.01) return null;
