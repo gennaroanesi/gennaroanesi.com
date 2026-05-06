@@ -22,6 +22,7 @@ import {
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
+import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 
 // ── Panel state ───────────────────────────────────────────────────────────────
 
@@ -324,6 +325,8 @@ export default function TransactionsPage() {
     setSaving(true);
     try {
       if (tx.status === "POSTED") await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
+      // Cascade attachments first so we don't orphan S3 files / DB rows.
+      await deleteAttachmentsFor("TRANSACTION", tx.id);
       await client.models.financeTransaction.delete({ id: tx.id });
       setTransactions((p) => p.filter((t) => t.id !== tx.id));
       const accs = await listAll(client.models.financeAccount);
@@ -1005,6 +1008,13 @@ export default function TransactionsPage() {
                       </>
                     );
                   })()}
+                  <div className="border-t border-gray-200 dark:border-darkBorder pt-4">
+                    <AttachmentsSection
+                      parentType="TRANSACTION"
+                      parentId={panel.kind === "edit-tx" ? panel.tx.id : null}
+                      disabled={panel.kind === "new-tx"}
+                    />
+                  </div>
                   <SaveButton saving={saving} onSave={handleSaveTx}
                     label={panel.kind === "new-tx" ? "Add Transaction" : "Save"} />
                   {panel.kind === "edit-tx" && (

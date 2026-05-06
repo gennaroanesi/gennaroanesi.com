@@ -830,6 +830,27 @@ const schema = a.schema({
       allow.group("admins"),
     ]),
 
+  // ── Attachment ───────────────────────────────────────────────────────────
+  // Generic file attachment hooked to any parent entity via a polymorphic
+  // (parentType, parentId) pair. Used for receipts/invoices on finance
+  // transactions, statement PDFs on accounts/loans, etc. Files live in S3
+  // under `attachments/{parentType}/{parentId}/{ts}-{filename}` — outside
+  // `public/` so they require Cognito auth to read (the bucket policy in
+  // amplify/backend.ts grants authenticated users read/write on `*`).
+  // Add new parentType values as more domains adopt attachments.
+  attachment: a
+    .model({
+      parentType:  a.enum(["TRANSACTION", "ACCOUNT", "LOAN"]),
+      parentId:    a.id().required(),
+      s3Key:       a.string().required(),
+      filename:    a.string().required(),
+      contentType: a.string(),       // e.g. "application/pdf", "image/jpeg"
+      sizeBytes:   a.integer(),
+      caption:     a.string(),       // user-provided description
+    })
+    .secondaryIndexes((index) => [index("parentId")])
+    .authorization((allow) => [allow.group("admins")]),
+
   // Media attached to a timeline entry. Files live at
   // public/timeline/{entryId}/{filename} so they're guest-readable from S3
   // (matches the "public/*" path policy in backend.ts).

@@ -19,6 +19,7 @@ import {
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls, SortIcon,
 } from "@/components/common/table";
+import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 
 type PanelState =
   | { kind: "new-lot" }
@@ -277,6 +278,7 @@ export default function AccountDetailPage() {
     if (!confirm(`Delete account "${account.name}"? This does not delete its transactions.`)) return;
     setSaving(true);
     try {
+      await deleteAttachmentsFor("ACCOUNT", account.id);
       await client.models.financeAccount.delete({ id: account.id });
       // Leaving the detail page; send user back to accounts index
       router.push("/finance/accounts");
@@ -1077,6 +1079,12 @@ export default function AccountDetailPage() {
                       </div>
                     )}
 
+                    <div className="border-t border-gray-200 dark:border-darkBorder pt-4">
+                      <AttachmentsSection
+                        parentType="ACCOUNT"
+                        parentId={account.id}
+                      />
+                    </div>
                     <SaveButton saving={saving} onSave={handleSaveAcc} label="Save" />
                     <DeleteButton saving={saving} onDelete={handleDeleteAcc} />
                   </div>

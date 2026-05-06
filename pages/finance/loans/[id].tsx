@@ -17,6 +17,7 @@ import {
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
+import { AttachmentsSection } from "@/components/common/AttachmentsSection";
 
 // Side panel state — for posting, editing, or logging an extra payment
 type PanelState =
@@ -1322,6 +1323,13 @@ export default function LoanDetailPage() {
                     <textarea className={inputCls} rows={2} placeholder="Loan number, terms, refinance history…"
                       value={loanMetaDraft.notes}
                       onChange={(e) => setLoanMetaDraft((d) => ({ ...d, notes: e.target.value }))} />
+                  </div>
+
+                  <div className="border-t border-gray-200 dark:border-darkBorder pt-4">
+                    <AttachmentsSection
+                      parentType="LOAN"
+                      parentId={loan?.id ?? null}
+                    />
                   </div>
 
                   <SaveButton saving={saving} onSave={handleSaveLoanMeta} label="Save" />
