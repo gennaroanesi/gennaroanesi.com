@@ -63,6 +63,17 @@ async function listAll<T>(
   filter?: any,
   cap = 500,
 ): Promise<T[]> {
+  const { items } = await listAllWithMeta(model, filter, cap);
+  return items;
+}
+
+// Same as listAll but returns whether the cap truncated the result so the
+// caller can warn the user / agent rather than silently lying about totals.
+async function listAllWithMeta<T>(
+  model: { list: (args?: any) => Promise<{ data: T[]; nextToken?: string | null }> },
+  filter?: any,
+  cap = 500,
+): Promise<{ items: T[]; truncated: boolean }> {
   const out: T[] = [];
   let nextToken: string | null | undefined;
   do {
@@ -72,7 +83,10 @@ async function listAll<T>(
     out.push(...(data ?? []));
     nextToken = nt ?? null;
   } while (nextToken && out.length < cap);
-  return out.slice(0, cap);
+  // If we stopped because we hit the cap AND there is still a continuation
+  // token, results were truncated. If we stopped because nextToken ran out,
+  // we have everything.
+  return { items: out.slice(0, cap), truncated: !!nextToken };
 }
 
 // Inventory write helper. Splits the agent's flat input into base inventoryItem
@@ -175,17 +189,17 @@ const tools: Anthropic.Tool[] = [
   {
     name: "list_transactions",
     description:
-      "List transactions with optional filters. Transactions have type INCOME/EXPENSE/TRANSFER, a status (POSTED or PENDING), optional category and goalId, and a date (YYYY-MM-DD).",
+      "List transactions with optional filters. Transactions have type INCOME/EXPENSE/TRANSFER, a status (POSTED or PENDING), optional category and goalId, and a date (YYYY-MM-DD). Always push merchant / payee searches down via descriptionContains rather than fetching everything and filtering yourself. The response includes a `truncated` flag — if true, narrow the filter (date range, account, etc.) and call again.",
     input_schema: {
       type: "object" as const,
       properties: {
-        accountId: { type: "string", description: "Filter to one account." },
-        goalId:    { type: "string", description: "Filter to one savings goal." },
-        category:  { type: "string", description: "Exact match on category string." },
-        from:      { type: "string", description: "Inclusive start date, YYYY-MM-DD." },
-        to:        { type: "string", description: "Inclusive end date, YYYY-MM-DD." },
-        status:    { type: "string", description: "POSTED or PENDING." },
-        limit:     { type: "integer", description: "Max rows to return after filtering. Default 200." },
+        accountId:           { type: "string", description: "Filter to one account." },
+        goalId:              { type: "string", description: "Filter to one savings goal." },
+        category:            { type: "string", description: "Exact match on category string." },
+        descriptionContains: { type: "string", description: "Substring match on description (case-sensitive at the DB layer). Use this for merchant/payee searches — e.g. 'Genesis' to find 'IN *GENESIS AERO' rows. Try a short distinctive fragment; if you suspect casing variance, run two calls or pick a fragment that's stable across imports." },
+        from:                { type: "string", description: "Inclusive start date, YYYY-MM-DD." },
+        to:                  { type: "string", description: "Inclusive end date, YYYY-MM-DD." },
+        status:              { type: "string", description: "POSTED or PENDING." },
       },
     },
   },
@@ -585,16 +599,28 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
       }
       case "list_transactions": {
         const filter: any = {};
-        if (input.accountId) filter.accountId = { eq: input.accountId };
-        if (input.goalId)    filter.goalId    = { eq: input.goalId };
-        if (input.category)  filter.category  = { eq: input.category };
-        if (input.status)    filter.status    = { eq: input.status };
+        if (input.accountId)           filter.accountId   = { eq: input.accountId };
+        if (input.goalId)              filter.goalId      = { eq: input.goalId };
+        if (input.category)            filter.category    = { eq: input.category };
+        if (input.status)              filter.status      = { eq: input.status };
+        if (input.descriptionContains) filter.description = { contains: input.descriptionContains };
         if (input.from && input.to) filter.date = { between: [input.from, input.to] };
         else if (input.from) filter.date = { ge: input.from };
         else if (input.to)   filter.date = { le: input.to };
-        const cap = Math.min(input.limit ?? 200, 1000);
-        const txs = await listAll(c.models.financeTransaction, Object.keys(filter).length ? filter : undefined, cap);
-        return stringify({ ok: true, data: { transactions: txs, count: txs.length } });
+        // Filtered queries get a much higher cap — a "Genesis Aero" or
+        // "between 2024-01 and 2024-12" search should never lose rows. Only
+        // the totally unfiltered case keeps a tighter safety limit.
+        const hasFilter = Object.keys(filter).length > 0;
+        const cap = hasFilter ? 5000 : 1000;
+        const { items: txs, truncated } = await listAllWithMeta(
+          c.models.financeTransaction,
+          hasFilter ? filter : undefined,
+          cap,
+        );
+        return stringify({
+          ok: true,
+          data: { transactions: txs, count: txs.length, truncated },
+        });
       }
       case "get_transaction": {
         const { data, errors } = await c.models.financeTransaction.get({ id: input.id });
