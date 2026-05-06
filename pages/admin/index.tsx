@@ -79,16 +79,15 @@ export default function AdminHomePage() {
   const loadMessages = useCallback(async (conversationId: string) => {
     setLoadingMsgs(true);
     try {
-      // Amplify codegen quirk: the generated query method is PascalCased at
-      // runtime (listGennaroAgentConversationMessageByConversationId) but the
-      // TypeScript types expose it camelCased. Cast to any to use the runtime
-      // name — the alternative is a full-table scan via list({ filter }).
-      const model = client.models.gennaroAgentConversationMessage as any;
-      const { data } = await model.listGennaroAgentConversationMessageByConversationId(
-        { conversationId },
-        { limit: 200 },
+      // Use a list+filter scan rather than the GSI helper. The Gen2 typed
+      // client's list*By*-style helpers have been unreliable for us
+      // (matches the array-field drop and missing-GSI gotchas in CLAUDE.md
+      // §4 and §5). Message volume per conversation is bounded, so this is
+      // fine.
+      const rows = await listAll<ConvMessage>(
+        client.models.gennaroAgentConversationMessage as any,
+        { filter: { conversationId: { eq: conversationId } } },
       );
-      const rows = (data ?? []) as ConvMessage[];
       const sorted = rows.slice().sort((a, b) =>
         (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
       );
