@@ -250,6 +250,7 @@ export default function TransactionsPage() {
           quantity:          isTradeType(txType) ? txDraft.quantity ?? null : null,
           lotId:             txType === "BUY" ? createdLotId : (txType === "SELL" ? txDraft.lotId ?? null : null),
           consumedCostBasis: consumedCostBasis,
+          notes:             txDraft.notes ?? null,
         });
         if (newTx) {
           if (createdLot) setLots((p) => [...p, createdLot!]);
@@ -284,6 +285,7 @@ export default function TransactionsPage() {
           goalId:      txDraft.goalId ?? null,
           toAccountId: txDraft.toAccountId ?? null,
           recurringId: txDraft.recurringId ?? null,
+          notes:       txDraft.notes ?? null,
         });
 
         // Reverse old balance effect, apply new (skipped for trades since
@@ -477,7 +479,7 @@ export default function TransactionsPage() {
       sortValue: (t) => (t.description ?? "").toLowerCase(),
       searchValue: (t) => {
         const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
-        return `${t.description ?? ""} ${t.category ?? ""} ${rule?.description ?? ""}`;
+        return `${t.description ?? ""} ${t.category ?? ""} ${t.notes ?? ""} ${rule?.description ?? ""}`;
       },
       render: (t) => {
         const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
@@ -915,6 +917,13 @@ export default function TransactionsPage() {
                     <input type="text" className={inputCls} placeholder="e.g. Housing, Food…"
                       value={txDraft.category ?? ""}
                       onChange={(e) => setTxDraft((d) => ({ ...d, category: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Notes</label>
+                    <textarea rows={3} className={`${inputCls} resize-none`} placeholder="Free-form context…"
+                      value={txDraft.notes ?? ""}
+                      onChange={(e) => setTxDraft((d) => ({ ...d, notes: e.target.value }))} />
+                    <p className="text-[10px] text-gray-400 mt-0.5">Searchable. Kept separate from the bank-imported description.</p>
                   </div>
                   {txDraft.type === "TRANSFER" && (
                     <div>

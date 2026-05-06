@@ -508,6 +508,11 @@ const schema = a.schema({
       quantity:          a.float(),
       lotId:             a.id(),
       consumedCostBasis: a.float(),
+      // Free-form user notes — kept distinct from `description` (which often
+      // mirrors the bank-imported memo) so post-import context can live
+      // somewhere stable without overwriting the original. Included in the
+      // /finance/transactions search bar.
+      notes:             a.string(),
     })
     .secondaryIndexes((index) => [index("recurringId")])
     .authorization((allow) => [allow.group("admins")]),
