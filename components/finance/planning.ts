@@ -480,8 +480,16 @@ export function projectFromPaychecks(args: {
   // and bonus are taxed as ordinary wages with no pretax deductions, so
   // their full gross is in ytdTaxableWage. The salary portion is the
   // remainder.
-  const ytdRsuGross    = latestStub.ytdRsuGross    ?? 0;
-  const ytdBonusGross  = latestStub.ytdBonusGross  ?? 0;
+  //
+  // Fallback: if the latest stub doesn't carry the YTD column (e.g. it
+  // was uploaded before the schema knew about these fields), sum the
+  // per-period values across all paychecks for the year. This makes the
+  // tool resilient to partial backfills — fill in just the per-event
+  // rsuGross OR just the YTD on the latest stub, either works.
+  const summedRsu      = paychecks.reduce((s, p) => s + (p.rsuGross   ?? 0), 0);
+  const summedBonus    = paychecks.reduce((s, p) => s + (p.bonusGross ?? 0), 0);
+  const ytdRsuGross    = latestStub.ytdRsuGross    ?? summedRsu;
+  const ytdBonusGross  = latestStub.ytdBonusGross  ?? summedBonus;
   const supplementalYtd = ytdRsuGross + ytdBonusGross;
 
   const ytdGrossSalary       = latestStub.ytdGross       ?? 0;
@@ -503,7 +511,12 @@ export function projectFromPaychecks(args: {
   const projectedNet           = (latestStub.ytdNet      ?? 0) * scale;
 
   // ── Supplemental projection on user-configured cadence ──────────────
-  const vestsCompleted = paychecks.filter((p) => (p.rsuGross ?? 0) > 0).length;
+  // vestsCompleted counts paychecks where the user has filled in
+  // rsuGross. If they haven't filled any (older RSU stubs, pre-schema-
+  // change) but the YTD column says RSU income exists, infer at least one
+  // vest happened so the cadence math has a non-zero denominator.
+  let vestsCompleted = paychecks.filter((p) => (p.rsuGross ?? 0) > 0).length;
+  if (vestsCompleted === 0 && ytdRsuGross > 0) vestsCompleted = 1;
   const vestsExpected  = VESTS_PER_YEAR[rsuVestCadence];
   let projectedAdditionalRsu = 0;
   if (rsuVestCadence !== "IRREGULAR" && vestsCompleted > 0 && vestsCompleted < vestsExpected) {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import NextLink from "next/link";
-import { uploadData } from "aws-amplify/storage";
+import { uploadData, getUrl } from "aws-amplify/storage";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
 import {
@@ -13,6 +13,9 @@ import {
   PAYCHECK_PERSONS, PAYCHECK_PERSON_LABELS,
   type PaycheckRecord, type AttachmentRecord, type PaycheckPerson, type PaycheckLineItem,
 } from "@/components/finance/_shared";
+import {
+  ColDef, DataTable, SearchInput, TableControls, useTableControls,
+} from "@/components/common/table";
 
 const S3_BUCKET = "gennaroanesi.com";
 
@@ -244,8 +247,16 @@ export default function PaychecksPage() {
       } else if (draftRaw && typeof draftRaw === "object") {
         raw = draftRaw as Record<string, unknown>;
       }
+      // Honor the parser's detected person (matched off the employee name
+      // on the stub) over the user's pre-upload selection. The user can
+      // still edit it manually before saving. Falls back to the dropdown
+      // when the parser returns null.
+      const detectedPerson = stringField(raw, "person");
+      const resolvedPerson = (detectedPerson === "ME" || detectedPerson === "SPOUSE")
+        ? (detectedPerson as PaycheckPerson)
+        : personArg;
       const next: Draft = {
-        person:      personArg as any,
+        person:      resolvedPerson as any,
         payDate:     stringField(raw, "payDate") ?? todayIso(),
         periodStart: stringField(raw, "periodStart"),
         periodEnd:   stringField(raw, "periodEnd"),
@@ -351,6 +362,139 @@ export default function PaychecksPage() {
     }
   }, [panel, attachmentsById, fetchData, closePanel]);
 
+  // YTD Gross column shows cumulative `gross` per person rather than the
+  // parser-extracted `ytdGross` field. Workday reports the YTD column
+  // differently across salary vs RSU vest stubs (sometimes salary-only,
+  // sometimes salary + RSU rolled in), so reading it back makes the column
+  // appear non-monotonic. A cumulative sum from each row's `gross` is
+  // always consistent. The schema field still holds the parser value —
+  // tax-outlook projections use that as-is.
+  const cumulativeGrossById = useMemo(() => {
+    const out = new Map<string, number>();
+    const groups = new Map<string, PaycheckRecord[]>();
+    for (const p of paychecks) {
+      const key = (p.person as string) ?? "";
+      const arr = groups.get(key) ?? [];
+      arr.push(p);
+      groups.set(key, arr);
+    }
+    for (const arr of groups.values()) {
+      const sorted = [...arr].sort((a, b) => (a.payDate ?? "").localeCompare(b.payDate ?? ""));
+      let acc = 0;
+      for (const p of sorted) {
+        acc += p.gross ?? 0;
+        out.set(p.id, acc);
+      }
+    }
+    return out;
+  }, [paychecks]);
+
+  // Open a paycheck PDF in a new tab via a short-lived signed URL. Same
+  // pattern as components/common/AttachmentsSection.tsx — the bucket
+  // requires Cognito auth, so direct S3 URLs don't work.
+  const openPdf = useCallback(async (att: AttachmentRecord) => {
+    if (!att.s3Key) return;
+    try {
+      const { url } = await getUrl({
+        path:    att.s3Key,
+        options: { bucket: S3_BUCKET, expiresIn: 300 },
+      });
+      window.open(url.toString(), "_blank", "noopener,noreferrer");
+    } catch (e) {
+      console.warn("[paychecks] getUrl failed", e);
+      alert("Could not generate a download link for this PDF.");
+    }
+  }, []);
+
+  // ── Table columns ──────────────────────────────────────────────────────
+  // sortValue picks a primitive for the column's sort comparator; searchValue
+  // joins into the free-text search corpus. Currency cells use right-align,
+  // payDate keeps the chronological default (desc) so latest stub is first.
+  const columns: ColDef<PaycheckRecord>[] = useMemo(() => [
+    {
+      key:    "payDate",
+      label:  "Pay date",
+      render: (r) => <span className="tabular-nums text-gray-700 dark:text-gray-200">{fmtDate(r.payDate)}</span>,
+      sortValue:   (r) => r.payDate ?? "",
+      searchValue: (r) => fmtDate(r.payDate) ?? "",
+    },
+    {
+      key:    "person",
+      label:  "Person",
+      render: (r) => <span className="text-gray-500 dark:text-gray-400">{PAYCHECK_PERSON_LABELS[r.person as PaycheckPerson]}</span>,
+      sortValue:   (r) => PAYCHECK_PERSON_LABELS[r.person as PaycheckPerson] ?? "",
+      searchValue: (r) => PAYCHECK_PERSON_LABELS[r.person as PaycheckPerson] ?? "",
+    },
+    {
+      key:    "gross",
+      label:  "Gross",
+      align:  "right",
+      render: (r) => <span className="tabular-nums">{fmtCurrency(r.gross ?? 0)}</span>,
+      sortValue: (r) => r.gross ?? 0,
+    },
+    {
+      key:    "net",
+      label:  "Net",
+      align:  "right",
+      render: (r) => <span className="tabular-nums" style={{ color: amountColor(r.net ?? 0) }}>{fmtCurrency(r.net ?? 0)}</span>,
+      sortValue: (r) => r.net ?? 0,
+    },
+    {
+      key:    "fedWh",
+      label:  "Fed WH",
+      align:  "right",
+      render: (r) => <span className="tabular-nums text-gray-500">{r.fedWh != null ? fmtCurrency(r.fedWh) : "—"}</span>,
+      sortValue: (r) => r.fedWh ?? null,
+    },
+    {
+      key:    "contrib401k",
+      label:  "401k",
+      align:  "right",
+      render: (r) => <span className="tabular-nums text-gray-500">{r.contrib401k != null ? fmtCurrency(r.contrib401k) : "—"}</span>,
+      sortValue: (r) => r.contrib401k ?? null,
+    },
+    {
+      key:    "ytdGross",
+      label:  "YTD Gross",
+      align:  "right",
+      render: (r) => {
+        const cum = cumulativeGrossById.get(r.id);
+        return <span className="tabular-nums text-gray-500">{cum != null ? fmtCurrency(cum) : "—"}</span>;
+      },
+      sortValue: (r) => cumulativeGrossById.get(r.id) ?? null,
+    },
+    {
+      key:    "pdf",
+      label:  "PDF",
+      align:  "center",
+      render: (r) => {
+        const atts = attachmentsById.get(r.id) ?? [];
+        if (atts.length === 0) return null;
+        const att = atts[0];
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); void openPdf(att); }}
+            className="text-xs hover:opacity-70 transition-opacity cursor-pointer"
+            title={att.filename ?? "View PDF"}
+          >
+            📎
+          </button>
+        );
+      },
+      sortValue:   (r) => (attachmentsById.get(r.id) ?? []).length,
+      searchValue: () => "",
+    },
+  ], [attachmentsById, cumulativeGrossById, openPdf]);
+
+  const tableCtl = useTableControls(filtered, {
+    defaultSortKey: "payDate",
+    defaultSortDir: "desc",
+    getSortValue:   (row, key) => columns.find((c) => c.key === key)?.sortValue?.(row),
+    getSearchText:  (row) =>
+      columns.map((c) => c.searchValue?.(row) ?? "").filter(Boolean).join(" "),
+    initialPageSize: 50,
+  });
+
   if (authState !== "authenticated") return null;
 
   return (
@@ -400,51 +544,35 @@ export default function PaychecksPage() {
                 </FilterPill>
               ))}
             </div>
+            <div className="ml-auto">
+              <SearchInput value={tableCtl.search} onChange={tableCtl.setSearch} placeholder="Search date, person…" />
+            </div>
           </div>
 
           {loading ? (
             <p className="text-sm text-gray-400 italic">Loading…</p>
-          ) : filtered.length === 0 ? (
+          ) : filtered.length === 0 && !tableCtl.search ? (
             <EmptyState label="paychecks" onAdd={openNew} />
           ) : (
-            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-x-auto">
-              <table className="w-full text-sm min-w-[720px]">
-                <thead className="bg-gray-50 dark:bg-darkElevated">
-                  <tr className="text-left text-[10px] uppercase tracking-widest text-gray-400 font-medium">
-                    <th className="px-3 py-2">Pay date</th>
-                    <th className="px-3 py-2">Person</th>
-                    <th className="px-3 py-2 text-right">Gross</th>
-                    <th className="px-3 py-2 text-right">Net</th>
-                    <th className="px-3 py-2 text-right">Fed WH</th>
-                    <th className="px-3 py-2 text-right">401k</th>
-                    <th className="px-3 py-2 text-right">YTD Gross</th>
-                    <th className="px-3 py-2 text-center">PDF</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {filtered.map((p) => {
-                    const atts = attachmentsById.get(p.id) ?? [];
-                    return (
-                      <tr
-                        key={p.id}
-                        onClick={() => openEdit(p)}
-                        className="cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5"
-                      >
-                        <td className="px-3 py-2 tabular-nums text-gray-700 dark:text-gray-200">{fmtDate(p.payDate)}</td>
-                        <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{PAYCHECK_PERSON_LABELS[p.person as PaycheckPerson]}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{fmtCurrency(p.gross ?? 0)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums" style={{ color: amountColor(p.net ?? 0) }}>
-                          {fmtCurrency(p.net ?? 0)}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-500">{p.fedWh != null ? fmtCurrency(p.fedWh) : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-500">{p.contrib401k != null ? fmtCurrency(p.contrib401k) : "—"}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-gray-500">{p.ytdGross != null ? fmtCurrency(p.ytdGross) : "—"}</td>
-                        <td className="px-3 py-2 text-center text-xs">{atts.length > 0 ? "📎" : ""}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+              <DataTable
+                rows={tableCtl.paged}
+                columns={columns}
+                sortKey={tableCtl.sortKey}
+                sortDir={tableCtl.sortDir}
+                onSort={tableCtl.handleSort}
+                onRowClick={openEdit}
+                emptyMessage={tableCtl.search ? "No matches" : "No paychecks"}
+              />
+              <TableControls
+                page={tableCtl.page}
+                totalPages={tableCtl.totalPages}
+                totalItems={tableCtl.totalItems}
+                totalUnfiltered={tableCtl.totalUnfiltered}
+                pageSize={tableCtl.pageSize}
+                setPage={tableCtl.setPage}
+                setPageSize={tableCtl.setPageSize}
+              />
             </div>
           )}
         </div>

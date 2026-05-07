@@ -231,6 +231,14 @@ export default function TaxOutlookPage() {
     slider:  outcomeFor(p, sliderOverride),
   }));
 
+  // Slider's resting position when no override is active. Falls back to
+  // the average of all current contribution rates so a two-person view
+  // doesn't bias toward whichever person renders first; with one person
+  // the average == that person's rate.
+  const defaultSliderPct = byPerson.length > 0
+    ? byPerson.reduce((sum, p) => sum + p.current401kPct, 0) / byPerson.length
+    : 0;
+
   const combined = byPerson.length === 2 ? (() => {
     const taxableWage = personOutcomes.reduce((s, o) => s + o.slider.taxableWage, 0);
     const fedWh       = personOutcomes.reduce((s, o) => s + o.slider.fedWh, 0);
@@ -322,17 +330,20 @@ export default function TaxOutlookPage() {
                 min={0}
                 max={50}
                 step={0.5}
-                value={pctOverride < 0 ? 0 : pctOverride * 100}
+                value={pctOverride < 0 ? defaultSliderPct * 100 : pctOverride * 100}
                 onChange={(e) => setPctOverride(parseFloat(e.target.value) / 100)}
                 className="flex-1 accent-purple dark:accent-rose"
               />
-              <span className="tabular-nums text-sm font-semibold text-gray-800 dark:text-gray-200 w-16 text-right">
-                {pctOverride < 0 ? "—" : `${(pctOverride * 100).toFixed(1)}%`}
+              <span className="tabular-nums text-sm font-semibold text-gray-800 dark:text-gray-200 w-20 text-right">
+                {pctOverride < 0
+                  ? `${(defaultSliderPct * 100).toFixed(1)}%`
+                  : `${(pctOverride * 100).toFixed(1)}%`}
               </span>
               <button
                 type="button"
                 onClick={() => setPctOverride(-1)}
-                className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                disabled={pctOverride < 0}
+                className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Reset
               </button>

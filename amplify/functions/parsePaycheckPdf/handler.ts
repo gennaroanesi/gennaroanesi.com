@@ -42,6 +42,7 @@ const EXTRACTION_PROMPT = `You are extracting structured data from a US pay stub
 Schema (all monetary fields are USD dollars, no symbols, no commas; null when not present on the stub):
 
 {
+  "person":               "ME" | "SPOUSE" | null,
   "payDate":              "YYYY-MM-DD",
   "periodStart":          "YYYY-MM-DD" | null,
   "periodEnd":            "YYYY-MM-DD" | null,
@@ -82,6 +83,7 @@ Schema (all monetary fields are USD dollars, no symbols, no commas; null when no
 }
 
 Field guidance:
+- "person" identifies the employee on the stub. Look at the Payslip Information section's "Name" field (or wherever the employee name appears). Map first names case-insensitively: "Gennaro" → "ME", "Cristine" → "SPOUSE". Any other name (or missing name) → null. If the stub clearly belongs to one but the spelling is slightly off (Cristina vs Cristine, etc.), still match on the first name initial pattern. Don't guess — null when unsure.
 - "gross" is the CASH gross pay this period — the headline "Gross Pay" value at the top of the stub. Do NOT include imputed income (Imp GTL, GTL Coverage, imputed taxable benefits) even when it appears as an earnings line. Imputed income is reported separately under "imputedGtl" + as a lineItem of type IMPUTED. Sanity check: gross should equal (Pre Tax Deductions + Employee Taxes + Post Tax Deductions + Net Pay) for this period — if it doesn't, you've probably included imputed income; subtract it. Same rule for "ytdGross".
 - "taxableWage" is the federal taxable wage for this period. On Workday-style stubs, look for the line literally labeled "Federal Withholding - Taxable Wages" (NOT "OASDI - Taxable Wages" or "Medicare - Taxable Wages" — those are different bases). On other stubs the equivalent labels include "Federal Taxable Wages" or "Taxable Federal Wages". Same rule for "ytdTaxableWage".
 - "net" is the take-home / direct-deposit total for this period (the "Net Pay" header value).

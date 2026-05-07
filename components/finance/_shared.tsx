@@ -103,9 +103,12 @@ export type AttachmentRecord     = Schema["attachment"]["type"];
 export const PAYCHECK_PERSONS = ["ME", "SPOUSE"] as const;
 export type  PaycheckPerson    = (typeof PAYCHECK_PERSONS)[number];
 
+// Person labels are the displayed names. The enum values (ME/SPOUSE) stay
+// neutral so the schema and any downstream tools don't bake in personal
+// names. If the labels need to change again, edit only this map.
 export const PAYCHECK_PERSON_LABELS: Record<PaycheckPerson, string> = {
-  ME:     "Me",
-  SPOUSE: "Spouse",
+  ME:     "Gennaro",
+  SPOUSE: "Cristine",
 };
 
 export type PaycheckLineItem = {
