@@ -9,19 +9,49 @@ import { maybeRefreshAllQuotes } from "@/components/finance/_shared";
 const FINANCE_COLOR = "#10b981"; // emerald
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
-const NAV_ITEMS = [
-  { key: "dashboard",    label: "Dashboard",    href: "/finance" },
-  { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
-  { key: "transactions", label: "Transactions", href: "/finance/transactions" },
-  { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
-  { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
-  { key: "tax-outlook",  label: "Tax outlook",  href: "/finance/tax-outlook" },
-  { key: "goals",        label: "Goals",        href: "/finance/goals" },
-  { key: "assets",       label: "Assets",       href: "/finance/assets" },
-  { key: "loans",        label: "Loans",        href: "/finance/loans" },
-  { key: "prices",       label: "Prices",       href: "/finance/prices" },
-  { key: "simulator",    label: "Simulator",    href: "/finance/simulator/cashflow" },
+// Navigation is split into Dashboard (a single top-of-list item) and three
+// thematic groups. Each group renders with its own uppercase header in the
+// sidebar and inlines into the mobile top-bar with no header (mobile users
+// just scroll horizontally).
+type NavItem  = { key: string; label: string; href: string };
+type NavGroup = { label: string | null; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: null,
+    items: [
+      { key: "dashboard", label: "Dashboard", href: "/finance" },
+    ],
+  },
+  {
+    label: "Daily Finances",
+    items: [
+      { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
+      { key: "transactions", label: "Transactions", href: "/finance/transactions" },
+      { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
+      { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
+    ],
+  },
+  {
+    label: "Planning",
+    items: [
+      { key: "tax-outlook", label: "Tax outlook", href: "/finance/tax-outlook" },
+      { key: "goals",       label: "Goals",       href: "/finance/goals" },
+      { key: "simulator",   label: "Simulator",   href: "/finance/simulator/cashflow" },
+    ],
+  },
+  {
+    label: "Wealth",
+    items: [
+      { key: "assets", label: "Assets", href: "/finance/assets" },
+      { key: "loans",  label: "Loans",  href: "/finance/loans" },
+      { key: "prices", label: "Prices", href: "/finance/prices" },
+    ],
+  },
 ];
+
+// Flat list for code paths (mobile bar + activeKey) that don't care about groups.
+const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 function activeKey(pathname: string): string {
   // Match most-specific first — "accounts" appears in /finance/accounts and /finance/accounts/[id]
@@ -86,42 +116,56 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
             Finance
           </p>
 
-          <Listbox
-            aria-label="Finance navigation"
-            variant="flat"
-            selectionMode="single"
-            selectedKeys={new Set([active])}
-            disallowEmptySelection
-            classNames={{ base: "px-2", list: "gap-1" }}
-          >
-            {NAV_ITEMS.map((item) => {
-              const isActive = item.key === active;
-              return (
-                <ListboxItem
-                  key={item.key}
-                  as={NextLink}
-                  href={item.href}
-                  textValue={item.label}
-                  classNames={{
-                    base: [
-                      "rounded-lg px-3 py-2 transition-colors",
-                      isActive ? "bg-opacity-10" : "hover:bg-gray-100 dark:hover:bg-white/5",
-                    ].join(" "),
-                    title: "text-sm font-medium",
-                  }}
-                  style={isActive ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}
-                  startContent={
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: isActive ? FINANCE_COLOR : FINANCE_COLOR + "66" }}
-                    />
-                  }
+          {NAV_GROUPS.map((group, groupIdx) => (
+            <React.Fragment key={group.label ?? `group-${groupIdx}`}>
+              {group.label && (
+                <p
+                  className={[
+                    "px-4 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500 font-medium mb-1",
+                    groupIdx > 0 ? "mt-3" : "",
+                  ].join(" ")}
                 >
-                  {item.label}
-                </ListboxItem>
-              );
-            })}
-          </Listbox>
+                  {group.label}
+                </p>
+              )}
+              <Listbox
+                aria-label={group.label ?? "Primary"}
+                variant="flat"
+                selectionMode="single"
+                selectedKeys={new Set([active])}
+                disallowEmptySelection
+                classNames={{ base: "px-2", list: "gap-1" }}
+              >
+                {group.items.map((item) => {
+                  const isActive = item.key === active;
+                  return (
+                    <ListboxItem
+                      key={item.key}
+                      as={NextLink}
+                      href={item.href}
+                      textValue={item.label}
+                      classNames={{
+                        base: [
+                          "rounded-lg px-3 py-2 transition-colors",
+                          isActive ? "bg-opacity-10" : "hover:bg-gray-100 dark:hover:bg-white/5",
+                        ].join(" "),
+                        title: "text-sm font-medium",
+                      }}
+                      style={isActive ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}
+                      startContent={
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: isActive ? FINANCE_COLOR : FINANCE_COLOR + "66" }}
+                        />
+                      }
+                    >
+                      {item.label}
+                    </ListboxItem>
+                  );
+                })}
+              </Listbox>
+            </React.Fragment>
+          ))}
 
           <Divider className="my-3 mx-4 w-auto" />
 
