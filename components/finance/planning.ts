@@ -356,59 +356,200 @@ export function isPaycheckStale(payDateIso: string, todayIso: string, staleDays 
 export type YtdProjection = {
   paychecksPerYear:        number;   // either inferred or the caller-supplied value
   paychecksElapsed:        number;   // 1..paychecksPerYear
-  projectedGross:          number;
-  projectedTaxableWage:    number;
-  projectedFedWh:          number;
+  projectedGross:          number;   // CASH gross only — salary, no RSU / bonus
+  projectedTaxableWage:    number;   // includes salary taxable + projected supplemental
+  projectedFedWh:          number;   // salary linear + 22% on additional supplemental
   projectedOasdi:          number;
   projectedMedicare:       number;
   projected401k:           number;
   projectedAfterTax401k:   number;
   projectedNet:            number;
+  // Supplemental decomposition — RSU vests + bonuses, projected on cadence
+  // rather than linearly. ytdRsuGross + ytdBonusGross are pulled from the
+  // latest stub overall (which always carries the most-current YTD).
+  ytdRsuGross:             number;
+  ytdBonusGross:           number;
+  vestsCompleted:          number;
+  vestsExpected:           number;
+  projectedRsuGross:       number;   // ytdRsuGross + avgVest × remainingVests
+  projectedBonusGross:     number;   // = ytdBonusGross (no extrapolation)
+  projectedTotalEarnings:  number;   // projectedGross + projectedRsuGross + projectedBonusGross
+};
+
+// ── RSU vest cadence ─────────────────────────────────────────────────────
+
+export const RSU_VEST_CADENCES = ["QUARTERLY", "MONTHLY", "SEMIANNUAL", "ANNUAL", "IRREGULAR"] as const;
+export type  RsuVestCadence    = (typeof RSU_VEST_CADENCES)[number];
+
+export const RSU_VEST_CADENCE_LABELS: Record<RsuVestCadence, string> = {
+  QUARTERLY:  "Quarterly (4/yr)",
+  MONTHLY:    "Monthly (12/yr)",
+  SEMIANNUAL: "Semi-annual (2/yr)",
+  ANNUAL:     "Annual (1/yr)",
+  IRREGULAR:  "Irregular (no extrapolation)",
+};
+
+const VESTS_PER_YEAR: Record<RsuVestCadence, number> = {
+  QUARTERLY:  4,
+  MONTHLY:    12,
+  SEMIANNUAL: 2,
+  ANNUAL:     1,
+  IRREGULAR:  0,
+};
+
+// IRS supplemental wage flat rate already declared above as
+// SUPPLEMENTAL_FED_RATE — used here for projecting fedWh on additional
+// (yet-to-vest) RSU income.
+
+type PaycheckLike = {
+  payDate:               string;
+  periodStart?:          string | null;
+  periodEnd?:            string | null;
+  gross?:                number | null;
+  taxableWage?:          number | null;
+  ytdGross?:             number | null;
+  ytdTaxableWage?:       number | null;
+  ytdFedWh?:             number | null;
+  ytdOasdi?:             number | null;
+  ytdMedicare?:          number | null;
+  ytd401k?:              number | null;
+  ytdAfterTax401k?:      number | null;
+  ytdNet?:               number | null;
+  bonusGross?:           number | null;
+  rsuGross?:             number | null;
+  ytdBonusGross?:        number | null;
+  ytdRsuGross?:          number | null;
 };
 
 /**
- * Linear projection from a paystub's YTD columns to year-end. The model is
- * straightforward: per-paycheck-average × paychecksPerYear, computed off
- * `ytd / elapsed`. Withholding/contribution caps (OASDI in particular) are
- * intentionally not capped here — the projection answers "if nothing
- * changes" and the OASDI cap will distort that answer downward in real
- * paystubs anyway, so this stays neutral. Caller decides whether to clamp.
+ * Project a person's full-year tax picture from their current-year paychecks.
+ * Decomposes salary (linear extrapolation, off the latest REGULAR stub's
+ * cadence) from supplemental income (RSU vests projected via cadence,
+ * bonuses held flat). RSU-only stubs have `gross == 0` and screw with
+ * cadence inference if used as the linear base — we skip them.
+ *
+ * `paychecks` should be ALL of this person's paychecks for the current
+ * calendar year, in any order. Returns null if no paycheck found.
  */
-export function projectFromYTD(
-  paycheck: {
-    payDate:               string;
-    periodStart?:          string | null;
-    periodEnd?:            string | null;
-    ytdGross?:             number | null;
-    ytdTaxableWage?:       number | null;
-    ytdFedWh?:             number | null;
-    ytdOasdi?:             number | null;
-    ytdMedicare?:          number | null;
-    ytd401k?:              number | null;
-    ytdAfterTax401k?:      number | null;
-    ytdNet?:               number | null;
-  },
-  paychecksPerYearOverride?: number,
-): YtdProjection {
-  const ppy = paychecksPerYearOverride ?? inferPaychecksPerYear(paycheck);
-  // Date-based estimate of how many paychecks have hit YTD. Pinned to
-  // [1, ppy] so an early-January stub doesn't divide by zero.
-  const dayOfYear = daysIntoYear(paycheck.payDate);
+export function projectFromPaychecks(args: {
+  paychecks:      PaycheckLike[];
+  rsuVestCadence: RsuVestCadence;
+  paychecksPerYearOverride?: number;
+}): YtdProjection | null {
+  const { paychecks, rsuVestCadence, paychecksPerYearOverride } = args;
+  if (paychecks.length === 0) return null;
+
+  // Sorted desc by payDate so [0] is the most recent.
+  const sorted = [...paychecks].sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""));
+
+  // Latest stub overall — source of truth for YTD numbers.
+  const latestStub = sorted[0];
+  // Latest REGULAR stub (cash gross > 0) — source of truth for cadence
+  // and for "what's a typical paycheck looks like" linear projection.
+  // Falls back to the overall latest if the user has only ever uploaded
+  // RSU-only stubs (edge case).
+  const latestRegular = sorted.find((p) => (p.gross ?? 0) > 0) ?? latestStub;
+
+  const ppy = paychecksPerYearOverride ?? inferPaychecksPerYear(latestRegular);
+
+  // Day-of-year is taken off the regular paycheck — RSU stubs have a
+  // single-day period that fakes out the cadence math.
+  const dayOfYear = daysIntoYear(latestRegular.payDate);
   const elapsed   = Math.min(ppy, Math.max(1, Math.round((dayOfYear / 365) * ppy)));
   const scale     = ppy / elapsed;
-  const project   = (v: number | null | undefined) => Math.max(0, (v ?? 0) * scale);
+
+  // ── Decompose YTD into salary vs supplemental ───────────────────────
+  // Supplemental is what's reported in ytdRsuGross + ytdBonusGross. RSU
+  // and bonus are taxed as ordinary wages with no pretax deductions, so
+  // their full gross is in ytdTaxableWage. The salary portion is the
+  // remainder.
+  const ytdRsuGross    = latestStub.ytdRsuGross    ?? 0;
+  const ytdBonusGross  = latestStub.ytdBonusGross  ?? 0;
+  const supplementalYtd = ytdRsuGross + ytdBonusGross;
+
+  const ytdGrossSalary       = latestStub.ytdGross       ?? 0;
+  const ytdTaxableSalary     = Math.max(0, (latestStub.ytdTaxableWage ?? 0) - supplementalYtd);
+  // Federal WH on supplemental is the IRS flat 22% — back it out of
+  // ytdFedWh so the linear-projected salary fedWh isn't inflated by past
+  // vests' withholding.
+  const ytdSupplementalFedWh = supplementalYtd * SUPPLEMENTAL_FED_RATE;
+  const ytdSalaryFedWh       = Math.max(0, (latestStub.ytdFedWh ?? 0) - ytdSupplementalFedWh);
+
+  // ── Linear projection of salary-side YTD ────────────────────────────
+  const projectedGross         = ytdGrossSalary       * scale;
+  const projectedSalaryTaxable = ytdTaxableSalary     * scale;
+  const projectedSalaryFedWh   = ytdSalaryFedWh       * scale;
+  const projectedOasdi         = (latestStub.ytdOasdi    ?? 0) * scale;
+  const projectedMedicare      = (latestStub.ytdMedicare ?? 0) * scale;
+  const projected401k          = (latestStub.ytd401k     ?? 0) * scale;
+  const projectedAfterTax401k  = (latestStub.ytdAfterTax401k ?? 0) * scale;
+  const projectedNet           = (latestStub.ytdNet      ?? 0) * scale;
+
+  // ── Supplemental projection on user-configured cadence ──────────────
+  const vestsCompleted = paychecks.filter((p) => (p.rsuGross ?? 0) > 0).length;
+  const vestsExpected  = VESTS_PER_YEAR[rsuVestCadence];
+  let projectedAdditionalRsu = 0;
+  if (rsuVestCadence !== "IRREGULAR" && vestsCompleted > 0 && vestsCompleted < vestsExpected) {
+    const avgVest = ytdRsuGross / vestsCompleted;
+    projectedAdditionalRsu = avgVest * (vestsExpected - vestsCompleted);
+  }
+  const projectedRsuGross       = ytdRsuGross + projectedAdditionalRsu;
+  const projectedBonusGross     = ytdBonusGross; // bonuses held flat — no extrapolation
+  const additionalSupplementalFedWh = projectedAdditionalRsu * SUPPLEMENTAL_FED_RATE;
+
+  // ── Combine ─────────────────────────────────────────────────────────
+  const projectedTaxableWage   = projectedSalaryTaxable + projectedRsuGross + projectedBonusGross;
+  const projectedFedWh         = projectedSalaryFedWh   + ytdSupplementalFedWh + additionalSupplementalFedWh;
+  const projectedTotalEarnings = projectedGross + projectedRsuGross + projectedBonusGross;
 
   return {
-    paychecksPerYear:      ppy,
-    paychecksElapsed:      elapsed,
-    projectedGross:        project(paycheck.ytdGross),
-    projectedTaxableWage:  project(paycheck.ytdTaxableWage),
-    projectedFedWh:        project(paycheck.ytdFedWh),
-    projectedOasdi:        project(paycheck.ytdOasdi),
-    projectedMedicare:     project(paycheck.ytdMedicare),
-    projected401k:         project(paycheck.ytd401k),
-    projectedAfterTax401k: project(paycheck.ytdAfterTax401k),
-    projectedNet:          project(paycheck.ytdNet),
+    paychecksPerYear:        ppy,
+    paychecksElapsed:        elapsed,
+    projectedGross,
+    projectedTaxableWage,
+    projectedFedWh,
+    projectedOasdi,
+    projectedMedicare,
+    projected401k,
+    projectedAfterTax401k,
+    projectedNet,
+    ytdRsuGross,
+    ytdBonusGross,
+    vestsCompleted,
+    vestsExpected,
+    projectedRsuGross,
+    projectedBonusGross,
+    projectedTotalEarnings,
+  };
+}
+
+/** @deprecated use projectFromPaychecks — single-paycheck version doesn't
+ *  decompose RSU income from salary, which makes RSU-only stubs poison the
+ *  cadence inference and inflate the linear projection. Kept here only
+ *  while we migrate callers. */
+export function projectFromYTD(
+  paycheck: PaycheckLike,
+  paychecksPerYearOverride?: number,
+): YtdProjection {
+  // Wrap the new helper. With a single paycheck, "vestsCompleted" defaults
+  // to 1 if rsuGross is set, 0 otherwise — and IRREGULAR cadence means we
+  // don't extrapolate beyond YTD. This mirrors the old behavior closely
+  // enough for callers we haven't migrated yet.
+  const out = projectFromPaychecks({
+    paychecks: [paycheck],
+    rsuVestCadence: "IRREGULAR",
+    paychecksPerYearOverride,
+  });
+  if (out) return out;
+  // Empty case — return a zeroed projection so callers don't crash.
+  const ppy = paychecksPerYearOverride ?? 26;
+  return {
+    paychecksPerYear: ppy, paychecksElapsed: 1,
+    projectedGross: 0, projectedTaxableWage: 0, projectedFedWh: 0,
+    projectedOasdi: 0, projectedMedicare: 0, projected401k: 0,
+    projectedAfterTax401k: 0, projectedNet: 0,
+    ytdRsuGross: 0, ytdBonusGross: 0, vestsCompleted: 0, vestsExpected: 0,
+    projectedRsuGross: 0, projectedBonusGross: 0, projectedTotalEarnings: 0,
   };
 }
 

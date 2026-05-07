@@ -24,21 +24,24 @@ const NUMERIC_FIELDS = [
   "fedWh", "oasdi", "medicare",
   "contrib401k", "contribAfterTax401k", "hsa", "fsa",
   "medical", "dental", "vision",
+  "bonusGross", "rsuGross",
   "ytdGross", "ytdTaxableWage", "ytdFedWh", "ytdOasdi", "ytdMedicare",
   "ytd401k", "ytdAfterTax401k", "ytdNet",
+  "ytdBonusGross", "ytdRsuGross",
 ] as const;
 type NumericField = (typeof NUMERIC_FIELDS)[number];
 
 const NUMERIC_FIELD_GROUPS: Array<{ heading: string; fields: NumericField[] }> = [
   { heading: "Headline",        fields: ["gross", "taxableWage", "net", "imputedGtl"] },
+  { heading: "Supplemental",    fields: ["bonusGross", "rsuGross"] },
   { heading: "Withholding",     fields: ["fedWh", "oasdi", "medicare"] },
   { heading: "Contributions",   fields: ["contrib401k", "contribAfterTax401k", "hsa", "fsa"] },
   { heading: "Premiums",        fields: ["medical", "dental", "vision"] },
-  { heading: "Year-to-date",    fields: ["ytdGross", "ytdTaxableWage", "ytdFedWh", "ytdOasdi", "ytdMedicare", "ytd401k", "ytdAfterTax401k", "ytdNet"] },
+  { heading: "Year-to-date",    fields: ["ytdGross", "ytdTaxableWage", "ytdFedWh", "ytdOasdi", "ytdMedicare", "ytd401k", "ytdAfterTax401k", "ytdNet", "ytdBonusGross", "ytdRsuGross"] },
 ];
 
 const FIELD_LABELS: Record<NumericField, string> = {
-  gross:               "Gross",
+  gross:               "Gross (cash)",
   taxableWage:         "Taxable wage",
   net:                 "Net",
   imputedGtl:          "Imp GTL",
@@ -52,6 +55,8 @@ const FIELD_LABELS: Record<NumericField, string> = {
   medical:             "Medical",
   dental:              "Dental",
   vision:              "Vision",
+  bonusGross:          "Bonus",
+  rsuGross:            "RSU vest",
   ytdGross:            "YTD Gross",
   ytdTaxableWage:      "YTD Taxable",
   ytdFedWh:            "YTD Fed WH",
@@ -60,6 +65,8 @@ const FIELD_LABELS: Record<NumericField, string> = {
   ytd401k:             "YTD 401k",
   ytdAfterTax401k:     "YTD A/T 401k",
   ytdNet:              "YTD Net",
+  ytdBonusGross:       "YTD Bonus",
+  ytdRsuGross:         "YTD RSU",
 };
 
 type Draft = Partial<PaycheckRecord> & {

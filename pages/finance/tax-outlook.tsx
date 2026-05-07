@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
+import { useS3JsonState } from "@/hooks/useS3JsonState";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
@@ -12,14 +13,30 @@ import {
 } from "@/components/finance/_shared";
 import {
   FILING_STATUSES, FILING_STATUS_LABELS, type FilingStatus,
-  projectFromYTD, taxOwedFederal, taxGap, isPaycheckStale, inferPaychecksPerYear,
+  projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
+  RSU_VEST_CADENCES, RSU_VEST_CADENCE_LABELS, type RsuVestCadence,
   PLAN_TAX_YEAR_LABEL,
 } from "@/components/finance/planning";
 
+const S3_BUCKET             = "gennaroanesi.com";
+const SETTINGS_S3_PATH      = "paycheck-settings/v1.json";
+const SETTINGS_LOCAL_KEY    = "finance:paycheck-settings:v1";
+
+type PaycheckSettings = {
+  filingStatus:   FilingStatus;
+  rsuVestCadence: { ME?: RsuVestCadence; SPOUSE?: RsuVestCadence };
+};
+
+const DEFAULT_SETTINGS: PaycheckSettings = {
+  filingStatus:   "MFJ",
+  rsuVestCadence: { ME: "IRREGULAR", SPOUSE: "IRREGULAR" },
+};
+
 type PerPerson = {
   person:        PaycheckPerson;
-  latest:        PaycheckRecord;
-  projection:    ReturnType<typeof projectFromYTD>;
+  paychecks:     PaycheckRecord[];   // all current-year stubs for this person
+  latest:        PaycheckRecord;     // overall most recent (RSU or salary)
+  projection:    NonNullable<ReturnType<typeof projectFromPaychecks>>;
   // Effective YTD 401k contribution rate (decimal). Used as the baseline
   // for the "what-if 401k %" slider so the user starts from where they are.
   current401kPct: number;
@@ -66,7 +83,29 @@ export default function TaxOutlookPage() {
 
   const [paychecks, setPaychecks] = useState<PaycheckRecord[]>([]);
   const [loading,   setLoading]   = useState(true);
-  const [filingStatus, setFilingStatus] = useState<FilingStatus>("MFJ");
+
+  // Settings live in S3 (with localStorage mirror) so filing status + RSU
+  // cadence per person survive across devices and sessions.
+  const { value: settings, setValue: setSettings } = useS3JsonState<PaycheckSettings>(
+    SETTINGS_S3_PATH,
+    () => DEFAULT_SETTINGS,
+    {
+      bucket: S3_BUCKET,
+      localStorageKey: SETTINGS_LOCAL_KEY,
+      enabled: authState === "authenticated",
+    },
+  );
+  const filingStatus = settings.filingStatus;
+  const setFilingStatus = useCallback((s: FilingStatus) => {
+    setSettings((prev) => ({ ...prev, filingStatus: s }));
+  }, [setSettings]);
+  const setRsuVestCadence = useCallback((person: PaycheckPerson, cadence: RsuVestCadence) => {
+    setSettings((prev) => ({
+      ...prev,
+      rsuVestCadence: { ...prev.rsuVestCadence, [person]: cadence },
+    }));
+  }, [setSettings]);
+
   // 401k what-if slider — applied to BOTH persons' projections. -1 = "use
   // current" (no override), else a decimal pct in [0, 0.50].
   const [pctOverride, setPctOverride] = useState<number>(-1);
@@ -98,9 +137,13 @@ export default function TaxOutlookPage() {
         .sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""));
       if (mine.length === 0) continue;
       const latest = mine[0];
-      const projection = projectFromYTD(latest);
+      const cadence = settings.rsuVestCadence[person] ?? "IRREGULAR";
+      const projection = projectFromPaychecks({ paychecks: mine, rsuVestCadence: cadence });
+      if (!projection) continue;
       // current 401k pct from YTD — falls back to per-paycheck ratio if the
-      // YTD numbers aren't populated.
+      // YTD numbers aren't populated. Uses ytdGross (cash gross / salary
+      // only) as the denominator since 401k contributions don't apply to
+      // RSU vest income.
       const current401kPct = (() => {
         const ytdGross = latest.ytdGross ?? 0;
         const ytd401k  = latest.ytd401k ?? 0;
@@ -110,6 +153,7 @@ export default function TaxOutlookPage() {
       })();
       out.push({
         person,
+        paychecks:    mine,
         latest,
         projection,
         current401kPct,
@@ -117,12 +161,16 @@ export default function TaxOutlookPage() {
       });
     }
     return out;
-  }, [paychecks]);
+  }, [paychecks, settings.rsuVestCadence]);
 
-  // Default filing status: MFJ when both persons have paychecks this year.
+  // Auto-default filing status when the count of persons changes — one
+  // person → SINGLE; two persons → MFJ. Only nudges if the user hasn't
+  // explicitly chosen the OTHER value (we always want the dropdown to
+  // reflect their last manual pick).
   useEffect(() => {
-    if (byPerson.length === 2) setFilingStatus("MFJ");
-    else if (byPerson.length === 1) setFilingStatus("SINGLE");
+    if (byPerson.length === 2 && filingStatus !== "MFJ") setFilingStatus("MFJ");
+    else if (byPerson.length === 1 && filingStatus !== "SINGLE" && filingStatus !== "MFJ") setFilingStatus("SINGLE");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [byPerson.length]);
 
   // Per-person tax outcome (current and slider-adjusted). The slider shifts
@@ -258,13 +306,41 @@ export default function TaxOutlookPage() {
         <div className="flex flex-col gap-6 mb-6">
           {personOutcomes.map(({ person: p, current, slider }) => {
             const sliderActive = sliderOverride !== null && Math.abs(sliderOverride - p.current401kPct) > 1e-6;
-            const ppy = inferPaychecksPerYear(p.latest);
+            const ppy = p.projection.paychecksPerYear;
+            const cadence = settings.rsuVestCadence[p.person] ?? "IRREGULAR";
+            const hasSupplemental = (p.projection.ytdRsuGross > 0 || p.projection.ytdBonusGross > 0);
             return (
               <div key={p.person}>
-                <PersonHeader person={p.person} />
+                <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
+                  <PersonHeader person={p.person} />
+                  {/* RSU vest cadence selector — drives how YTD RSU income
+                      projects to year-end. Only rendered when the person
+                      has any RSU income on file. */}
+                  {p.projection.ytdRsuGross > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">RSU vests</label>
+                      <select
+                        value={cadence}
+                        onChange={(e) => setRsuVestCadence(p.person, e.target.value as RsuVestCadence)}
+                        className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-700 dark:text-gray-200"
+                      >
+                        {RSU_VEST_CADENCES.map((c) => (
+                          <option key={c} value={c}>{RSU_VEST_CADENCE_LABELS[c]}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <Card title="Year-to-date" subtitle={`as of ${p.latest.payDate ?? "—"}`}>
-                    <StatRow label="Gross"        value={fmtCurrency(p.latest.ytdGross ?? 0, "USD")} />
+                    <StatRow label="Salary gross" value={fmtCurrency(p.latest.ytdGross ?? 0, "USD")} />
+                    {hasSupplemental && (
+                      <>
+                        <StatRow label="RSU vested"  value={fmtCurrency(p.projection.ytdRsuGross, "USD")} hint={p.projection.vestsCompleted > 0 ? `(${p.projection.vestsCompleted} vest${p.projection.vestsCompleted === 1 ? "" : "s"})` : undefined} />
+                        <StatRow label="Bonus"       value={fmtCurrency(p.projection.ytdBonusGross, "USD")} />
+                        <StatRow label="Total earnings" value={fmtCurrency((p.latest.ytdGross ?? 0) + p.projection.ytdRsuGross + p.projection.ytdBonusGross, "USD")} />
+                      </>
+                    )}
                     <StatRow label="Taxable wage" value={fmtCurrency(p.latest.ytdTaxableWage ?? 0, "USD")} />
                     <StatRow label="Federal WH"   value={fmtCurrency(p.latest.ytdFedWh ?? 0, "USD")} />
                     <StatRow label="401k"         value={fmtCurrency(p.latest.ytd401k ?? 0, "USD")} hint={`(${(p.current401kPct * 100).toFixed(1)}%)`} />
@@ -272,7 +348,20 @@ export default function TaxOutlookPage() {
                   </Card>
 
                   <Card title="Year-end projection" subtitle={`${p.projection.paychecksElapsed}/${ppy} paychecks`}>
-                    <StatRow label="Gross"        value={fmtCurrency(p.projection.projectedGross, "USD")} />
+                    <StatRow label="Salary gross" value={fmtCurrency(p.projection.projectedGross, "USD")} />
+                    {hasSupplemental && (
+                      <>
+                        <StatRow
+                          label="RSU (full year)"
+                          value={fmtCurrency(p.projection.projectedRsuGross, "USD")}
+                          hint={cadence === "IRREGULAR" || p.projection.vestsExpected === 0
+                            ? "(YTD only — set cadence above)"
+                            : `(${p.projection.vestsCompleted}/${p.projection.vestsExpected} vests)`}
+                        />
+                        <StatRow label="Bonus" value={fmtCurrency(p.projection.projectedBonusGross, "USD")} />
+                        <StatRow label="Total earnings" value={fmtCurrency(p.projection.projectedTotalEarnings, "USD")} />
+                      </>
+                    )}
                     <StatRow label="Taxable wage" value={fmtCurrency(p.projection.projectedTaxableWage, "USD")} />
                     <StatRow label="Federal WH"   value={fmtCurrency(p.projection.projectedFedWh, "USD")} />
                     <StatRow label="401k"         value={fmtCurrency(p.projection.projected401k, "USD")} />

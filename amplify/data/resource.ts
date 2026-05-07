@@ -779,6 +779,17 @@ const schema = a.schema({
       ytdAfterTax401k:      a.float(),
       ytdNet:               a.float(),
 
+      // Supplemental earnings — kept separate from `gross` so the cash-gross
+      // sanity check (gross == pretax + taxes + posttax + net) stays intact
+      // on RSU-only stubs where the headline Gross Pay is $0. These values
+      // ARE in `taxableWage` / `ytdTaxableWage` (they're taxed as wages),
+      // they're just decomposed here so projections can extrapolate salary
+      // linearly while projecting RSU events on their own cadence.
+      bonusGross:           a.float(),
+      rsuGross:             a.float(),
+      ytdBonusGross:        a.float(),
+      ytdRsuGross:          a.float(),
+
       // Long-tail deductions / earnings the headline columns don't capture.
       // Shape: [{ name, amount, ytd?, type: PRETAX|POSTTAX|IMPUTED|EMPLOYER_PAID|EARNING|OTHER }]
       lineItems:            a.json(),

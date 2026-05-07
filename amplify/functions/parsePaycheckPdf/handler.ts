@@ -67,6 +67,10 @@ Schema (all monetary fields are USD dollars, no symbols, no commas; null when no
   "ytd401k":              number | null,
   "ytdAfterTax401k":      number | null,
   "ytdNet":               number | null,
+  "bonusGross":           number | null,
+  "rsuGross":             number | null,
+  "ytdBonusGross":        number | null,
+  "ytdRsuGross":          number | null,
   "lineItems": [
     {
       "name":   string,
@@ -87,6 +91,8 @@ Field guidance:
 - "imputedGtl" is imputed group-term life income (taxed but not paid in cash). Capture it here AND as a lineItem of type IMPUTED. Do NOT add it to "gross".
 - "contrib401k" is the EMPLOYEE pre-tax 401k contribution this period. Do NOT include employer match.
 - "contribAfterTax401k" is the employee after-tax / mega-backdoor 401k contribution.
+- "rsuGross" is the sum of the Earnings table rows for THIS pay period whose label is "Restricted Stock Units", "RSU Vest", "Stock Vest", or any explicit equity-vest line. Do NOT include the RSU Tax Offset (that's a post-tax accounting entry, not earnings). Same row count for "ytdRsuGross" using the YTD Amount column. RSU vest paystubs typically have headline Gross Pay = $0 (no cash) — those are exactly the cases where rsuGross is non-null. RSU income IS taxable; it WILL appear in taxableWage / ytdTaxableWage and in the Federal/OASDI/Medicare withholding lines for that period. Don't worry about double-counting — gross stays cash-only.
+- "bonusGross" is the sum of explicit bonus rows in the Earnings table this period: "Bonus", "Annual Bonus", "Performance Bonus", "Sign-on Bonus". Do NOT include base salary. Same row sum for "ytdBonusGross" using YTD column.
 - For YTD values, use the YTD column on the stub. If the stub only shows current-period values, leave YTD nulls.
 - lineItems should capture every deduction or earning row that doesn't map to one of the explicit fields above. Examples: parking, ESPP contribution, RSU vest gross-up, supplemental life insurance, dependent care FSA, commuter benefits, prior-period adjustments. Set "type" based on tax treatment:
     PRETAX        — reduces taxable wages (e.g. HSA, traditional 401k via employer plan, certain transit)

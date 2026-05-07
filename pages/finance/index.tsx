@@ -22,9 +22,19 @@ import {
   type Cadence,
 } from "@/components/finance/_shared";
 import { Sparkline } from "@/components/common/sparkline";
+import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
-  projectFromYTD, taxOwedFederal, taxGap, isPaycheckStale,
+  projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
+  type RsuVestCadence, type FilingStatus,
 } from "@/components/finance/planning";
+
+// Mirrors the settings shape persisted by /finance/tax-outlook so the
+// dashboard tile uses the user's chosen RSU cadence + filing status without
+// duplicating UI here. Read-only on this page; tax-outlook is the editor.
+type DashboardPaycheckSettings = {
+  filingStatus:   FilingStatus;
+  rsuVestCadence: { ME?: RsuVestCadence; SPOUSE?: RsuVestCadence };
+};
 
 // ── Skeleton placeholder ──────────────────────────────────────────────────
 function SectionSkeleton({ lines = 3 }: { lines?: number }) {
@@ -287,16 +297,31 @@ export default function FinanceDashboard() {
     gap:                  number;
     stale:                boolean;
   };
+  const { value: paycheckSettings } = useS3JsonState<DashboardPaycheckSettings>(
+    "paycheck-settings/v1.json",
+    () => ({ filingStatus: "MFJ", rsuVestCadence: { ME: "IRREGULAR", SPOUSE: "IRREGULAR" } }),
+    {
+      bucket: "gennaroanesi.com",
+      localStorageKey: "finance:paycheck-settings:v1",
+      enabled: authState === "authenticated",
+    },
+  );
+
   const taxOutlook = useMemo(() => {
     const year = new Date(today).getUTCFullYear();
     const entries: TaxOutlookEntry[] = [];
     for (const person of ["ME", "SPOUSE"] as PaycheckPerson[]) {
-      const latest = paychecks
+      const mine = paychecks
         .filter((p) => p.person === person)
         .filter((p) => (p.payDate ?? "").startsWith(`${year}`))
-        .sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""))[0];
-      if (!latest) continue;
-      const proj = projectFromYTD(latest);
+        .sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""));
+      if (mine.length === 0) continue;
+      const cadence = paycheckSettings.rsuVestCadence[person] ?? "IRREGULAR";
+      const proj = projectFromPaychecks({ paychecks: mine, rsuVestCadence: cadence });
+      if (!proj) continue;
+      // Per-person tile uses single-filer brackets; combined MFJ is shown
+      // separately below. The full /finance/tax-outlook page lets the user
+      // toggle filing status — this tile picks the conservative default.
       const filing = "SINGLE";
       const taxOwed = taxOwedFederal({ projectedTaxableWage: proj.projectedTaxableWage, filingStatus: filing });
       entries.push({
@@ -305,7 +330,7 @@ export default function FinanceDashboard() {
         projectedFedWh:       proj.projectedFedWh,
         taxOwed,
         gap:                  taxGap(proj.projectedFedWh, taxOwed),
-        stale:                isPaycheckStale(latest.payDate ?? today, today),
+        stale:                isPaycheckStale(mine[0].payDate ?? today, today),
       });
     }
     // Combined MFJ — only when both persons present.
@@ -316,7 +341,7 @@ export default function FinanceDashboard() {
       return { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
     })() : null;
     return { entries, combined };
-  }, [paychecks, today]);
+  }, [paychecks, today, paycheckSettings.rsuVestCadence]);
 
   // Upcoming: recurring occurrences + future-dated transactions
   type UpcomingEntry = { rec: RecurringRecord | null; tx: TransactionRecord | null; next: string; amount: number; description: string; category: string; accountId: string; cadence: string | null };
