@@ -12,7 +12,7 @@ import {
   type PaycheckRecord, type PaycheckPerson,
 } from "@/components/finance/_shared";
 import {
-  FILING_STATUSES, FILING_STATUS_LABELS, type FilingStatus,
+  type FilingStatus,
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
   project401kWithCap, contribPctToReachCap, irs401kElectiveLimit,
   additionalMedicareTaxOwed,
@@ -86,8 +86,11 @@ export default function TaxOutlookPage() {
   const [paychecks, setPaychecks] = useState<PaycheckRecord[]>([]);
   const [loading,   setLoading]   = useState(true);
 
-  // Settings live in S3 (with localStorage mirror) so filing status + RSU
-  // cadence per person survive across devices and sessions.
+  // Settings live in S3 (with localStorage mirror) so per-person RSU
+  // cadence survives across devices. filingStatus is no longer user-
+  // configurable (per-person view always uses SINGLE; combined view
+  // always uses MFJ) but the field stays in the settings shape so older
+  // saved blobs still load.
   const { value: settings, setValue: setSettings } = useS3JsonState<PaycheckSettings>(
     SETTINGS_S3_PATH,
     () => DEFAULT_SETTINGS,
@@ -97,10 +100,6 @@ export default function TaxOutlookPage() {
       enabled: authState === "authenticated",
     },
   );
-  const filingStatus = settings.filingStatus;
-  const setFilingStatus = useCallback((s: FilingStatus) => {
-    setSettings((prev) => ({ ...prev, filingStatus: s }));
-  }, [setSettings]);
   const setRsuVestCadence = useCallback((person: PaycheckPerson, cadence: RsuVestCadence) => {
     setSettings((prev) => ({
       ...prev,
@@ -111,6 +110,14 @@ export default function TaxOutlookPage() {
   // 401k what-if slider — applied to BOTH persons' projections. -1 = "use
   // current" (no override), else a decimal pct in [0, 0.50].
   const [pctOverride, setPctOverride] = useState<number>(-1);
+
+  // Year selector — defaults to current calendar year. Lets the user
+  // upload past-year paychecks (e.g. 2025) and validate the planner's
+  // year-end projection against actual numbers from their TurboTax-filed
+  // return. Past years skip the stale-paycheck warning since every stub
+  // is by definition >30 days old.
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date(TODAY).getUTCFullYear());
+  const isCurrentYear = selectedYear === new Date(TODAY).getUTCFullYear();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -127,15 +134,16 @@ export default function TaxOutlookPage() {
     fetchData();
   }, [authState, fetchData]);
 
-  // Group paychecks by person, pick the latest in the current calendar year
-  // — that stub's YTD columns are the source of truth for projections.
+  // Group paychecks by person, filter to the selected year. Latest stub
+  // of that year drives the projection — for past years that's the last
+  // paycheck of December, so the projection collapses to the actual
+  // year-end numbers (good for validation).
   const byPerson = useMemo<PerPerson[]>(() => {
-    const year = new Date(TODAY).getUTCFullYear();
     const out: PerPerson[] = [];
     for (const person of ["ME", "SPOUSE"] as PaycheckPerson[]) {
       const mine = paychecks
         .filter((p) => p.person === person)
-        .filter((p) => (p.payDate ?? "").startsWith(`${year}`))
+        .filter((p) => (p.payDate ?? "").startsWith(`${selectedYear}`))
         .sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""));
       if (mine.length === 0) continue;
       const latest = mine[0];
@@ -159,21 +167,26 @@ export default function TaxOutlookPage() {
         latest,
         projection,
         current401kPct,
-        stale: isPaycheckStale(latest.payDate ?? TODAY, TODAY),
+        // Stale check only applies to the current year — past years are
+        // intrinsically old and the warning would always fire.
+        stale: isCurrentYear && isPaycheckStale(latest.payDate ?? TODAY, TODAY),
       });
     }
     return out;
-  }, [paychecks, settings.rsuVestCadence]);
+  }, [paychecks, settings.rsuVestCadence, selectedYear, isCurrentYear]);
 
-  // Auto-default filing status when the count of persons changes — one
-  // person → SINGLE; two persons → MFJ. Only nudges if the user hasn't
-  // explicitly chosen the OTHER value (we always want the dropdown to
-  // reflect their last manual pick).
-  useEffect(() => {
-    if (byPerson.length === 2 && filingStatus !== "MFJ") setFilingStatus("MFJ");
-    else if (byPerson.length === 1 && filingStatus !== "SINGLE" && filingStatus !== "MFJ") setFilingStatus("SINGLE");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [byPerson.length]);
+  // Years available in the dropdown — every year that has at least one
+  // paycheck on file, plus the current year (so it's always selectable
+  // even before any 2026 stubs land). Sorted newest first.
+  const availableYears = useMemo(() => {
+    const ys = new Set<number>();
+    ys.add(new Date(TODAY).getUTCFullYear());
+    for (const p of paychecks) {
+      const y = (p.payDate ?? "").slice(0, 4);
+      if (y) ys.add(Number(y));
+    }
+    return Array.from(ys).sort((a, b) => b - a);
+  }, [paychecks]);
 
   // Per-person tax outcome (current and slider-adjusted). Cap-aware: every
   // 401k delta is clipped at the IRS §402(g) elective-deferral limit, so a
@@ -211,12 +224,13 @@ export default function TaxOutlookPage() {
     const baseTaxableWage = p.projection.projectedTaxableWage + currentCap.excessOverCap;
     const taxableWage     = Math.max(0, baseTaxableWage - delta401k);
 
-    // Per-person card subtitle reads "single-filer view" — use SINGLE
-    // brackets to match. With two persons, the combined MFJ card below
-    // is where the actual joint-filing math lives. With one person, the
-    // user's chosen filing status applies (a single person can still
-    // legally file MFJ if they have a non-paycheck-earning spouse).
-    const personFiling: FilingStatus = byPerson.length > 1 ? "SINGLE" : filingStatus;
+    // Per-person card always uses SINGLE brackets — the subtitle reads
+    // "single-filer view" and that's the most useful comparison point
+    // (vs the combined MFJ card below). Married users with only one set
+    // of paychecks on file (e.g. spouse hasn't been uploaded yet) read
+    // the SINGLE numbers as informational — combined MFJ math kicks in
+    // automatically once the second person has rows.
+    const personFiling: FilingStatus = "SINGLE";
     const fedWh   = p.projection.projectedFedWh;
     const bracketTax = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: personFiling });
     // Additional Medicare Tax (Form 8959): 0.9% of medicare wages above
@@ -290,17 +304,18 @@ export default function TaxOutlookPage() {
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Tax Outlook</h1>
             <p className="text-xs text-gray-400 mt-0.5">
               {PLAN_TAX_YEAR_LABEL} · projected from each person's latest paycheck YTD columns.
+              {!isCurrentYear && " · validation view (past year)"}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Filing</label>
+            <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Year</label>
             <select
-              value={filingStatus}
-              onChange={(e) => setFilingStatus(e.target.value as FilingStatus)}
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
               className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-700 dark:text-gray-200"
             >
-              {FILING_STATUSES.map((s) => (
-                <option key={s} value={s}>{FILING_STATUS_LABELS[s]}</option>
+              {availableYears.map((y) => (
+                <option key={y} value={y}>{y}</option>
               ))}
             </select>
           </div>
@@ -311,9 +326,9 @@ export default function TaxOutlookPage() {
         {!loading && byPerson.length === 0 && (
           <div className="rounded-lg border border-gray-200 dark:border-darkBorder p-8 text-center">
             <p className="text-sm text-gray-400">
-              No paychecks for {new Date(TODAY).getUTCFullYear()} yet.{" "}
+              No paychecks for {selectedYear} yet.{" "}
               <NextLink href="/finance/paychecks" className="hover:underline" style={{ color: FINANCE_COLOR }}>Add one</NextLink>{" "}
-              to project this year's tax outlook.
+              to {isCurrentYear ? "project this year's tax outlook" : "validate the model against this year's actuals"}.
             </p>
           </div>
         )}
@@ -455,7 +470,7 @@ export default function TaxOutlookPage() {
 
                   <Card
                     title={sliderActive ? `Tax outcome · ${(sliderOverride! * 100).toFixed(1)}% 401k` : "Tax outcome"}
-                    subtitle={byPerson.length > 1 ? "single-filer view" : FILING_STATUS_LABELS[filingStatus]}
+                    subtitle="single-filer view"
                   >
                     <StatRow label="Taxable income" value={fmtCurrency(slider.taxableWage, "USD")} />
                     <StatRow label="Tax owed"       value={fmtCurrency(slider.taxOwed, "USD")} />
