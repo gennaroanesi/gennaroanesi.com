@@ -313,6 +313,127 @@ export function planYears(scenario: PlanScenario): number[] {
   return out;
 }
 
+// ── Paycheck-driven YTD projection ───────────────────────────────────────
+// These helpers run off the latest financePaycheck row's YTD columns —
+// no historical sum required. The latest stub's `ytd*` numbers ARE the
+// authoritative YTD figure; everything else is forward extrapolation.
+
+/** Days into a calendar year for an ISO `YYYY-MM-DD` date. */
+function daysIntoYear(isoDate: string): number {
+  const d = new Date(isoDate + "T00:00:00Z");
+  const start = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.max(1, Math.round((d.getTime() - start.getTime()) / 86400000) + 1);
+}
+
+/**
+ * Best-effort cadence inference from a paycheck's period length. Falls
+ * back to `defaultPpy` (typically 26 = biweekly) when the period dates
+ * aren't populated. Standard US payroll cadences:
+ *   weekly      → 52     (period ≈ 7d)
+ *   biweekly    → 26     (period ≈ 14d)
+ *   semimonthly → 24     (period ≈ 15-16d)
+ *   monthly     → 12     (period ≈ 28-31d)
+ */
+export function inferPaychecksPerYear(p: { periodStart?: string | null; periodEnd?: string | null }, defaultPpy = 26): number {
+  if (!p.periodStart || !p.periodEnd) return defaultPpy;
+  const days = Math.round(
+    (new Date(p.periodEnd + "T00:00:00Z").getTime()
+      - new Date(p.periodStart + "T00:00:00Z").getTime()) / 86400000,
+  ) + 1;
+  if (days <= 8)  return 52;
+  if (days <= 13) return 26;
+  if (days <= 18) return 24;
+  return 12;
+}
+
+/** True if the paycheck was issued more than `staleDays` (default 30) ago. */
+export function isPaycheckStale(payDateIso: string, todayIso: string, staleDays = 30): boolean {
+  const pay = new Date(payDateIso + "T00:00:00Z").getTime();
+  const today = new Date(todayIso + "T00:00:00Z").getTime();
+  return (today - pay) / 86400000 > staleDays;
+}
+
+export type YtdProjection = {
+  paychecksPerYear:        number;   // either inferred or the caller-supplied value
+  paychecksElapsed:        number;   // 1..paychecksPerYear
+  projectedGross:          number;
+  projectedTaxableWage:    number;
+  projectedFedWh:          number;
+  projectedOasdi:          number;
+  projectedMedicare:       number;
+  projected401k:           number;
+  projectedAfterTax401k:   number;
+  projectedNet:            number;
+};
+
+/**
+ * Linear projection from a paystub's YTD columns to year-end. The model is
+ * straightforward: per-paycheck-average × paychecksPerYear, computed off
+ * `ytd / elapsed`. Withholding/contribution caps (OASDI in particular) are
+ * intentionally not capped here — the projection answers "if nothing
+ * changes" and the OASDI cap will distort that answer downward in real
+ * paystubs anyway, so this stays neutral. Caller decides whether to clamp.
+ */
+export function projectFromYTD(
+  paycheck: {
+    payDate:               string;
+    periodStart?:          string | null;
+    periodEnd?:            string | null;
+    ytdGross?:             number | null;
+    ytdTaxableWage?:       number | null;
+    ytdFedWh?:             number | null;
+    ytdOasdi?:             number | null;
+    ytdMedicare?:          number | null;
+    ytd401k?:              number | null;
+    ytdAfterTax401k?:      number | null;
+    ytdNet?:               number | null;
+  },
+  paychecksPerYearOverride?: number,
+): YtdProjection {
+  const ppy = paychecksPerYearOverride ?? inferPaychecksPerYear(paycheck);
+  // Date-based estimate of how many paychecks have hit YTD. Pinned to
+  // [1, ppy] so an early-January stub doesn't divide by zero.
+  const dayOfYear = daysIntoYear(paycheck.payDate);
+  const elapsed   = Math.min(ppy, Math.max(1, Math.round((dayOfYear / 365) * ppy)));
+  const scale     = ppy / elapsed;
+  const project   = (v: number | null | undefined) => Math.max(0, (v ?? 0) * scale);
+
+  return {
+    paychecksPerYear:      ppy,
+    paychecksElapsed:      elapsed,
+    projectedGross:        project(paycheck.ytdGross),
+    projectedTaxableWage:  project(paycheck.ytdTaxableWage),
+    projectedFedWh:        project(paycheck.ytdFedWh),
+    projectedOasdi:        project(paycheck.ytdOasdi),
+    projectedMedicare:     project(paycheck.ytdMedicare),
+    projected401k:         project(paycheck.ytd401k),
+    projectedAfterTax401k: project(paycheck.ytdAfterTax401k),
+    projectedNet:          project(paycheck.ytdNet),
+  };
+}
+
+/**
+ * Federal tax owed on `projectedTaxableWage` for `filingStatus`. Uses the
+ * 2025 brackets + standard deduction defined above. Assumes the user
+ * itemizes nothing beyond the standard deduction; a more sophisticated
+ * version would accept overrides.
+ */
+export function taxOwedFederal(args: {
+  projectedTaxableWage: number;
+  filingStatus:         FilingStatus;
+}): number {
+  const taxable = Math.max(0, args.projectedTaxableWage - STANDARD_DEDUCTION_2025[args.filingStatus]);
+  return bracketTax(FED_BRACKETS_2025[args.filingStatus], taxable);
+}
+
+/**
+ * Signed gap between projected withholding and projected federal liability.
+ * Positive number = refund expected; negative = balance owed at filing.
+ */
+export function taxGap(projectedFedWh: number, taxOwed: number): number {
+  return projectedFedWh - taxOwed;
+}
+
 // ── Defaults for a fresh scenario ────────────────────────────────────────
 
 export function defaultPlanScenario(id: string, startYear: number): PlanScenario {

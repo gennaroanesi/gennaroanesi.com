@@ -5,7 +5,8 @@ import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
   HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord, LoanPaymentRecord,
-  GoalFundingSourceRecord, AccountSnapshotRecord,
+  GoalFundingSourceRecord, AccountSnapshotRecord, PaycheckRecord,
+  PAYCHECK_PERSON_LABELS, type PaycheckPerson,
   FINANCE_COLOR, CADENCE_LABELS,
   PHYSICAL_ASSET_TYPE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, advanceByCadence, monthsUntil,
@@ -21,6 +22,9 @@ import {
   type Cadence,
 } from "@/components/finance/_shared";
 import { Sparkline } from "@/components/common/sparkline";
+import {
+  projectFromYTD, taxOwedFederal, taxGap, isPaycheckStale,
+} from "@/components/finance/planning";
 
 // ── Skeleton placeholder ──────────────────────────────────────────────────
 function SectionSkeleton({ lines = 3 }: { lines?: number }) {
@@ -54,6 +58,9 @@ export default function FinanceDashboard() {
   const [loans,        setLoans]        = useState<LoanRecord[]>([]);
   const [loanPayments, setLoanPayments] = useState<LoanPaymentRecord[]>([]);
   const [loadingAssets, setLoadingAssets] = useState(true);
+
+  const [paychecks,    setPaychecks]    = useState<PaycheckRecord[]>([]);
+  const [loadingPaychecks, setLoadingPaychecks] = useState(true);
 
   // Upcoming section: optional account filter for projected-balance view
   const [upcomingAccFilter, setUpcomingAccFilter] = useState<string[]>([]);
@@ -135,6 +142,18 @@ export default function FinanceDashboard() {
     }
   }, []);
 
+  const fetchPaychecks = useCallback(async () => {
+    setLoadingPaychecks(true);
+    try {
+      // Cast around the Amplify TS depth limit — same workaround
+      // /finance/paychecks documents.
+      const rows = await listAll<PaycheckRecord>(client.models.financePaycheck as any);
+      setPaychecks(rows);
+    } finally {
+      setLoadingPaychecks(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authState !== "authenticated") return;
     // Fire all groups in parallel — each resolves independently
@@ -142,7 +161,8 @@ export default function FinanceDashboard() {
     fetchUpcoming();
     fetchGoals();
     fetchAssets();
-  }, [authState, fetchAccounts, fetchUpcoming, fetchGoals, fetchAssets]);
+    fetchPaychecks();
+  }, [authState, fetchAccounts, fetchUpcoming, fetchGoals, fetchAssets, fetchPaychecks]);
 
   // ── Derived data ───────────────────────────────────────────────────────────
 
@@ -253,6 +273,50 @@ export default function FinanceDashboard() {
 
   const today = todayIso();
   const in30  = addMonths(today, 1);
+
+  // Tax outlook tile data — latest paycheck per person, current calendar
+  // year only. The latest stub's YTD columns drive both the projection and
+  // the federal-tax-owed estimate. MFJ vs SINGLE inferred from how many
+  // persons have a current-year paycheck (matches the standalone page's
+  // default — user can switch on /finance/tax-outlook for the full view).
+  type TaxOutlookEntry = {
+    person: PaycheckPerson;
+    projectedTaxableWage: number;
+    projectedFedWh:       number;
+    taxOwed:              number;
+    gap:                  number;
+    stale:                boolean;
+  };
+  const taxOutlook = useMemo(() => {
+    const year = new Date(today).getUTCFullYear();
+    const entries: TaxOutlookEntry[] = [];
+    for (const person of ["ME", "SPOUSE"] as PaycheckPerson[]) {
+      const latest = paychecks
+        .filter((p) => p.person === person)
+        .filter((p) => (p.payDate ?? "").startsWith(`${year}`))
+        .sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""))[0];
+      if (!latest) continue;
+      const proj = projectFromYTD(latest);
+      const filing = "SINGLE";
+      const taxOwed = taxOwedFederal({ projectedTaxableWage: proj.projectedTaxableWage, filingStatus: filing });
+      entries.push({
+        person,
+        projectedTaxableWage: proj.projectedTaxableWage,
+        projectedFedWh:       proj.projectedFedWh,
+        taxOwed,
+        gap:                  taxGap(proj.projectedFedWh, taxOwed),
+        stale:                isPaycheckStale(latest.payDate ?? today, today),
+      });
+    }
+    // Combined MFJ — only when both persons present.
+    const combined = entries.length === 2 ? (() => {
+      const taxableWage = entries.reduce((s, e) => s + e.projectedTaxableWage, 0);
+      const fedWh       = entries.reduce((s, e) => s + e.projectedFedWh, 0);
+      const taxOwed     = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+      return { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
+    })() : null;
+    return { entries, combined };
+  }, [paychecks, today]);
 
   // Upcoming: recurring occurrences + future-dated transactions
   type UpcomingEntry = { rec: RecurringRecord | null; tx: TransactionRecord | null; next: string; amount: number; description: string; category: string; accountId: string; cadence: string | null };
@@ -856,6 +920,73 @@ export default function FinanceDashboard() {
                     </div>
                   );
                 })}
+              </div>
+            </section>
+          )}
+
+          {/* ── Tax outlook ──────────────────────────────────────────── */}
+          {!loadingPaychecks && taxOutlook.entries.length > 0 && (
+            <section>
+              <div className="flex items-baseline justify-between mb-3 gap-2">
+                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Tax outlook</h2>
+                <a href="/finance/tax-outlook" className="text-xs font-semibold" style={{ color: FINANCE_COLOR }}>
+                  Full breakdown →
+                </a>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-4">
+                {taxOutlook.entries.some((e) => e.stale) && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mb-2">
+                    Latest paycheck &gt; 30 days old — projection may be stale.
+                  </p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {taxOutlook.entries.map((e) => (
+                    <div key={e.person} className="flex flex-col gap-1">
+                      <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
+                        {PAYCHECK_PERSON_LABELS[e.person]} · single filer
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-baseline justify-between">
+                        <span>Proj. taxable</span>
+                        <span className="tabular-nums font-semibold text-gray-700 dark:text-gray-200">{fmtCurrency(e.projectedTaxableWage, "USD")}</span>
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-baseline justify-between">
+                        <span>Withheld vs owed</span>
+                        <span className="tabular-nums text-gray-700 dark:text-gray-200">
+                          {fmtCurrency(e.projectedFedWh, "USD")} / {fmtCurrency(e.taxOwed, "USD")}
+                        </span>
+                      </p>
+                      <p className="text-xs flex items-baseline justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">{e.gap >= 0 ? "Refund" : "Owed"}</span>
+                        <span className="tabular-nums font-semibold" style={{ color: amountColor(e.gap) }}>
+                          {fmtCurrency(Math.abs(e.gap), "USD")}
+                        </span>
+                      </p>
+                    </div>
+                  ))}
+                  {taxOutlook.combined && (
+                    <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1 rounded border border-gray-200 dark:border-darkBorder p-3 bg-gray-50/50 dark:bg-white/[0.02]">
+                      <p className="text-[10px] uppercase tracking-widest font-semibold" style={{ color: FINANCE_COLOR }}>
+                        Combined · MFJ
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-baseline justify-between">
+                        <span>Combined taxable</span>
+                        <span className="tabular-nums font-semibold text-gray-700 dark:text-gray-200">{fmtCurrency(taxOutlook.combined.taxableWage, "USD")}</span>
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 flex items-baseline justify-between">
+                        <span>Withheld vs owed</span>
+                        <span className="tabular-nums text-gray-700 dark:text-gray-200">
+                          {fmtCurrency(taxOutlook.combined.fedWh, "USD")} / {fmtCurrency(taxOutlook.combined.taxOwed, "USD")}
+                        </span>
+                      </p>
+                      <p className="text-xs flex items-baseline justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">{taxOutlook.combined.gap >= 0 ? "Refund" : "Owed"}</span>
+                        <span className="tabular-nums font-semibold" style={{ color: amountColor(taxOutlook.combined.gap) }}>
+                          {fmtCurrency(Math.abs(taxOutlook.combined.gap), "USD")}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           )}
