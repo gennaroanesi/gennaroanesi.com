@@ -164,6 +164,201 @@ scanSource:   a.string(),
 
 ## Finance
 
+### ⚡ ACTIVE — Paycheck → AGI / 401k tracker (Phases 3–5)
+
+**Status as of 2026-05-07:** Phases 1 + 2 are merged on `main` (commit `893222b`)
+and Amplify Hosting auto-deploys from `main`. Once `ampx pipeline-deploy`
+completes the new `financePaycheck` table, `parsePaycheckPdf` Lambda, and the
+`PAYCHECK` value on the polymorphic `attachment.parentType` enum will be live.
+Until then `/finance/paychecks` renders but `client.models.financePaycheck.list()`
+returns 404. The Next.js 15 → 16 bump in commit `10aaeb3` rewrote `tsconfig.json`
+(`moduleResolution: bundler`, `jsx: react-jsx`); type-check passes locally but
+prod-build under Next 16 is the unknown — watch the first Amplify build after the
+push for surprises.
+
+#### What shipped (Phases 1 + 2)
+
+- **Schema** — [amplify/data/resource.ts](amplify/data/resource.ts):
+  - `financePaycheck` model with: `person` enum (`ME` | `SPOUSE`), `payDate`,
+    `periodStart/End`, headline figures (`gross`, `taxableWage`, `net`,
+    `imputedGtl`), withholding (`fedWh`, `oasdi`, `medicare`), contributions
+    (`contrib401k`, `contribAfterTax401k`, `hsa`, `fsa`), premiums (`medical`,
+    `dental`, `vision`), YTD snapshots of all of the above, `lineItems` as
+    `a.json()` for the long-tail deduction rows (parking, ESPP, RSU vest,
+    group-term life buyback, …), and `notes`
+  - Secondary index on `person` sort key `payDate`
+  - `attachment.parentType` enum extended with `PAYCHECK`
+  - `parsePaycheckPdf` custom mutation returning
+    `{ ok, draft: a.json(), s3Key, error }`
+- **Lambda** — [amplify/functions/parsePaycheckPdf/handler.ts](amplify/functions/parsePaycheckPdf/handler.ts):
+  reads PDF from S3, sends to Claude Sonnet 4.6 via the `document` content
+  block, strict JSON schema embedded in the prompt, defensive JSON extraction
+  (handles fenced code blocks + the `{error: "..."}` self-report path).
+  Reuses the `gennaroanesi/transcribe` Anthropic secret. 60 s timeout / 512 MB.
+- **Backend wiring** — [amplify/backend.ts](amplify/backend.ts): registered the
+  function, granted secret read + S3 read on the bucket. Read-only over storage.
+- **Frontend** — [pages/finance/paychecks.tsx](pages/finance/paychecks.tsx):
+  list view with person + year filter pills, side panel with two flows:
+  - **Upload PDF** → uploads to `attachments/PAYCHECK/staging/{ts}-{filename}`
+    → calls `parsePaycheckPdf` → pre-fills every numeric field + line items.
+    The s3Key is held as `pendingAttachment` and persists as an `attachment`
+    row only when you save.
+  - **Manual entry** — same form, just empty.
+  Numeric fields grouped (Headline / Withholding / Contributions / Premiums
+  / Year-to-date). Inline line-items editor with type pill (PRETAX / POSTTAX
+  / IMPUTED / EMPLOYER_PAID / EARNING / OTHER).
+- **Nav** — [layouts/finance.tsx](layouts/finance.tsx): "Paychecks" entry
+  between Recurring and Goals.
+- **Type-system gotcha** — the new model pushed the typed Amplify client over
+  its inference depth. Workaround at
+  [pages/finance/paychecks.tsx:97-105](pages/finance/paychecks.tsx#L97-L105):
+  cast `client.models.financePaycheck` to `any` at the listAll site and re-type
+  via the explicit `<PaycheckRecord>` parameter. Same workaround
+  [CLAUDE.md](CLAUDE.md) note 4 already documents for array-field models.
+
+#### Phase 3 — AGI + tax projection (NEXT)
+
+**Goal:** answer "am I on track for $X taxable income this year, and will I
+owe / get a refund?" using the YTD columns on the latest paycheck rather
+than summing every historical row.
+
+- **Math helpers** — extend [components/finance/planning.ts](components/finance/planning.ts)
+  with:
+  - `projectFromYTD(latestPaycheck, today, paychecksPerYear)` →
+    `{ projectedGross, projectedTaxableWage, projectedFedWh, projectedOasdi,
+    projectedMedicare, projected401k }`. Linear projection: take `ytdX` from
+    the latest stub, divide by paychecks-elapsed, multiply by remaining
+    paychecks, add to YTD. Be careful with biweekly vs semimonthly cadence
+    detection — fall back to the user's input on the planning simulator.
+  - `taxOwedFederal({ projectedTaxableWage, filingStatus })` — bracket math
+    on `(taxableWage − standardDeduction)` using the 2025 constants already
+    in `planning.ts`. Returns the full-year liability.
+  - `taxGap(projectedFedWh, taxOwedFederal)` → `{ refund, owed }` (positive
+    = refund, negative = owed). Same for combined-MFJ when both
+    `ME` + `SPOUSE` paychecks exist.
+- **Dashboard tile** on [pages/finance/index.tsx](pages/finance/index.tsx):
+  "Tax outlook 2026" card showing projected AGI, projected withheld vs owed,
+  and the gap. Per-person and combined when both rows exist.
+- **Stand-alone page** at `/finance/tax-outlook`:
+  - YTD numbers per person (table)
+  - Year-end projections per person (table)
+  - Combined MFJ scenario calc when both persons present
+  - "What if I bump 401k % to X" slider that re-projects on the fly
+- **Important sanity check:** if the most recent paycheck is older than ~30
+  days, surface a "stale data" warning — projections off old paychecks lie.
+
+#### Phase 4 — 401k progress tracker
+
+**Goal:** "am I on pace to hit the IRS limits, and what's my mega-backdoor
+headroom?"
+
+- **Math** — also in `planning.ts`:
+  - `progress401kElectiveDeferral(latestPaycheck, year)`:
+    pulls `ytd401k` from the latest stub. IRS 2025 elective deferral cap is
+    `$23,500`; 50+ catch-up adds `$7,500` (skip catch-up logic for now —
+    age input lives in the planning simulator, future work).
+  - `progress401kTotal(latestPaycheck, employerMatchAnnual, year)`:
+    415(c) total cap is `$70,000` 2025. Total = employee elective +
+    employer match + after-tax employee. Mega-backdoor headroom =
+    `415c − ytd401k − employerMatch − ytdAfterTax401k`. The user has to
+    tell us employer match annually (no way to derive it from a stub) —
+    expose as a per-person field on the planning scenario or a simple
+    localStorage value.
+  - `paceToCap(latestPaycheck, capIRS, paychecksRemaining)` → required
+    contribution per remaining paycheck to hit the cap. Surfaces:
+    "currently `X% / paycheck` → contribute `Y%` from now on to max out".
+- **UI** — Tile on [pages/finance/index.tsx](pages/finance/index.tsx):
+  per-person 401k progress bar with three stacked segments (employee
+  elective, employer match estimate, after-tax) up to the 415(c) ceiling,
+  amber annotation when off-pace.
+
+#### Phase 5 — Agent tools + nudges
+
+**Goal:** the chat agent can answer "am I on track to max my 401k?" with
+real numbers, and (eventually) proactively flags issues.
+
+- **New read tools** in [amplify/functions/gennaroAgent/handler.ts](amplify/functions/gennaroAgent/handler.ts):
+  - `list_paychecks({ person?, from?, to? })` → standard list
+  - `get_latest_paycheck({ person })` → most recent row, used by everything
+    YTD-driven
+  - `project_agi({ person?, asOf? })` → calls Phase 3's helpers
+  - `project_tax({ person?, filingStatus, asOf? })` → fed only (state-tax
+    deferred — confirmed in earlier session, no income state)
+  - `project_401k_progress({ person, employerMatchAnnual? })` → Phase 4 helpers
+  Each tool follows the existing `listAllWithMeta` / `truncated` pattern.
+- **System prompt** add: "When the user asks about taxes / refunds / 401k
+  progress, prefer the project_* tools — they read the latest paycheck's
+  YTD column and project to year-end. Don't sum historical paycheck rows."
+- **Proactive nudges (much later)** — cron Lambda runs monthly, evaluates
+  401k pace + tax gap, posts to a `financeNudge` model that the dashboard
+  surfaces. Skip until we've used Phases 3–4 for a couple of months and
+  know which signals are worth surfacing.
+
+#### Open design choices to revisit
+
+- **Person dimension.** Today is an enum (ME / SPOUSE). If the planning
+  simulator ever wants per-person W-4 state, age (for catch-up), or default
+  state of residence, promote to a `financePerson` model with a CRUD page.
+  Cheap to migrate — paycheck just stores `personId` instead of an enum.
+- **Stale paycheck warning** — anywhere a projection surfaces, gate on
+  "latest paycheck within 30 days". Otherwise the projection is misleading.
+- **PDF parser quality.** Sonnet 4.6 reads paystubs fine in testing on
+  ADP / Workday / Paychex layouts, but the long tail (small payroll
+  providers, scanned-and-flattened PDFs) may degrade. Watch the first 5–10
+  real uploads, tune the prompt iteratively. The error-channel path
+  (`{ error: "..." }` returned by the model) already feeds back to the UI.
+- **Mega-backdoor.** The math assumes after-tax contributions are allowed
+  AND the plan supports in-service rollover. Both vary by employer plan.
+  Surface a one-time "does your plan support this?" flag on the planning
+  scenario — without that flag, hide the mega-backdoor headroom number.
+
+#### Security follow-up (separate from paycheck work)
+
+`npm audit fix` in commit `10aaeb3` dropped Dependabot's noise from 108 → 76
+vulns (criticals 43 → 6). All remaining criticals are transitive build-time
+tooling (docker, ejs, form-data, handlebars, lodash, request — all pulled
+in by the Amplify codegen chain). `xlsx` is direct/high but used only in
+[scripts/import_inventory.mjs](scripts/import_inventory.mjs) over files we
+control — accepting the risk. Side effect: Next.js bumped 15.2.5 → 16.2.5
+which is a semver-major. Pages Router code compiles fine but watch the
+first Amplify production build for behavioral surprises (image component
+defaults, middleware behavior, Sharp dependency).
+
+---
+
+### Long-term planning simulator ✅ (shipped commit `fe9ae6a`)
+
+Multi-year salary trajectory with promotion / job-change jumps, paycheck
+deduction chain (401k, premiums, federal/OASDI/Medicare), supplemental
+income (bonus + RSU vesting taxed via the IRS supplemental wage method),
+and per-category **monthly** spending with carry-forward year overrides.
+Year grid leads with the monthly view (salary net + spend per category +
+monthly surplus), keeping annual rollups and the per-paycheck breakdown as
+reference. Multi-scenario tabs + S3 / localStorage persistence reuses the
+cashflow simulator pattern; a shared SimulatorTabs sub-nav lets users flip
+between the two simulators.
+
+Lives at [pages/finance/simulator/planning.tsx](pages/finance/simulator/planning.tsx).
+Math + tax constants in [components/finance/planning.ts](components/finance/planning.ts).
+S3 persistence path: `simulator-state/planning.json`.
+
+Phase 3+ above will reuse `planning.ts`'s federal-tax bracket constants —
+keep those constants exported and a single source of truth.
+
+### Agent improvements ✅ (shipped commit `dc60802`)
+
+- `list_transactions` `descriptionContains` is now case-insensitive
+  (client-side post-filter; DynamoDB `contains` is case-sensitive at the
+  storage layer).
+- New `sum_transactions` and `count_transactions` agent tools — same
+  filter shape as `list_transactions`, return aggregates with a per-month
+  breakdown. 20k cap (vs 5000 for raw rows) since only aggregates flow
+  back to the model.
+- Tool description updated to point the model at the aggregate tools when
+  the user asks "how much / how many" rather than for raw rows.
+
+---
+
 ### Statement import (PDF/CSV/XLS → transactions + balance sync)
 
 Current CSV import (Chase, BofA, Amex, generic) works but is limited. Goal: upload *any*
