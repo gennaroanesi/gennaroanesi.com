@@ -97,6 +97,23 @@ export type MilestoneRecord   = Schema["financeGoalMilestone"]["type"];
 export type LoanRecord        = Schema["financeLoan"]["type"];
 export type LoanPaymentRecord = Schema["financeLoanPayment"]["type"];
 export type AccountSnapshotRecord = Schema["financeAccountSnapshot"]["type"];
+export type PaycheckRecord       = Schema["financePaycheck"]["type"];
+export type AttachmentRecord     = Schema["attachment"]["type"];
+
+export const PAYCHECK_PERSONS = ["ME", "SPOUSE"] as const;
+export type  PaycheckPerson    = (typeof PAYCHECK_PERSONS)[number];
+
+export const PAYCHECK_PERSON_LABELS: Record<PaycheckPerson, string> = {
+  ME:     "Me",
+  SPOUSE: "Spouse",
+};
+
+export type PaycheckLineItem = {
+  name:   string;
+  amount: number;
+  ytd?:   number | null;
+  type:   "PRETAX" | "POSTTAX" | "IMPUTED" | "EMPLOYER_PAID" | "EARNING" | "OTHER";
+};
 
 export type MilestoneStatus = "HIT" | "MISSED" | "PENDING";
 

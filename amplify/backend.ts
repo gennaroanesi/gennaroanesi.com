@@ -23,6 +23,7 @@ import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
 import { gennaroAgent } from "./functions/gennaroAgent/resource";
 import { financeSnapshots } from "./functions/financeSnapshots/resource";
+import { parsePaycheckPdf } from "./functions/parsePaycheckPdf/resource";
 
 const backend = defineBackend({
   auth,
@@ -32,6 +33,7 @@ const backend = defineBackend({
   importLogbook,
   gennaroAgent,
   financeSnapshots,
+  parsePaycheckPdf,
   //storage,
 });
 
@@ -313,6 +315,32 @@ anthropicSecretForAgent.grantRead(gennaroAgentFn);
 gennaroAgentFn.addEnvironment(
   "ANTHROPIC_API_KEY",
   anthropicSecretForAgent.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+);
+
+// ── parsePaycheckPdf infrastructure ──────────────────────────────────────────
+// Reuses the same gennaroanesi/transcribe secret for the Anthropic key.
+// Grants S3 read on the entire bucket so the function can fetch the staged
+// paystub PDF the frontend uploaded; writes / deletes are intentionally not
+// granted — the function is read-only over storage.
+
+const parsePaycheckFn = backend.parsePaycheckPdf.resources.lambda as LambdaFunction;
+const anthropicSecretForPaycheck = Secret.fromSecretNameV2(
+  backend.stack,
+  "ParsePaycheckPdfAnthropicSecret",
+  "gennaroanesi/transcribe",
+);
+anthropicSecretForPaycheck.grantRead(parsePaycheckFn);
+parsePaycheckFn.addEnvironment(
+  "ANTHROPIC_API_KEY",
+  anthropicSecretForPaycheck.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+);
+parsePaycheckFn.addEnvironment("PAYCHECK_BUCKET", "gennaroanesi.com");
+parsePaycheckFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:    Effect.ALLOW,
+    actions:   ["s3:GetObject"],
+    resources: [`${customBucket.bucketArn}/*`],
+  }),
 );
 
 // ── financeSnapshots cron ────────────────────────────────────────────────────

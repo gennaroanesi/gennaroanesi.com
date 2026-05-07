@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
   { key: "transactions", label: "Transactions", href: "/finance/transactions" },
   { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
+  { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
   { key: "goals",        label: "Goals",        href: "/finance/goals" },
   { key: "assets",       label: "Assets",       href: "/finance/assets" },
   { key: "loans",        label: "Loans",        href: "/finance/loans" },
@@ -27,6 +28,7 @@ function activeKey(pathname: string): string {
   if (pathname.includes("accounts"))     return "accounts";
   if (pathname.includes("transactions")) return "transactions";
   if (pathname.includes("recurring"))    return "recurring";
+  if (pathname.includes("paychecks"))    return "paychecks";
   if (pathname.includes("goals"))        return "goals";
   if (pathname.includes("assets"))       return "assets";
   if (pathname.includes("loans"))        return "loans";

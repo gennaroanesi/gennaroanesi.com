@@ -2,6 +2,7 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { sendNotification } from "../functions/sendNotification/resource";
 import { gennaroAgent } from "../functions/gennaroAgent/resource";
 import { financeSnapshots } from "../functions/financeSnapshots/resource";
+import { parsePaycheckPdf } from "../functions/parsePaycheckPdf/resource";
 
 const schema = a.schema({
   // ── Inventory ────────────────────────────────────────────────────────────
@@ -728,6 +729,67 @@ const schema = a.schema({
     ])
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Paycheck ─────────────────────────────────────────────────────────────
+  // One row per paystub per person. `lineItems` is intentionally `a.json()`
+  // for the long tail of deductions / earnings (parking, ESPP, RSU vest,
+  // group-term life buyback, …) — keeping those out of the rigid schema
+  // means new line types don't trigger a migration. The headline columns
+  // are the ones queries actually filter / aggregate on.
+  //
+  // Source PDFs attach via the polymorphic `attachment` model with
+  // parentType = "PAYCHECK".
+  financePaycheck: a
+    .model({
+      person:               a.enum(["ME", "SPOUSE"]),
+      payDate:              a.date().required(),     // YYYY-MM-DD
+      periodStart:          a.date(),                 // pay period start
+      periodEnd:            a.date(),                 // pay period end (inclusive)
+
+      // Headline numbers for THIS pay period
+      gross:                a.float().required(),
+      taxableWage:          a.float(),
+      net:                  a.float().required(),
+      imputedGtl:           a.float(),
+
+      // Withholding (this period)
+      fedWh:                a.float(),
+      oasdi:                a.float(),
+      medicare:             a.float(),
+
+      // Pre-tax / after-tax contributions (this period)
+      contrib401k:          a.float(),
+      contribAfterTax401k:  a.float(),
+      hsa:                  a.float(),
+      fsa:                  a.float(),
+
+      // Health premiums (this period)
+      medical:              a.float(),
+      dental:               a.float(),
+      vision:               a.float(),
+
+      // Year-to-date snapshots — taken straight from the stub. Used to
+      // project full-year AGI / tax / 401k progress without summing every
+      // historical row (the latest paycheck is the source of truth for YTD).
+      ytdGross:             a.float(),
+      ytdTaxableWage:       a.float(),
+      ytdFedWh:             a.float(),
+      ytdOasdi:             a.float(),
+      ytdMedicare:          a.float(),
+      ytd401k:              a.float(),
+      ytdAfterTax401k:      a.float(),
+      ytdNet:               a.float(),
+
+      // Long-tail deductions / earnings the headline columns don't capture.
+      // Shape: [{ name, amount, ytd?, type: PRETAX|POSTTAX|IMPUTED|EMPLOYER_PAID|EARNING|OTHER }]
+      lineItems:            a.json(),
+
+      notes:                a.string(),
+    })
+    .secondaryIndexes((index) => [
+      index("person").sortKeys(["payDate"]),   // "all my paychecks in 2026" / "all spouse's"
+    ])
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Gennaro agent conversation log ───────────────────────────────────────
   // Persistent chat history for the assistant UI. The Lambda itself is
   // stateless — the frontend reads/writes these tables to build the history
@@ -845,7 +907,7 @@ const schema = a.schema({
   // Add new parentType values as more domains adopt attachments.
   attachment: a
     .model({
-      parentType:  a.enum(["TRANSACTION", "ACCOUNT", "LOAN"]),
+      parentType:  a.enum(["TRANSACTION", "ACCOUNT", "LOAN", "PAYCHECK"]),
       parentId:    a.id().required(),
       s3Key:       a.string().required(),
       filename:    a.string().required(),
@@ -894,6 +956,29 @@ const schema = a.schema({
     })
     .returns(a.ref("gennaroAgentResponse"))
     .handler(a.handler.function(gennaroAgent)),
+
+  // ── parsePaycheckPdf mutation ──────────────────────────────────────────
+  // Reads the PDF at `s3Key` from the gennaroanesi.com bucket, sends it to
+  // Claude with a strict JSON-output extraction prompt, returns a draft
+  // `financePaycheck`-shaped JSON the frontend pre-fills for human review.
+  // NEVER persists — saving is the user's responsibility via the typed
+  // client. `person` is round-tripped so the form can show it on review.
+  parsePaycheckResponse: a.customType({
+    ok:    a.boolean().required(),
+    draft: a.json(),    // raw JSON object as parsed (or null on error)
+    s3Key: a.string(),  // echoed back so the frontend can attach it later
+    error: a.string(),
+  }),
+
+  parsePaycheckPdf: a
+    .mutation()
+    .arguments({
+      s3Key:  a.string().required(),
+      person: a.string().required(), // "ME" | "SPOUSE" — opaque pass-through
+    })
+    .returns(a.ref("parsePaycheckResponse"))
+    .authorization((allow) => [allow.group("admins")])
+    .handler(a.handler.function(parsePaycheckPdf)),
 
   // ── testNotification mutation ──────────────────────────────────────────
   // Invokes sendNotification directly so the UI can test delivery without
