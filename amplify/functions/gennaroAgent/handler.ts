@@ -89,6 +89,40 @@ async function listAllWithMeta<T>(
   return { items: out.slice(0, cap), truncated: !!nextToken };
 }
 
+// Shared transaction fetch for list_/sum_/count_transactions. Server-side
+// filters use the typed client (accountId, goalId, category, status, date
+// range). descriptionContains is applied CLIENT-SIDE with a lowercased
+// substring match — DynamoDB `contains` is case-sensitive, so a server-side
+// filter for "Genesis" silently misses "GENESIS AERO" rows.
+async function fetchTransactionsForAgent(
+  c: any,
+  input: any,
+  cap: number,
+): Promise<{ items: any[]; truncated: boolean }> {
+  const serverFilter: any = {};
+  if (input.accountId) serverFilter.accountId = { eq: input.accountId };
+  if (input.goalId)    serverFilter.goalId    = { eq: input.goalId };
+  if (input.category)  serverFilter.category  = { eq: input.category };
+  if (input.status)    serverFilter.status    = { eq: input.status };
+  if (input.from && input.to) serverFilter.date = { between: [input.from, input.to] };
+  else if (input.from)        serverFilter.date = { ge: input.from };
+  else if (input.to)          serverFilter.date = { le: input.to };
+
+  const hasServerFilter = Object.keys(serverFilter).length > 0;
+  const { items, truncated } = await listAllWithMeta(
+    c.models.financeTransaction,
+    hasServerFilter ? serverFilter : undefined,
+    cap,
+  );
+
+  if (!input.descriptionContains) return { items, truncated };
+  const needle = String(input.descriptionContains).toLowerCase();
+  const filtered = items.filter((t: any) =>
+    typeof t?.description === "string" && t.description.toLowerCase().includes(needle),
+  );
+  return { items: filtered, truncated };
+}
+
 // Inventory write helper. Splits the agent's flat input into base inventoryItem
 // fields + category detail fields, creates the item first, then the detail row
 // keyed on the new itemId. If the detail create fails we delete the orphan item
@@ -189,14 +223,48 @@ const tools: Anthropic.Tool[] = [
   {
     name: "list_transactions",
     description:
-      "List transactions with optional filters. Transactions have type INCOME/EXPENSE/TRANSFER, a status (POSTED or PENDING), optional category and goalId, and a date (YYYY-MM-DD). Always push merchant / payee searches down via descriptionContains rather than fetching everything and filtering yourself. The response includes a `truncated` flag — if true, narrow the filter (date range, account, etc.) and call again.",
+      "List transactions with optional filters. Transactions have type INCOME/EXPENSE/TRANSFER, a status (POSTED or PENDING), optional category and goalId, and a date (YYYY-MM-DD). Always push merchant / payee searches down via descriptionContains rather than fetching everything and filtering yourself. The response includes a `truncated` flag — if true, narrow the filter (date range, account, etc.) and call again. If the user only wants a total or count, prefer sum_transactions / count_transactions — they share this filter shape, return aggregates instead of rows, and have a much higher cap so they won't truncate on broad queries.",
     input_schema: {
       type: "object" as const,
       properties: {
         accountId:           { type: "string", description: "Filter to one account." },
         goalId:              { type: "string", description: "Filter to one savings goal." },
         category:            { type: "string", description: "Exact match on category string." },
-        descriptionContains: { type: "string", description: "Substring match on description (case-sensitive at the DB layer). Use this for merchant/payee searches — e.g. 'Genesis' to find 'IN *GENESIS AERO' rows. Try a short distinctive fragment; if you suspect casing variance, run two calls or pick a fragment that's stable across imports." },
+        descriptionContains: { type: "string", description: "Case-insensitive substring match on description. Use this for merchant/payee searches — e.g. 'genesis' will match 'IN *GENESIS AERO', 'Genesis Aero', etc. Pick a short distinctive fragment that's stable across imports." },
+        from:                { type: "string", description: "Inclusive start date, YYYY-MM-DD." },
+        to:                  { type: "string", description: "Inclusive end date, YYYY-MM-DD." },
+        status:              { type: "string", description: "POSTED or PENDING." },
+      },
+    },
+  },
+  {
+    name: "sum_transactions",
+    description:
+      "Sum the `amount` field of transactions matching the given filters. Returns total, count, and a per-month breakdown (total + count per YYYY-MM). Same filter shape as list_transactions. Prefer this over list_transactions when the user asks for a total, monthly spend, year-to-date, etc. — it returns numbers, not rows, and uses a much higher cap so a broad query like 'all Genesis Aero in 2026' won't truncate. Note: amounts are signed (negative = expense, positive = income), so a sum of EXPENSE-type rows will be negative.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        accountId:           { type: "string" },
+        goalId:              { type: "string" },
+        category:            { type: "string" },
+        descriptionContains: { type: "string", description: "Case-insensitive substring match on description." },
+        from:                { type: "string", description: "Inclusive start date, YYYY-MM-DD." },
+        to:                  { type: "string", description: "Inclusive end date, YYYY-MM-DD." },
+        status:              { type: "string", description: "POSTED or PENDING." },
+      },
+    },
+  },
+  {
+    name: "count_transactions",
+    description:
+      "Count transactions matching the given filters. Returns total count and a per-month breakdown. Same filter shape as list_transactions. Use this when the user asks 'how many' rather than 'how much'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        accountId:           { type: "string" },
+        goalId:              { type: "string" },
+        category:            { type: "string" },
+        descriptionContains: { type: "string", description: "Case-insensitive substring match on description." },
         from:                { type: "string", description: "Inclusive start date, YYYY-MM-DD." },
         to:                  { type: "string", description: "Inclusive end date, YYYY-MM-DD." },
         status:              { type: "string", description: "POSTED or PENDING." },
@@ -598,28 +666,54 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         return stringify({ ok: true, data: { account: data } });
       }
       case "list_transactions": {
-        const filter: any = {};
-        if (input.accountId)           filter.accountId   = { eq: input.accountId };
-        if (input.goalId)              filter.goalId      = { eq: input.goalId };
-        if (input.category)            filter.category    = { eq: input.category };
-        if (input.status)              filter.status      = { eq: input.status };
-        if (input.descriptionContains) filter.description = { contains: input.descriptionContains };
-        if (input.from && input.to) filter.date = { between: [input.from, input.to] };
-        else if (input.from) filter.date = { ge: input.from };
-        else if (input.to)   filter.date = { le: input.to };
-        // Filtered queries get a much higher cap — a "Genesis Aero" or
-        // "between 2024-01 and 2024-12" search should never lose rows. Only
-        // the totally unfiltered case keeps a tighter safety limit.
-        const hasFilter = Object.keys(filter).length > 0;
-        const cap = hasFilter ? 5000 : 1000;
-        const { items: txs, truncated } = await listAllWithMeta(
-          c.models.financeTransaction,
-          hasFilter ? filter : undefined,
-          cap,
+        // Filtered queries get a higher cap — a "Genesis Aero" or "between
+        // 2024-01 and 2024-12" search should never lose rows. Only the
+        // totally unfiltered case keeps a tighter safety limit.
+        const hasFilter = !!(
+          input.accountId || input.goalId || input.category || input.status ||
+          input.descriptionContains || input.from || input.to
         );
+        const cap = hasFilter ? 5000 : 1000;
+        const { items: txs, truncated } = await fetchTransactionsForAgent(c, input, cap);
         return stringify({
           ok: true,
           data: { transactions: txs, count: txs.length, truncated },
+        });
+      }
+      case "sum_transactions": {
+        // Aggregate path — only totals are returned, so the cap can be much
+        // higher without blowing up the agent's context window. 20k covers any
+        // realistic personal-finance query; if you have a table that exceeds
+        // that, scope the query by date range or account.
+        const { items, truncated } = await fetchTransactionsForAgent(c, input, 20000);
+        let total = 0;
+        const byMonth: Record<string, { total: number; count: number }> = {};
+        for (const t of items) {
+          const amt = typeof t?.amount === "number" ? t.amount : 0;
+          total += amt;
+          const month = typeof t?.date === "string" ? t.date.slice(0, 7) : "";
+          if (!month) continue;
+          const bucket = byMonth[month] ?? { total: 0, count: 0 };
+          bucket.total += amt;
+          bucket.count += 1;
+          byMonth[month] = bucket;
+        }
+        return stringify({
+          ok: true,
+          data: { total, count: items.length, byMonth, truncated },
+        });
+      }
+      case "count_transactions": {
+        const { items, truncated } = await fetchTransactionsForAgent(c, input, 20000);
+        const byMonth: Record<string, number> = {};
+        for (const t of items) {
+          const month = typeof t?.date === "string" ? t.date.slice(0, 7) : "";
+          if (!month) continue;
+          byMonth[month] = (byMonth[month] ?? 0) + 1;
+        }
+        return stringify({
+          ok: true,
+          data: { count: items.length, byMonth, truncated },
         });
       }
       case "get_transaction": {
