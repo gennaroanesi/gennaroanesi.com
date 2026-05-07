@@ -362,13 +362,17 @@ export default function PaychecksPage() {
     }
   }, [panel, attachmentsById, fetchData, closePanel]);
 
-  // YTD Gross column shows cumulative `gross` per person rather than the
-  // parser-extracted `ytdGross` field. Workday reports the YTD column
-  // differently across salary vs RSU vest stubs (sometimes salary-only,
-  // sometimes salary + RSU rolled in), so reading it back makes the column
-  // appear non-monotonic. A cumulative sum from each row's `gross` is
-  // always consistent. The schema field still holds the parser value —
-  // tax-outlook projections use that as-is.
+  // YTD Gross column shows cumulative cash salary per person — derived
+  // from per-paycheck data rather than the parser-extracted `ytdGross`
+  // field, which Workday emits inconsistently across stub types (rolls
+  // bonuses into the running total, sometimes RSU too).
+  //
+  // Formula `max(0, gross − bonusGross − rsuGross)` gives the right
+  // contribution for every stub shape:
+  //   regular salary  → gross − 0 − 0           = gross
+  //   bonus stub      → 0 − bonusGross − 0      = 0  (bonus excluded)
+  //   RSU vest stub   → 0 − 0 − rsuGross        → 0 after max-clamp
+  //   parser-slipped  → gross_dup − rsuGross    → 0 after max-clamp
   const cumulativeGrossById = useMemo(() => {
     const out = new Map<string, number>();
     const groups = new Map<string, PaycheckRecord[]>();
@@ -382,7 +386,7 @@ export default function PaychecksPage() {
       const sorted = [...arr].sort((a, b) => (a.payDate ?? "").localeCompare(b.payDate ?? ""));
       let acc = 0;
       for (const p of sorted) {
-        acc += p.gross ?? 0;
+        acc += Math.max(0, (p.gross ?? 0) - (p.bonusGross ?? 0) - (p.rsuGross ?? 0));
         out.set(p.id, acc);
       }
     }

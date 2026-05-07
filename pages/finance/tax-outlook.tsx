@@ -15,6 +15,7 @@ import {
   FILING_STATUSES, FILING_STATUS_LABELS, type FilingStatus,
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
   project401kWithCap, contribPctToReachCap, irs401kElectiveLimit,
+  additionalMedicareTaxOwed,
   RSU_VEST_CADENCES, RSU_VEST_CADENCE_LABELS, type RsuVestCadence,
   PLAN_TAX_YEAR_LABEL,
 } from "@/components/finance/planning";
@@ -217,7 +218,17 @@ export default function TaxOutlookPage() {
     // legally file MFJ if they have a non-paycheck-earning spouse).
     const personFiling: FilingStatus = byPerson.length > 1 ? "SINGLE" : filingStatus;
     const fedWh   = p.projection.projectedFedWh;
-    const taxOwed = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: personFiling });
+    const bracketTax = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: personFiling });
+    // Additional Medicare Tax (Form 8959): 0.9% of medicare wages above
+    // $200k (single) / $250k (MFJ). For per-person single-filer view, use
+    // person's projected total earnings as a proxy for medicare wages —
+    // medicare wages don't subtract 401k so total earnings is closer than
+    // taxable wage. Threshold for SINGLE-filer view is $200k.
+    const addlMedicare = additionalMedicareTaxOwed({
+      combinedMedicareWages: p.projection.projectedTotalEarnings,
+      filingStatus:          personFiling,
+    });
+    const taxOwed = bracketTax + addlMedicare;
     const gap     = taxGap(fedWh, taxOwed);
     return {
       taxableWage, fedWh, taxOwed, gap,
@@ -248,9 +259,19 @@ export default function TaxOutlookPage() {
   const combined = byPerson.length === 2 ? (() => {
     const taxableWage = personOutcomes.reduce((s, o) => s + o.slider.taxableWage, 0);
     const fedWh       = personOutcomes.reduce((s, o) => s + o.slider.fedWh, 0);
-    const taxOwed     = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+    const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+    // Additional Medicare Tax: combined medicare wages above $250k MFJ.
+    // Approx medicare wages with sum of projectedTotalEarnings (cash
+    // salary + RSU + bonus, before 401k pretax — the 401k delta is
+    // small relative to the combined-comp picture).
+    const combinedMedicareWages = byPerson.reduce((s, p) => s + p.projection.projectedTotalEarnings, 0);
+    const addlMedicare = additionalMedicareTaxOwed({
+      combinedMedicareWages,
+      filingStatus: "MFJ",
+    });
+    const taxOwed     = bracketTax + addlMedicare;
     const gap         = taxGap(fedWh, taxOwed);
-    return { taxableWage, fedWh, taxOwed, gap };
+    return { taxableWage, fedWh, taxOwed, gap, bracketTax, addlMedicare };
   })() : null;
 
   if (authState !== "authenticated") return null;
@@ -393,12 +414,12 @@ export default function TaxOutlookPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <Card title="Year-to-date" subtitle={`as of ${p.latest.payDate ?? "—"}`}>
-                    <StatRow label="Salary gross" value={fmtCurrency(p.latest.ytdGross ?? 0, "USD")} />
+                    <StatRow label="Salary gross" value={fmtCurrency(p.projection.ytdSalaryGross, "USD")} />
                     {hasSupplemental && (
                       <>
                         <StatRow label="RSU vested"  value={fmtCurrency(p.projection.ytdRsuGross, "USD")} hint={p.projection.vestsCompleted > 0 ? `(${p.projection.vestsCompleted} vest${p.projection.vestsCompleted === 1 ? "" : "s"})` : undefined} />
                         <StatRow label="Bonus"       value={fmtCurrency(p.projection.ytdBonusGross, "USD")} />
-                        <StatRow label="Total earnings" value={fmtCurrency((p.latest.ytdGross ?? 0) + p.projection.ytdRsuGross + p.projection.ytdBonusGross, "USD")} />
+                        <StatRow label="Total earnings" value={fmtCurrency(p.projection.ytdSalaryGross + p.projection.ytdRsuGross + p.projection.ytdBonusGross, "USD")} />
                       </>
                     )}
                     <StatRow label="Taxable wage" value={fmtCurrency(p.latest.ytdTaxableWage ?? 0, "USD")} />

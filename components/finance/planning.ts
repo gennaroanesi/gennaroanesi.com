@@ -52,16 +52,29 @@ const FED_BRACKETS_2025: Record<FilingStatus, Bracket[]> = {
   ],
 };
 
+// Standard deductions reflect the OBBBA-corrected values (One Big Beautiful
+// Bill Act, signed July 2025) which retroactively bumped 2025's amounts.
+// Single $15,750, MFJ $31,500. Refresh when 2026 final numbers ship.
 const STANDARD_DEDUCTION_2025: Record<FilingStatus, number> = {
-  SINGLE: 15000,
-  MFJ:    30000,
+  SINGLE: 15750,
+  MFJ:    31500,
 };
 
 const OASDI_CAP_2025                 = 176100;
 const OASDI_RATE                     = 0.062;
 const MEDICARE_RATE                  = 0.0145;
 const ADDITIONAL_MEDICARE_RATE       = 0.009;
-const ADDITIONAL_MEDICARE_THRESHOLD  = 200000; // employer-side trigger; not filing-status-dependent
+const ADDITIONAL_MEDICARE_THRESHOLD  = 200000; // employer-side withholding trigger; per-employee
+
+// Filing-status thresholds for the 0.9% Additional Medicare Tax owed at
+// filing. These differ from the per-employer withholding trigger — wage
+// earners over $250k MFJ / $200k single owe the 0.9% on *combined*
+// medicare wages above the threshold, regardless of how it was withheld.
+// Form 8959 reconciles. Source: IRC §3101(b)(2).
+const ADDITIONAL_MEDICARE_TAX_THRESHOLDS: Record<FilingStatus, number> = {
+  SINGLE: 200000,
+  MFJ:    250000,
+};
 
 // IRS supplemental wage flat rate (Pub 15, Section 7) — applies to bonuses /
 // RSU vesting / commissions up to $1M cumulative per employer per year.
@@ -373,6 +386,11 @@ export function isPaycheckStale(payDateIso: string, todayIso: string, staleDays 
 export type YtdProjection = {
   paychecksPerYear:        number;   // either inferred or the caller-supplied value
   paychecksElapsed:        number;   // 1..paychecksPerYear
+  // Salary cash YTD — computed by summing per-paycheck max(0, gross −
+  // bonusGross − rsuGross). This is the source of truth for the salary
+  // baseline; latestStub.ytdGross is unreliable because Workday rolls
+  // bonuses into it.
+  ytdSalaryGross:          number;
   projectedGross:          number;   // CASH gross only — salary, no RSU / bonus
   projectedTaxableWage:    number;   // includes salary taxable + projected supplemental
   projectedFedWh:          number;   // salary linear + 22% on additional supplemental
@@ -383,7 +401,8 @@ export type YtdProjection = {
   projectedNet:            number;
   // Supplemental decomposition — RSU vests + bonuses, projected on cadence
   // rather than linearly. ytdRsuGross + ytdBonusGross are pulled from the
-  // latest stub overall (which always carries the most-current YTD).
+  // latest stub's YTD column when present, else summed from per-period
+  // values across all paychecks for the year.
   ytdRsuGross:             number;
   ytdBonusGross:           number;
   vestsCompleted:          number;
@@ -492,7 +511,18 @@ export function projectFromPaychecks(args: {
   const ytdBonusGross  = latestStub.ytdBonusGross  ?? summedBonus;
   const supplementalYtd = ytdRsuGross + ytdBonusGross;
 
-  const ytdGrossSalary       = latestStub.ytdGross       ?? 0;
+  // Salary cash YTD computed from per-paycheck data. We can't trust
+  // latestStub.ytdGross here because Workday rolls bonuses (and sometimes
+  // RSU vests) into that running total — extrapolating it linearly would
+  // pretend you got a bonus every paycheck. The defensive `max(0, gross −
+  // bonusGross − rsuGross)` handles every stub shape: regular salary
+  // ($9,116 − 0 − 0 = $9,116), bonus ($0 − $54k − 0 → 0), RSU ($0 − 0 −
+  // $119k → 0), and even parser-slipped variants where the same dollar
+  // ended up in both gross and rsuGross/bonusGross.
+  const ytdGrossSalary       = paychecks.reduce(
+    (sum, p) => sum + Math.max(0, (p.gross ?? 0) - (p.bonusGross ?? 0) - (p.rsuGross ?? 0)),
+    0,
+  );
   const ytdTaxableSalary     = Math.max(0, (latestStub.ytdTaxableWage ?? 0) - supplementalYtd);
   // Federal WH on supplemental is the IRS flat 22% — back it out of
   // ytdFedWh so the linear-projected salary fedWh isn't inflated by past
@@ -535,6 +565,7 @@ export function projectFromPaychecks(args: {
   return {
     paychecksPerYear:        ppy,
     paychecksElapsed:        elapsed,
+    ytdSalaryGross:          ytdGrossSalary,
     projectedGross,
     projectedTaxableWage,
     projectedFedWh,
@@ -575,12 +606,30 @@ export function projectFromYTD(
   const ppy = paychecksPerYearOverride ?? 26;
   return {
     paychecksPerYear: ppy, paychecksElapsed: 1,
+    ytdSalaryGross: 0,
     projectedGross: 0, projectedTaxableWage: 0, projectedFedWh: 0,
     projectedOasdi: 0, projectedMedicare: 0, projected401k: 0,
     projectedAfterTax401k: 0, projectedNet: 0,
     ytdRsuGross: 0, ytdBonusGross: 0, vestsCompleted: 0, vestsExpected: 0,
     projectedRsuGross: 0, projectedBonusGross: 0, projectedTotalEarnings: 0,
   };
+}
+
+/**
+ * Additional Medicare Tax (Form 8959) owed at filing on combined Medicare
+ * wages above the filing-status threshold. 0.9% on the excess. Note this
+ * is *owed at filing*, separate from the per-employer 0.9% withholding
+ * trigger at $200k that we already include in regular Medicare. Real W-2
+ * Box 6 includes some of this; the reconciliation on Form 8959 settles the
+ * difference. For the planner we just add the full owed amount to total
+ * tax — the projected fedWh path doesn't double-count it.
+ */
+export function additionalMedicareTaxOwed(args: {
+  combinedMedicareWages: number;
+  filingStatus:          FilingStatus;
+}): number {
+  const threshold = ADDITIONAL_MEDICARE_TAX_THRESHOLDS[args.filingStatus];
+  return Math.max(0, args.combinedMedicareWages - threshold) * ADDITIONAL_MEDICARE_RATE;
 }
 
 /**

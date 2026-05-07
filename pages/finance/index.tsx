@@ -25,6 +25,7 @@ import { Sparkline } from "@/components/common/sparkline";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
+  additionalMedicareTaxOwed,
   type RsuVestCadence, type FilingStatus,
 } from "@/components/finance/planning";
 
@@ -296,6 +297,7 @@ export default function FinanceDashboard() {
     taxOwed:              number;
     gap:                  number;
     stale:                boolean;
+    projectedTotalEarnings: number;
   };
   const { value: paycheckSettings } = useS3JsonState<DashboardPaycheckSettings>(
     "paycheck-settings/v1.json",
@@ -338,7 +340,12 @@ export default function FinanceDashboard() {
       // separately below. The full /finance/tax-outlook page lets the user
       // toggle filing status — this tile picks the conservative default.
       const filing = "SINGLE";
-      const taxOwed = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing });
+      const bracketTax  = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing });
+      const addlMedicare = additionalMedicareTaxOwed({
+        combinedMedicareWages: proj.projectedTotalEarnings,
+        filingStatus:          filing,
+      });
+      const taxOwed     = bracketTax + addlMedicare;
       entries.push({
         person,
         projectedTaxableWage: correctedTaxableWage,
@@ -346,13 +353,20 @@ export default function FinanceDashboard() {
         taxOwed,
         gap:                  taxGap(proj.projectedFedWh, taxOwed),
         stale:                isPaycheckStale(latest.payDate ?? today, today),
+        projectedTotalEarnings: proj.projectedTotalEarnings,
       });
     }
     // Combined MFJ — only when both persons present.
     const combined = entries.length === 2 ? (() => {
       const taxableWage = entries.reduce((s, e) => s + e.projectedTaxableWage, 0);
       const fedWh       = entries.reduce((s, e) => s + e.projectedFedWh, 0);
-      const taxOwed     = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+      const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+      const combinedMedicareWages = entries.reduce((s, e) => s + e.projectedTotalEarnings, 0);
+      const addlMedicare = additionalMedicareTaxOwed({
+        combinedMedicareWages,
+        filingStatus: "MFJ",
+      });
+      const taxOwed     = bracketTax + addlMedicare;
       return { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
     })() : null;
     return { entries, combined };
