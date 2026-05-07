@@ -216,10 +216,18 @@ export default function PaychecksPage() {
         throw new Error(result.error ?? "Parser returned an error");
       }
 
-      // Coerce the AI's JSON into the typed draft. Numbers come back as
-      // numbers already (Claude follows the schema), but be defensive — a
-      // string that looks like a number still parses.
-      const raw = (result.draft ?? {}) as Record<string, unknown>;
+      // Coerce the AI's JSON into the typed draft. AppSync serializes the
+      // `a.json()` return field as a JSON string — parse it back into an
+      // object before field access. Defensive: also accept the case where
+      // a future schema/client change starts handing us an object directly.
+      const draftRaw: unknown = result.draft;
+      let raw: Record<string, unknown> = {};
+      if (typeof draftRaw === "string") {
+        try { raw = JSON.parse(draftRaw) as Record<string, unknown>; }
+        catch { raw = {}; }
+      } else if (draftRaw && typeof draftRaw === "object") {
+        raw = draftRaw as Record<string, unknown>;
+      }
       const next: Draft = {
         person:      personArg as any,
         payDate:     stringField(raw, "payDate") ?? todayIso(),
