@@ -3,6 +3,7 @@ import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useS3JsonState, type S3SyncStatus } from "@/hooks/useS3JsonState";
 import FinanceLayout from "@/layouts/finance";
+import SimulatorTabs from "@/components/finance/SimulatorTabs";
 import {
   FINANCE_COLOR,
   fmtCurrency, todayIso, amountColor,
@@ -324,6 +325,8 @@ export default function CashflowSimulatorPage() {
               <SyncStatusChip status={syncStatus} lastSavedAt={lastSavedAt} />
             </div>
           </div>
+
+          <SimulatorTabs />
 
           {/* ── Cashflow tabs ────────────────────────────────────────── */}
           <div className="mb-4 flex items-center gap-1 overflow-x-auto pb-1">
