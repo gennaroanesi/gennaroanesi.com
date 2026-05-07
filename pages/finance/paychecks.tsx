@@ -151,7 +151,16 @@ export default function PaychecksPage() {
   }, []);
 
   const openEdit = useCallback((rec: PaycheckRecord) => {
-    setDraft({ ...rec, lineItems: (rec.lineItems as PaycheckLineItem[] | null) ?? [] });
+    // lineItems comes back from AppSync as a serialized JSON string (AWSJSON
+    // scalar) even though it was saved as an object. Parse it here so the
+    // line-items editor can render rows. Defensive: also accept arrays in
+    // case a future client change deserializes for us.
+    const lineItems = coerceLineItems(
+      typeof rec.lineItems === "string"
+        ? (() => { try { return JSON.parse(rec.lineItems as unknown as string); } catch { return []; } })()
+        : rec.lineItems,
+    );
+    setDraft({ ...rec, lineItems });
     setParseError(null);
     setParseStatus("idle");
     setPanel({ kind: "edit", rec });
@@ -270,18 +279,27 @@ export default function PaychecksPage() {
       delete payload.createdAt;
       delete payload.updatedAt;
       delete payload.owner;
+      // AppSync's AWSJSON scalar wants a serialized string both ways. Without
+      // this, the create silently rejects with a GraphQL error and we used to
+      // swallow it (data:null, no throw) — so the row never persisted.
+      if (payload.lineItems != null && typeof payload.lineItems !== "string") {
+        payload.lineItems = JSON.stringify(payload.lineItems);
+      }
 
       let saved: PaycheckRecord | null = null;
       if (panel?.kind === "edit") {
-        const { data } = await client.models.financePaycheck.update({
+        const { data, errors } = await client.models.financePaycheck.update({
           ...payload,
           id: panel.rec.id,
         });
+        if (errors?.length) throw new Error(errors[0].message ?? "Update failed");
         saved = data ?? null;
       } else {
-        const { data } = await client.models.financePaycheck.create(payload);
+        const { data, errors } = await client.models.financePaycheck.create(payload);
+        if (errors?.length) throw new Error(errors[0].message ?? "Create failed");
         saved = data ?? null;
       }
+      if (!saved) throw new Error("Save returned no record");
 
       // Persist the staged PDF as an attachment row. Reuses the polymorphic
       // attachment model so future "show original PDF" flows work the same
