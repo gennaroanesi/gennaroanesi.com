@@ -210,8 +210,14 @@ export default function TaxOutlookPage() {
     const baseTaxableWage = p.projection.projectedTaxableWage + currentCap.excessOverCap;
     const taxableWage     = Math.max(0, baseTaxableWage - delta401k);
 
+    // Per-person card subtitle reads "single-filer view" — use SINGLE
+    // brackets to match. With two persons, the combined MFJ card below
+    // is where the actual joint-filing math lives. With one person, the
+    // user's chosen filing status applies (a single person can still
+    // legally file MFJ if they have a non-paycheck-earning spouse).
+    const personFiling: FilingStatus = byPerson.length > 1 ? "SINGLE" : filingStatus;
     const fedWh   = p.projection.projectedFedWh;
-    const taxOwed = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: byPerson.length > 1 ? "MFJ" : filingStatus });
+    const taxOwed = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: personFiling });
     const gap     = taxGap(fedWh, taxOwed);
     return {
       taxableWage, fedWh, taxOwed, gap,
