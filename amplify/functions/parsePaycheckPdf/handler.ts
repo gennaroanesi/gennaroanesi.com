@@ -78,13 +78,13 @@ Schema (all monetary fields are USD dollars, no symbols, no commas; null when no
 }
 
 Field guidance:
-- "gross" is the sum of all earnings before any deductions for this pay period.
-- "taxableWage" is the federal taxable wage for this period (gross minus pretax deductions plus imputed income). Look for "Taxable Wages", "Federal Taxable Wages", or compute if shown line-by-line.
-- "net" is the take-home / direct-deposit total for this period.
+- "gross" is the CASH gross pay this period — the headline "Gross Pay" value at the top of the stub. Do NOT include imputed income (Imp GTL, GTL Coverage, imputed taxable benefits) even when it appears as an earnings line. Imputed income is reported separately under "imputedGtl" + as a lineItem of type IMPUTED. Sanity check: gross should equal (Pre Tax Deductions + Employee Taxes + Post Tax Deductions + Net Pay) for this period — if it doesn't, you've probably included imputed income; subtract it. Same rule for "ytdGross".
+- "taxableWage" is the federal taxable wage for this period. On Workday-style stubs, look for the line literally labeled "Federal Withholding - Taxable Wages" (NOT "OASDI - Taxable Wages" or "Medicare - Taxable Wages" — those are different bases). On other stubs the equivalent labels include "Federal Taxable Wages" or "Taxable Federal Wages". Same rule for "ytdTaxableWage".
+- "net" is the take-home / direct-deposit total for this period (the "Net Pay" header value).
 - "fedWh" is federal income tax withheld (NOT FICA).
 - "oasdi" is Social Security tax (sometimes labeled "OASDI", "Social Security", or "FICA-SS").
 - "medicare" includes both regular Medicare (1.45%) and any Additional Medicare (0.9%) withheld.
-- "imputedGtl" is imputed group-term life income (taxed but not paid in cash). Include only if labeled.
+- "imputedGtl" is imputed group-term life income (taxed but not paid in cash). Capture it here AND as a lineItem of type IMPUTED. Do NOT add it to "gross".
 - "contrib401k" is the EMPLOYEE pre-tax 401k contribution this period. Do NOT include employer match.
 - "contribAfterTax401k" is the employee after-tax / mega-backdoor 401k contribution.
 - For YTD values, use the YTD column on the stub. If the stub only shows current-period values, leave YTD nulls.
