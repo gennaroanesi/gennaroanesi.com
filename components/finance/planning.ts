@@ -68,6 +68,23 @@ const ADDITIONAL_MEDICARE_THRESHOLD  = 200000; // employer-side trigger; not fil
 // Above $1M, the rate jumps to 37%; the planner does not model that step.
 const SUPPLEMENTAL_FED_RATE = 0.22;
 
+// 401(k) elective deferral limit (employee contribution cap, IRC §402(g)).
+// Refresh annually with the rest of the IRS constants — the limit increases
+// most years. 50+ catch-up adds $7,500 (not modeled here).
+const IRS_401K_ELECTIVE_LIMITS: Record<number, number> = {
+  2025: 23500,
+  2026: 24500,
+};
+
+/** Returns the IRS §402(g) elective-deferral limit for `year`. Falls back to
+ *  the most-recent year defined when an unknown year is passed. */
+export function irs401kElectiveLimit(year: number): number {
+  if (IRS_401K_ELECTIVE_LIMITS[year] != null) return IRS_401K_ELECTIVE_LIMITS[year];
+  // Fall back to the most recent defined year.
+  const years = Object.keys(IRS_401K_ELECTIVE_LIMITS).map(Number).sort();
+  return IRS_401K_ELECTIVE_LIMITS[years[years.length - 1]];
+}
+
 export const PLAN_TAX_YEAR_LABEL = "2025 IRS rates";
 
 // ── YearMap: sparse year→value with carry-forward lookup ─────────────────
@@ -573,6 +590,70 @@ export function taxOwedFederal(args: {
  */
 export function taxGap(projectedFedWh: number, taxOwed: number): number {
   return projectedFedWh - taxOwed;
+}
+
+// ── 401(k) elective-deferral cap projection ──────────────────────────────
+
+export type Contribution401kProjection = {
+  projected401k:    number;   // capped at IRS §402(g) limit
+  uncapped:         number;   // ytd + (remainingGross × pct), no cap applied
+  irsLimit:         number;
+  headroom:         number;   // irsLimit - projected401k (≥ 0)
+  capReached:       boolean;  // true when contribution actually hits the cap
+  // Amount the linear-projection would have flowed into 401k but instead
+  // shows up as taxable wage because the cap kicked in mid-year. Callers
+  // use this to correct projectedTaxableWage upward when their projection
+  // started from a YTD-linear extrapolation.
+  excessOverCap:    number;
+};
+
+/**
+ * Project end-of-year 401(k) employee contribution, applying the IRS §402(g)
+ * cap. The math is intentionally simple: contribution = remaining-salary-gross
+ * × pct, capped at (limit - YTD). Real plans may behave more subtly (true-up,
+ * payroll-rounding, percentage-of-pre-tax-instead-of-gross) but this is good
+ * enough for an at-a-glance year-end estimate.
+ */
+export function project401kWithCap(args: {
+  ytd401k:         number;
+  ytdGross:        number;   // salary cash gross YTD — RSU vests excluded
+  projectedGross:  number;   // salary cash gross projected to year-end
+  contributionPct: number;   // 0..1
+  year?:           number;
+}): Contribution401kProjection {
+  const irsLimit            = irs401kElectiveLimit(args.year ?? new Date().getUTCFullYear());
+  const remainingGross      = Math.max(0, args.projectedGross - args.ytdGross);
+  const headroomBefore      = Math.max(0, irsLimit - args.ytd401k);
+  const desiredAddition     = remainingGross * args.contributionPct;
+  const actualAddition      = Math.min(desiredAddition, headroomBefore);
+  const projected           = args.ytd401k + actualAddition;
+  return {
+    projected401k:  projected,
+    uncapped:       args.ytd401k + desiredAddition,
+    irsLimit,
+    headroom:       Math.max(0, irsLimit - projected),
+    capReached:     actualAddition >= headroomBefore && headroomBefore > 0,
+    excessOverCap:  Math.max(0, desiredAddition - actualAddition),
+  };
+}
+
+/**
+ * Returns the contribution percentage at which the user would just barely
+ * hit the IRS cap (assuming linear paychecks). Useful for "contributing X%
+ * gets you to the cap" hints. Returns null if YTD already at/over cap.
+ */
+export function contribPctToReachCap(args: {
+  ytd401k:        number;
+  ytdGross:       number;
+  projectedGross: number;
+  year?:          number;
+}): number | null {
+  const irsLimit = irs401kElectiveLimit(args.year ?? new Date().getUTCFullYear());
+  const headroom = irsLimit - args.ytd401k;
+  if (headroom <= 0) return null;
+  const remainingGross = Math.max(0, args.projectedGross - args.ytdGross);
+  if (remainingGross <= 0) return null;
+  return Math.min(1, headroom / remainingGross);
 }
 
 // ── Defaults for a fresh scenario ────────────────────────────────────────

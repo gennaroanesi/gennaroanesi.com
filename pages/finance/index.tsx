@@ -24,7 +24,7 @@ import {
 import { Sparkline } from "@/components/common/sparkline";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
-  projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
+  projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
   type RsuVestCadence, type FilingStatus,
 } from "@/components/finance/planning";
 
@@ -319,18 +319,33 @@ export default function FinanceDashboard() {
       const cadence = paycheckSettings.rsuVestCadence[person] ?? "IRREGULAR";
       const proj = projectFromPaychecks({ paychecks: mine, rsuVestCadence: cadence });
       if (!proj) continue;
+      // Apply the IRS §402(g) cap correction: linear extrapolation of
+      // ytdTaxableWage assumes 401k keeps deducting all year, but if the
+      // cap hits mid-year, late paychecks have $0 401k → real taxable
+      // wage is higher. Match the tax-outlook page's math.
+      const latest      = mine[0];
+      const currentPct  = (latest.ytdGross ?? 0) > 0
+        ? (latest.ytd401k ?? 0) / (latest.ytdGross ?? 1)
+        : 0;
+      const capInfo = project401kWithCap({
+        ytd401k:         latest.ytd401k  ?? 0,
+        ytdGross:        latest.ytdGross ?? 0,
+        projectedGross:  proj.projectedGross,
+        contributionPct: currentPct,
+      });
+      const correctedTaxableWage = proj.projectedTaxableWage + capInfo.excessOverCap;
       // Per-person tile uses single-filer brackets; combined MFJ is shown
       // separately below. The full /finance/tax-outlook page lets the user
       // toggle filing status — this tile picks the conservative default.
       const filing = "SINGLE";
-      const taxOwed = taxOwedFederal({ projectedTaxableWage: proj.projectedTaxableWage, filingStatus: filing });
+      const taxOwed = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing });
       entries.push({
         person,
-        projectedTaxableWage: proj.projectedTaxableWage,
+        projectedTaxableWage: correctedTaxableWage,
         projectedFedWh:       proj.projectedFedWh,
         taxOwed,
         gap:                  taxGap(proj.projectedFedWh, taxOwed),
-        stale:                isPaycheckStale(mine[0].payDate ?? today, today),
+        stale:                isPaycheckStale(latest.payDate ?? today, today),
       });
     }
     // Combined MFJ — only when both persons present.

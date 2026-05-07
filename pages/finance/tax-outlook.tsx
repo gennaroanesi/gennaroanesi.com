@@ -14,6 +14,7 @@ import {
 import {
   FILING_STATUSES, FILING_STATUS_LABELS, type FilingStatus,
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
+  project401kWithCap, contribPctToReachCap, irs401kElectiveLimit,
   RSU_VEST_CADENCES, RSU_VEST_CADENCE_LABELS, type RsuVestCadence,
   PLAN_TAX_YEAR_LABEL,
 } from "@/components/finance/planning";
@@ -173,20 +174,51 @@ export default function TaxOutlookPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [byPerson.length]);
 
-  // Per-person tax outcome (current and slider-adjusted). The slider shifts
-  // 401k pct, which moves taxable wage by `gross × (newPct − currentPct)`.
-  // Withholding is held constant — it's a "what would my final tax bill
-  // change look like" view, not "withholding will adjust automatically".
-  type Outcome = { taxableWage: number; fedWh: number; taxOwed: number; gap: number; new401k: number };
+  // Per-person tax outcome (current and slider-adjusted). Cap-aware: every
+  // 401k delta is clipped at the IRS §402(g) elective-deferral limit, so a
+  // 30%-slider on a $260k salary doesn't pretend to deduct $78k from
+  // taxable wage. The same cap correction also bumps taxable wage upward
+  // by however much the linear-projection over-deducted from late-year
+  // paychecks that would've already hit the cap.
+  type Outcome = {
+    taxableWage:  number;
+    fedWh:        number;
+    taxOwed:      number;
+    gap:          number;
+    new401k:      number;
+    irsLimit:     number;
+    capReached:   boolean;
+  };
   function outcomeFor(p: PerPerson, pct: number | null): Outcome {
     const adjustedPct = pct ?? p.current401kPct;
-    const delta401k   = p.projection.projectedGross * (adjustedPct - p.current401kPct);
-    const taxableWage = Math.max(0, p.projection.projectedTaxableWage - delta401k);
-    const fedWh       = p.projection.projectedFedWh;
-    const taxOwed     = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: byPerson.length > 1 ? "MFJ" : filingStatus });
-    const gap         = taxGap(fedWh, taxOwed);
-    const new401k     = p.projection.projected401k + delta401k;
-    return { taxableWage, fedWh, taxOwed, gap, new401k };
+    const ytd401k   = p.latest.ytd401k  ?? 0;
+    const ytdGross  = p.latest.ytdGross ?? 0;
+    const args      = { ytd401k, ytdGross, projectedGross: p.projection.projectedGross };
+
+    const currentCap  = project401kWithCap({ ...args, contributionPct: p.current401kPct });
+    const adjustedCap = project401kWithCap({ ...args, contributionPct: adjustedPct });
+
+    // delta401k = how much MORE the user actually contributes (capped) under
+    // adjustedPct vs currentPct. Negative when slider is below current.
+    const delta401k = adjustedCap.projected401k - currentCap.projected401k;
+
+    // Correction: projection.projectedTaxableWage was extrapolated linearly
+    // from ytdTaxableWage, which implicitly assumed contributions kept
+    // flowing all year at the current rate. If currentPct would have hit
+    // the cap, late-year paychecks actually have $0 401k deduction → real
+    // taxable wage is HIGHER by currentCap.excessOverCap.
+    const baseTaxableWage = p.projection.projectedTaxableWage + currentCap.excessOverCap;
+    const taxableWage     = Math.max(0, baseTaxableWage - delta401k);
+
+    const fedWh   = p.projection.projectedFedWh;
+    const taxOwed = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: byPerson.length > 1 ? "MFJ" : filingStatus });
+    const gap     = taxGap(fedWh, taxOwed);
+    return {
+      taxableWage, fedWh, taxOwed, gap,
+      new401k:    adjustedCap.projected401k,
+      irsLimit:   adjustedCap.irsLimit,
+      capReached: adjustedCap.capReached,
+    };
   }
 
   // For the per-person card we keep filingStatus in sync — when there's
@@ -266,13 +298,22 @@ export default function TaxOutlookPage() {
             <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
               <h3 className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">401k what-if</h3>
               <p className="text-[10px] text-gray-400">
-                Current rate{byPerson.length > 1 ? "s" : ""}:{" "}
-                {byPerson.map((p, i) => (
-                  <span key={p.person}>
-                    {i > 0 && " · "}
-                    {PAYCHECK_PERSON_LABELS[p.person]} {(p.current401kPct * 100).toFixed(1)}%
-                  </span>
-                ))}
+                {byPerson.map((p, i) => {
+                  const capPct = contribPctToReachCap({
+                    ytd401k:        p.latest.ytd401k  ?? 0,
+                    ytdGross:       p.latest.ytdGross ?? 0,
+                    projectedGross: p.projection.projectedGross,
+                  });
+                  return (
+                    <span key={p.person}>
+                      {i > 0 && " · "}
+                      {PAYCHECK_PERSON_LABELS[p.person]} now {(p.current401kPct * 100).toFixed(1)}%
+                      {capPct == null
+                        ? " · already at cap"
+                        : ` · cap at ${(capPct * 100).toFixed(1)}%`}
+                    </span>
+                  );
+                })}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -297,7 +338,9 @@ export default function TaxOutlookPage() {
               </button>
             </div>
             <p className="text-[10px] text-gray-400 mt-2">
-              Slider holds federal withholding constant — directional only. Real withholding adjusts when contribution % changes.
+              Contributions clip at the IRS §402(g) limit ({fmtCurrency(irs401kElectiveLimit(new Date(TODAY).getUTCFullYear()), "USD")} for {new Date(TODAY).getUTCFullYear()}).
+              Slider beyond the cap-hitting % only changes when in the year you'd hit it, not the year-end total.
+              Federal withholding is held constant — directional view only.
             </p>
           </div>
         )}
@@ -362,9 +405,13 @@ export default function TaxOutlookPage() {
                         <StatRow label="Total earnings" value={fmtCurrency(p.projection.projectedTotalEarnings, "USD")} />
                       </>
                     )}
-                    <StatRow label="Taxable wage" value={fmtCurrency(p.projection.projectedTaxableWage, "USD")} />
+                    <StatRow label="Taxable wage" value={fmtCurrency(current.taxableWage, "USD")} />
                     <StatRow label="Federal WH"   value={fmtCurrency(p.projection.projectedFedWh, "USD")} />
-                    <StatRow label="401k"         value={fmtCurrency(p.projection.projected401k, "USD")} />
+                    <StatRow
+                      label="401k"
+                      value={fmtCurrency(current.new401k, "USD")}
+                      hint={`/ ${fmtCurrency(current.irsLimit, "USD")}${current.capReached ? " · cap" : ""}`}
+                    />
                     <StatRow label="Net"          value={fmtCurrency(p.projection.projectedNet, "USD")} />
                   </Card>
 
