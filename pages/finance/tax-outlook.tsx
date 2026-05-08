@@ -207,7 +207,7 @@ export default function TaxOutlookPage() {
     const adjustedPct = pct ?? p.current401kPct;
     const ytd401k   = p.latest.ytd401k  ?? 0;
     const ytdGross  = p.latest.ytdGross ?? 0;
-    const args      = { ytd401k, ytdGross, projectedGross: p.projection.projectedGross };
+    const args      = { ytd401k, ytdGross, projectedGross: p.projection.projectedGross, year: selectedYear };
 
     const currentCap  = project401kWithCap({ ...args, contributionPct: p.current401kPct });
     const adjustedCap = project401kWithCap({ ...args, contributionPct: adjustedPct });
@@ -232,7 +232,11 @@ export default function TaxOutlookPage() {
     // automatically once the second person has rows.
     const personFiling: FilingStatus = "SINGLE";
     const fedWh   = p.projection.projectedFedWh;
-    const bracketTax = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: personFiling });
+    const bracketTax = taxOwedFederal({
+      projectedTaxableWage: taxableWage,
+      filingStatus:         personFiling,
+      year:                 selectedYear,
+    });
     // Additional Medicare Tax (Form 8959): 0.9% of medicare wages above
     // $200k (single) / $250k (MFJ). For per-person single-filer view, use
     // person's projected total earnings as a proxy for medicare wages —
@@ -273,7 +277,11 @@ export default function TaxOutlookPage() {
   const combined = byPerson.length === 2 ? (() => {
     const taxableWage = personOutcomes.reduce((s, o) => s + o.slider.taxableWage, 0);
     const fedWh       = personOutcomes.reduce((s, o) => s + o.slider.fedWh, 0);
-    const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+    const bracketTax  = taxOwedFederal({
+      projectedTaxableWage: taxableWage,
+      filingStatus:         "MFJ",
+      year:                 selectedYear,
+    });
     // Additional Medicare Tax: combined medicare wages above $250k MFJ.
     // Approx medicare wages with sum of projectedTotalEarnings (cash
     // salary + RSU + bonus, before 401k pretax — the 401k delta is
@@ -353,6 +361,7 @@ export default function TaxOutlookPage() {
                     ytd401k:        p.latest.ytd401k  ?? 0,
                     ytdGross:       p.latest.ytdGross ?? 0,
                     projectedGross: p.projection.projectedGross,
+                    year:           selectedYear,
                   });
                   return (
                     <span key={p.person}>
@@ -391,7 +400,7 @@ export default function TaxOutlookPage() {
               </button>
             </div>
             <p className="text-[10px] text-gray-400 mt-2">
-              Contributions clip at the IRS §402(g) limit ({fmtCurrency(irs401kElectiveLimit(new Date(TODAY).getUTCFullYear()), "USD")} for {new Date(TODAY).getUTCFullYear()}).
+              Contributions clip at the IRS §402(g) limit ({fmtCurrency(irs401kElectiveLimit(selectedYear), "USD")} for {selectedYear}).
               Slider beyond the cap-hitting % only changes when in the year you'd hit it, not the year-end total.
               Federal withholding is held constant — directional view only.
             </p>

@@ -334,13 +334,14 @@ export default function FinanceDashboard() {
         ytdGross:        latest.ytdGross ?? 0,
         projectedGross:  proj.projectedGross,
         contributionPct: currentPct,
+        year,
       });
       const correctedTaxableWage = proj.projectedTaxableWage + capInfo.excessOverCap;
       // Per-person tile uses single-filer brackets; combined MFJ is shown
       // separately below. The full /finance/tax-outlook page lets the user
       // toggle filing status — this tile picks the conservative default.
       const filing = "SINGLE";
-      const bracketTax  = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing });
+      const bracketTax  = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing, year });
       const addlMedicare = additionalMedicareTaxOwed({
         combinedMedicareWages: proj.projectedTotalEarnings,
         filingStatus:          filing,
@@ -360,7 +361,7 @@ export default function FinanceDashboard() {
     const combined = entries.length === 2 ? (() => {
       const taxableWage = entries.reduce((s, e) => s + e.projectedTaxableWage, 0);
       const fedWh       = entries.reduce((s, e) => s + e.projectedFedWh, 0);
-      const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ" });
+      const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ", year });
       const combinedMedicareWages = entries.reduce((s, e) => s + e.projectedTotalEarnings, 0);
       const addlMedicare = additionalMedicareTaxOwed({
         combinedMedicareWages,

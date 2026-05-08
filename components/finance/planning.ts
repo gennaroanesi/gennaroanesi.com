@@ -27,40 +27,91 @@ export const FILING_STATUS_LABELS: Record<FilingStatus, string> = {
   MFJ:    "Married filing jointly",
 };
 
-// ── Tax year 2025 constants ──────────────────────────────────────────────
+// ── Year-keyed tax constants ─────────────────────────────────────────────
+// Brackets, standard deduction, and OASDI cap inflation-adjust each year.
+// Refresh annually when the IRS publishes its Rev. Proc. (typically Oct/
+// Nov of the prior year) and SSA announces the new wage base. The Tax
+// Outlook page passes its selectedYear into taxOwedFederal so the math
+// matches the year being viewed (validation against 2025 actuals uses
+// 2025; current-year projections use 2026).
 
 type Bracket = { rate: number; upTo: number };
 
-const FED_BRACKETS_2025: Record<FilingStatus, Bracket[]> = {
-  SINGLE: [
-    { rate: 0.10, upTo:  11925 },
-    { rate: 0.12, upTo:  48475 },
-    { rate: 0.22, upTo: 103350 },
-    { rate: 0.24, upTo: 197300 },
-    { rate: 0.32, upTo: 250525 },
-    { rate: 0.35, upTo: 626350 },
-    { rate: 0.37, upTo: Infinity },
-  ],
-  MFJ: [
-    { rate: 0.10, upTo:  23850 },
-    { rate: 0.12, upTo:  96950 },
-    { rate: 0.22, upTo: 206700 },
-    { rate: 0.24, upTo: 394600 },
-    { rate: 0.32, upTo: 501050 },
-    { rate: 0.35, upTo: 751600 },
-    { rate: 0.37, upTo: Infinity },
-  ],
+type YearTaxConstants = {
+  brackets:          Record<FilingStatus, Bracket[]>;
+  standardDeduction: Record<FilingStatus, number>;
+  oasdiCap:          number;
 };
 
-// Standard deductions reflect the OBBBA-corrected values (One Big Beautiful
-// Bill Act, signed July 2025) which retroactively bumped 2025's amounts.
-// Single $15,750, MFJ $31,500. Refresh when 2026 final numbers ship.
-const STANDARD_DEDUCTION_2025: Record<FilingStatus, number> = {
-  SINGLE: 15750,
-  MFJ:    31500,
+const TAX_CONSTANTS_BY_YEAR: Record<number, YearTaxConstants> = {
+  // 2025 — IRS Rev. Proc. 2024-40 + OBBBA (One Big Beautiful Bill Act,
+  // July 2025) bumped the standard deduction from the original $30k MFJ
+  // / $15k single to the values below.
+  2025: {
+    brackets: {
+      SINGLE: [
+        { rate: 0.10, upTo:  11925 },
+        { rate: 0.12, upTo:  48475 },
+        { rate: 0.22, upTo: 103350 },
+        { rate: 0.24, upTo: 197300 },
+        { rate: 0.32, upTo: 250525 },
+        { rate: 0.35, upTo: 626350 },
+        { rate: 0.37, upTo: Infinity },
+      ],
+      MFJ: [
+        { rate: 0.10, upTo:  23850 },
+        { rate: 0.12, upTo:  96950 },
+        { rate: 0.22, upTo: 206700 },
+        { rate: 0.24, upTo: 394600 },
+        { rate: 0.32, upTo: 501050 },
+        { rate: 0.35, upTo: 751600 },
+        { rate: 0.37, upTo: Infinity },
+      ],
+    },
+    standardDeduction: { SINGLE: 15750, MFJ: 31500 },
+    oasdiCap:          176100,
+  },
+  // 2026 — best-effort estimates pending verification against the official
+  // IRS Rev. Proc. 2025-32 (issued Oct 2025) and SSA's 2026 wage-base
+  // announcement. The bracket cutoffs are approximately +2.5% over 2025 to
+  // mirror the typical inflation-adjustment factor; verify and replace
+  // with the official figures when convenient. The Additional Medicare Tax
+  // thresholds ($200k/$250k) are fixed in statute and don't index.
+  // TODO: verify against Rev. Proc. 2025-32.
+  2026: {
+    brackets: {
+      SINGLE: [
+        { rate: 0.10, upTo:  12225 },
+        { rate: 0.12, upTo:  49700 },
+        { rate: 0.22, upTo: 105950 },
+        { rate: 0.24, upTo: 202250 },
+        { rate: 0.32, upTo: 256800 },
+        { rate: 0.35, upTo: 642150 },
+        { rate: 0.37, upTo: Infinity },
+      ],
+      MFJ: [
+        { rate: 0.10, upTo:  24450 },
+        { rate: 0.12, upTo:  99400 },
+        { rate: 0.22, upTo: 211900 },
+        { rate: 0.24, upTo: 404500 },
+        { rate: 0.32, upTo: 513600 },
+        { rate: 0.35, upTo: 770400 },
+        { rate: 0.37, upTo: Infinity },
+      ],
+    },
+    standardDeduction: { SINGLE: 16150, MFJ: 32300 },
+    oasdiCap:          184500,
+  },
 };
 
-const OASDI_CAP_2025                 = 176100;
+function taxConstantsForYear(year: number): YearTaxConstants {
+  if (TAX_CONSTANTS_BY_YEAR[year] != null) return TAX_CONSTANTS_BY_YEAR[year];
+  // Fall back to the most recent defined year so a stale planner doesn't
+  // crash when 2027 paychecks land before the next constants refresh.
+  const years = Object.keys(TAX_CONSTANTS_BY_YEAR).map(Number).sort();
+  return TAX_CONSTANTS_BY_YEAR[years[years.length - 1]];
+}
+
 const OASDI_RATE                     = 0.062;
 const MEDICARE_RATE                  = 0.0145;
 const ADDITIONAL_MEDICARE_RATE       = 0.009;
@@ -269,10 +320,11 @@ export function projectYear(scenario: PlanScenario, year: number): YearBreakdown
   const impGtlAnnual        = p.impGtlPerCheck * ppy;
   const taxableAnnual       = grossAnnual + impGtlAnnual - contrib401kAnnual - premiumsAnnual;
 
-  const stdDeduction = STANDARD_DEDUCTION_2025[p.filingStatus];
-  const fedWhAnnual  = bracketTax(FED_BRACKETS_2025[p.filingStatus], Math.max(0, taxableAnnual - stdDeduction));
+  const yearConstants = taxConstantsForYear(year);
+  const stdDeduction = yearConstants.standardDeduction[p.filingStatus];
+  const fedWhAnnual  = bracketTax(yearConstants.brackets[p.filingStatus], Math.max(0, taxableAnnual - stdDeduction));
 
-  const oasdiBase    = Math.min(taxableAnnual, OASDI_CAP_2025);
+  const oasdiBase    = Math.min(taxableAnnual, yearConstants.oasdiCap);
   const oasdiAnnual  = Math.max(0, oasdiBase) * OASDI_RATE;
   const medicareAnnual =
     Math.max(0, taxableAnnual) * MEDICARE_RATE +
@@ -294,7 +346,7 @@ export function projectYear(scenario: PlanScenario, year: number): YearBreakdown
   // Using `taxableAnnual` as the salary OASDI base matches the simplified
   // calc above (which doesn't separately track Medicare/OASDI wages from
   // federal taxable wages).
-  const oasdiHeadroom    = Math.max(0, OASDI_CAP_2025 - Math.max(0, taxableAnnual));
+  const oasdiHeadroom    = Math.max(0, yearConstants.oasdiCap - Math.max(0, taxableAnnual));
   const supplementalOasdi = Math.max(0, Math.min(supplementalGross, oasdiHeadroom)) * OASDI_RATE;
   // Medicare: 1.45% on the supplemental, plus 0.9% additional only on the
   // combined comp portion above $200K that wasn't already counted on salary.
@@ -633,17 +685,20 @@ export function additionalMedicareTaxOwed(args: {
 }
 
 /**
- * Federal tax owed on `projectedTaxableWage` for `filingStatus`. Uses the
- * 2025 brackets + standard deduction defined above. Assumes the user
- * itemizes nothing beyond the standard deduction; a more sophisticated
- * version would accept overrides.
+ * Federal tax owed on `projectedTaxableWage` for `filingStatus`. Brackets
+ * and standard deduction are pulled from TAX_CONSTANTS_BY_YEAR[year], so
+ * pass the year being projected (2025 for validation, 2026 for current
+ * planning, etc.). Assumes the user itemizes nothing beyond the standard
+ * deduction; a more sophisticated version would accept overrides.
  */
 export function taxOwedFederal(args: {
   projectedTaxableWage: number;
   filingStatus:         FilingStatus;
+  year:                 number;
 }): number {
-  const taxable = Math.max(0, args.projectedTaxableWage - STANDARD_DEDUCTION_2025[args.filingStatus]);
-  return bracketTax(FED_BRACKETS_2025[args.filingStatus], taxable);
+  const constants = taxConstantsForYear(args.year);
+  const taxable   = Math.max(0, args.projectedTaxableWage - constants.standardDeduction[args.filingStatus]);
+  return bracketTax(constants.brackets[args.filingStatus], taxable);
 }
 
 /**
