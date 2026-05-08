@@ -68,10 +68,21 @@ export default function TransactionsPage() {
 
   // Import state
   const fileRef = useRef<HTMLInputElement>(null);
-  const [importFormat,    setImportFormat]    = useState("");
-  const [importRows,      setImportRows]      = useState<ImportRow[]>([]);
-  const [importAccountId, setImportAccountId] = useState<string>("");
-  const [importReverse,   setImportReverse]   = useState(false);
+  const [importFormat,      setImportFormat]      = useState("");
+  const [importRows,        setImportRows]        = useState<ImportRow[]>([]);
+  const [importAccountId,   setImportAccountId]   = useState<string>("");
+  const [importReverse,     setImportReverse]     = useState(false);
+  // Date range narrows which rows in the CSV get considered + drives the
+  // "delete existing in range" reset behavior. Auto-populated from min/max
+  // of the parsed CSV's dates on file selection; user can tighten/loosen.
+  const [importStartDate,   setImportStartDate]   = useState<string>("");
+  const [importEndDate,     setImportEndDate]     = useState<string>("");
+  // When on: every existing transaction for the target account whose date
+  // falls inside [importStartDate, importEndDate] is deleted before the new
+  // rows are inserted. Handles bank exports that shift dates / change
+  // scheduled→posted (Chase does this) so re-importing produces drift +
+  // duplicates that the importHash dedup can't reliably catch.
+  const [importDeleteRange, setImportDeleteRange] = useState(false);
 
   const today = todayIso();
 
@@ -158,6 +169,9 @@ export default function TransactionsPage() {
     setImportFormat("");
     setImportAccountId(accounts[0]?.id ?? "");
     setImportReverse(false);
+    setImportStartDate("");
+    setImportEndDate("");
+    setImportDeleteRange(false);
     setPanel({ kind: "import" });
   }
 
@@ -368,6 +382,30 @@ export default function TransactionsPage() {
     return importReverse ? -raw : raw;
   }
 
+  // Rows that fall inside the date range. Rows outside are completely
+  // dropped from the preview + import — keeps the user's chosen range as
+  // the unambiguous source of truth.
+  const inRangeRows = useMemo(() => {
+    if (!importStartDate && !importEndDate) return importRows;
+    return importRows.filter((r) => {
+      if (importStartDate && r.date < importStartDate) return false;
+      if (importEndDate   && r.date > importEndDate)   return false;
+      return true;
+    });
+  }, [importRows, importStartDate, importEndDate]);
+
+  // Existing transactions that would be deleted when "delete-in-range" is
+  // committed. Always computed (independent of the toggle) so the user can
+  // see the count before deciding to flip it on.
+  const inRangeExistingTx = useMemo(() => {
+    if (!importAccountId || !importStartDate || !importEndDate) return [];
+    return transactions.filter((t) =>
+      t.accountId === importAccountId &&
+      (t.date ?? "") >= importStartDate &&
+      (t.date ?? "") <= importEndDate,
+    );
+  }, [transactions, importAccountId, importStartDate, importEndDate]);
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -384,15 +422,40 @@ export default function TransactionsPage() {
           duplicate: existingHashes.has(r.hash),
         })),
       );
+      // Auto-populate date range from min/max of parsed dates so the user
+      // can use it as-is or tighten manually. Sorted ISO strings work for
+      // YYYY-MM-DD comparison.
+      const dates = rows.map((r) => r.date).filter(Boolean).sort();
+      setImportStartDate(dates[0] ?? "");
+      setImportEndDate(dates[dates.length - 1] ?? "");
     };
     reader.readAsText(file);
   }
 
   async function handleImport() {
-    const toImport = importRows.filter((r) => r.selected && !r.duplicate);
-    if (toImport.length === 0 || !importAccountId) return;
+    // When delete-in-range is on, ignore the duplicate check — the existing
+    // matches are about to be deleted, so importing the same hashes is fine.
+    const toImport = importDeleteRange
+      ? inRangeRows.filter((r) => r.selected)
+      : inRangeRows.filter((r) => r.selected && !r.duplicate);
+    if (toImport.length === 0 && (!importDeleteRange || inRangeExistingTx.length === 0)) return;
+    if (!importAccountId) return;
     setSaving(true);
     try {
+      // 1. Delete in-range existing transactions if requested. Tracks the
+      //    sum so the balance adjustment at the end is net (deleted out +
+      //    new in), not double-applied.
+      let deletedDelta = 0;
+      const deletedIds = new Set<string>();
+      if (importDeleteRange) {
+        for (const tx of inRangeExistingTx) {
+          await client.models.financeTransaction.delete({ id: tx.id });
+          deletedDelta -= tx.amount ?? 0;
+          deletedIds.add(tx.id);
+        }
+      }
+
+      // 2. Insert new rows.
       const created: TransactionRecord[] = [];
       for (const row of toImport) {
         const amt: number  = effectiveAmount(row.amount);
@@ -422,11 +485,18 @@ export default function TransactionsPage() {
         }
       }
 
-      // Adjust account balance by sum of imported amounts (using effective signs)
-      const delta = toImport.reduce((s, r) => s + effectiveAmount(r.amount), 0);
-      await adjustBalance(importAccountId, delta, null, "INCOME");
+      // 3. Adjust account balance by net of deletes + inserts.
+      const insertedDelta = toImport.reduce((s, r) => s + effectiveAmount(r.amount), 0);
+      const netDelta      = deletedDelta + insertedDelta;
+      if (netDelta !== 0) {
+        await adjustBalance(importAccountId, netDelta, null, "INCOME");
+      }
 
-      setTransactions((p) => [...created, ...p]);
+      // 4. Sync local state — drop deleted rows, prepend created ones.
+      setTransactions((p) => [
+        ...created,
+        ...p.filter((t) => !deletedIds.has(t.id)),
+      ]);
       const accs = await listAll(client.models.financeAccount);
       setAccounts(accs);
       setPanel(null);
@@ -1071,13 +1141,61 @@ export default function TransactionsPage() {
                     <span className="text-gray-400">— flip all amounts if this file's convention is inverted</span>
                   </label>
 
+                  {/* Date range — auto-populated from the parsed CSV's min/max dates. */}
+                  {importRows.length > 0 && (
+                    <div>
+                      <label className={labelCls}>Date range (inclusive)</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="date"
+                          value={importStartDate}
+                          onChange={(e) => setImportStartDate(e.target.value)}
+                          className={inputCls}
+                        />
+                        <span className="text-xs text-gray-400">to</span>
+                        <input
+                          type="date"
+                          value={importEndDate}
+                          onChange={(e) => setImportEndDate(e.target.value)}
+                          className={inputCls}
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Rows outside this range are excluded from the import.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Delete-in-range — replaces existing tx for the account in the
+                      chosen window. Use when the bank shifted dates / changed
+                      scheduled→posted and re-importing would otherwise drift. */}
+                  {importRows.length > 0 && importAccountId && importStartDate && importEndDate && (
+                    <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={importDeleteRange}
+                        onChange={(e) => setImportDeleteRange(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium">Delete existing transactions in range first</span>
+                        <span className="text-gray-400 ml-1">
+                          — {inRangeExistingTx.length} existing transaction{inRangeExistingTx.length === 1 ? "" : "s"} would be deleted, then {inRangeRows.length} replaced.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
                   {importFormat && (
                     <p className="text-xs text-gray-400">
                       Detected format: <span className="font-medium text-gray-600 dark:text-gray-300">{importFormat}</span>
                       {" · "}{importRows.length} rows
-                      {" · "}<span style={{ color: FINANCE_COLOR }}>{importRows.filter((r) => r.selected).length} selected</span>
-                      {importRows.some((r) => r.duplicate) && (
-                        <span className="text-amber-500"> · {importRows.filter((r) => r.duplicate).length} duplicates</span>
+                      {inRangeRows.length !== importRows.length && (
+                        <> · <span className="text-gray-500">{inRangeRows.length} in range</span></>
+                      )}
+                      {" · "}<span style={{ color: FINANCE_COLOR }}>{inRangeRows.filter((r) => r.selected).length} selected</span>
+                      {!importDeleteRange && inRangeRows.some((r) => r.duplicate) && (
+                        <span className="text-amber-500"> · {inRangeRows.filter((r) => r.duplicate).length} duplicates</span>
                       )}
                     </p>
                   )}
@@ -1086,9 +1204,14 @@ export default function TransactionsPage() {
                   {importAccountId && importRows.length > 0 && (() => {
                     const tgt = accounts.find((a) => a.id === importAccountId);
                     if (!tgt) return null;
-                    const delta = importRows
-                      .filter((r) => r.selected && !r.duplicate)
-                      .reduce((s, r) => s + effectiveAmount(r.amount), 0);
+                    const insertedDelta = (importDeleteRange
+                      ? inRangeRows.filter((r) => r.selected)
+                      : inRangeRows.filter((r) => r.selected && !r.duplicate)
+                    ).reduce((s, r) => s + effectiveAmount(r.amount), 0);
+                    const deletedDelta = importDeleteRange
+                      ? -inRangeExistingTx.reduce((s, t) => s + (t.amount ?? 0), 0)
+                      : 0;
+                    const delta = insertedDelta + deletedDelta;
                     const currentBal   = tgt.currentBalance ?? 0;
                     const predictedBal = currentBal + delta;
                     const cur = tgt.currency ?? "USD";
@@ -1119,8 +1242,10 @@ export default function TransactionsPage() {
                   {importRows.length > 0 && (
                     <>
                       <div className="flex gap-2">
-                        <button onClick={() => setImportRows((r) => r.map((row) => ({ ...row, selected: !row.duplicate })))}
-                          className="text-xs underline" style={{ color: FINANCE_COLOR }}>Select all new</button>
+                        <button onClick={() => setImportRows((r) => r.map((row) => ({ ...row, selected: importDeleteRange ? true : !row.duplicate })))}
+                          className="text-xs underline" style={{ color: FINANCE_COLOR }}>
+                          {importDeleteRange ? "Select all in range" : "Select all new"}
+                        </button>
                         <button onClick={() => setImportRows((r) => r.map((row) => ({ ...row, selected: false })))}
                           className="text-xs underline text-gray-400">Deselect all</button>
                       </div>
@@ -1136,32 +1261,42 @@ export default function TransactionsPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                            {importRows.map((row, idx) => (
-                              <tr key={idx}
-                                className={row.duplicate ? "opacity-40" : ""}
-                                onClick={() => !row.duplicate && setImportRows((r) =>
-                                  r.map((x, i) => i === idx ? { ...x, selected: !x.selected } : x))}>
-                                <td className="px-2 py-1">
-                                  <input type="checkbox" checked={row.selected} readOnly
-                                    className="pointer-events-none" />
-                                </td>
-                                <td className="px-2 py-1 whitespace-nowrap text-gray-500">{fmtDate(row.date)}</td>
-                                <td className="px-2 py-1 truncate max-w-[140px] text-gray-700 dark:text-gray-300">
-                                  {row.description}
-                                  {row.duplicate && <span className="ml-1 text-amber-500">(dup)</span>}
-                                </td>
-                                <td className="px-2 py-1 text-right tabular-nums font-medium"
-                                  style={{ color: amountColor(effectiveAmount(row.amount)) }}>
-                                  {fmtCurrency(effectiveAmount(row.amount), "USD", true)}
-                                </td>
-                              </tr>
-                            ))}
+                            {inRangeRows.map((row) => {
+                              // Find the row's index in the original list so the
+                              // toggle still updates the right entry.
+                              const idx = importRows.indexOf(row);
+                              const showAsDuplicate = row.duplicate && !importDeleteRange;
+                              return (
+                                <tr key={idx}
+                                  className={showAsDuplicate ? "opacity-40" : ""}
+                                  onClick={() => !showAsDuplicate && setImportRows((r) =>
+                                    r.map((x, i) => i === idx ? { ...x, selected: !x.selected } : x))}>
+                                  <td className="px-2 py-1">
+                                    <input type="checkbox" checked={row.selected} readOnly
+                                      className="pointer-events-none" />
+                                  </td>
+                                  <td className="px-2 py-1 whitespace-nowrap text-gray-500">{fmtDate(row.date)}</td>
+                                  <td className="px-2 py-1 truncate max-w-[140px] text-gray-700 dark:text-gray-300">
+                                    {row.description}
+                                    {showAsDuplicate && <span className="ml-1 text-amber-500">(dup)</span>}
+                                  </td>
+                                  <td className="px-2 py-1 text-right tabular-nums font-medium"
+                                    style={{ color: amountColor(effectiveAmount(row.amount)) }}>
+                                    {fmtCurrency(effectiveAmount(row.amount), "USD", true)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
 
                       <SaveButton saving={saving} onSave={handleImport}
-                        label={`Import ${importRows.filter((r) => r.selected && !r.duplicate).length} transactions`} />
+                        label={
+                          importDeleteRange
+                            ? `Replace ${inRangeExistingTx.length} with ${inRangeRows.filter((r) => r.selected).length}`
+                            : `Import ${inRangeRows.filter((r) => r.selected && !r.duplicate).length} transactions`
+                        } />
                     </>
                   )}
                 </div>
