@@ -5,6 +5,7 @@ import { Listbox, ListboxItem } from "@heroui/listbox";
 import { Divider } from "@heroui/divider";
 import DefaultLayout from "@/layouts/default";
 import { CATEGORY_CONFIG, Category } from "@/components/inventory/_shared";
+import { ToolsNav } from "@/components/tools-nav";
 
 const NAV_ITEMS: { key: string; label: string; href: string; color: string }[] = [
   { key: "all",         label: "All Items",   href: "/inventory",             color: "#BCABAE" },
@@ -171,6 +172,8 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
               );
             })}
           </Listbox>
+
+          <ToolsNav current="inventory" />
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────────── */}

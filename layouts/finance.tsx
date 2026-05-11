@@ -5,6 +5,7 @@ import { Listbox, ListboxItem } from "@heroui/listbox";
 import { Divider } from "@heroui/divider";
 import DefaultLayout from "@/layouts/default";
 import { maybeRefreshAllQuotes } from "@/components/finance/_shared";
+import { ToolsNav } from "@/components/tools-nav";
 
 const FINANCE_COLOR = "#10b981"; // emerald
 const QUOTE_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
@@ -198,6 +199,8 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
               Goal
             </NextLink>
           </div>
+
+          <ToolsNav current="finance" />
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────────── */}

@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import { Listbox, ListboxItem } from "@heroui/listbox";
 import DefaultLayout from "@/layouts/default";
+import { ToolsNav } from "@/components/tools-nav";
 
 const NAV_ITEMS = [
   { key: "flights", label: "Flights",  href: "/admin/flights",        color: "#d4a843" },
@@ -87,6 +88,8 @@ export default function FlyingAdminLayout({ children }: { children: React.ReactN
               );
             })}
           </Listbox>
+
+          <ToolsNav current="flights" />
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────── */}
