@@ -140,6 +140,15 @@ const IRS_401K_ELECTIVE_LIMITS: Record<number, number> = {
   2026: 24500,
 };
 
+// 401(k) total annual additions limit (IRC §415(c)) — the combined ceiling
+// for all employee elective + employer match + after-tax employee
+// contributions to a single plan in one year. Drives mega-backdoor Roth
+// headroom: 415(c) − 402(g)-elective − employer match = max after-tax room.
+const IRS_401K_TOTAL_LIMITS: Record<number, number> = {
+  2025: 70000,
+  2026: 72000,
+};
+
 /** Returns the IRS §402(g) elective-deferral limit for `year`. Falls back to
  *  the most-recent year defined when an unknown year is passed. */
 export function irs401kElectiveLimit(year: number): number {
@@ -147,6 +156,13 @@ export function irs401kElectiveLimit(year: number): number {
   // Fall back to the most recent defined year.
   const years = Object.keys(IRS_401K_ELECTIVE_LIMITS).map(Number).sort();
   return IRS_401K_ELECTIVE_LIMITS[years[years.length - 1]];
+}
+
+/** IRS §415(c) total-additions limit (employee + employer + after-tax). */
+export function irs401kTotalLimit(year: number): number {
+  if (IRS_401K_TOTAL_LIMITS[year] != null) return IRS_401K_TOTAL_LIMITS[year];
+  const years = Object.keys(IRS_401K_TOTAL_LIMITS).map(Number).sort();
+  return IRS_401K_TOTAL_LIMITS[years[years.length - 1]];
 }
 
 export const PLAN_TAX_YEAR_LABEL = "2025 IRS rates";
@@ -771,6 +787,109 @@ export function contribPctToReachCap(args: {
   const remainingGross = Math.max(0, args.projectedGross - args.ytdGross);
   if (remainingGross <= 0) return null;
   return Math.min(1, headroom / remainingGross);
+}
+
+// ── Mega-backdoor / §415(c) projection ───────────────────────────────────
+
+type LineItemLike = {
+  name?:   string | null;
+  type?:   string | null;
+  ytd?:    number | null;
+  amount?: number | null;
+};
+
+/**
+ * Extract the employer-match YTD from a paycheck's lineItems blob.
+ * Matches any EMPLOYER_PAID row whose name contains "match" (case-insensitive).
+ * Works on Workday-style "401k Employer Match" rows and most other payroll
+ * provider variants. Returns 0 when no match line is found.
+ *
+ * `lineItems` may arrive as a serialized JSON string (AppSync's AWSJSON wire
+ * format), a parsed array, or null — handles all three.
+ */
+export function extractEmployerMatchYtd(lineItems: unknown): number {
+  let items: LineItemLike[] = [];
+  if (typeof lineItems === "string") {
+    try {
+      const parsed = JSON.parse(lineItems);
+      if (Array.isArray(parsed)) items = parsed as LineItemLike[];
+    } catch { /* leave items empty */ }
+  } else if (Array.isArray(lineItems)) {
+    items = lineItems as LineItemLike[];
+  }
+  let total = 0;
+  for (const it of items) {
+    if (it?.type !== "EMPLOYER_PAID") continue;
+    if (!it.name) continue;
+    if (!/match/i.test(it.name)) continue;
+    const ytd = it.ytd ?? it.amount ?? 0;
+    if (Number.isFinite(ytd)) total += ytd;
+  }
+  return total;
+}
+
+export type Mega401kProjection = {
+  irsLimit:                 number;   // §415(c) total annual additions cap
+  ytdEmployee:              number;   // = ytd401k (pretax/Roth elective)
+  ytdEmployerMatch:         number;
+  ytdAfterTax:              number;   // = ytdAfterTax401k
+  ytdTotal:                 number;   // sum of the three above
+  projectedEmployee:        number;   // §402(g)-capped (caller passes this in)
+  projectedEmployerMatch:   number;   // linear from YTD
+  projectedAfterTax:        number;   // linear from YTD
+  projectedTotal:           number;   // sum, capped at irsLimit
+  headroom:                 number;   // irsLimit - projectedTotal (≥ 0)
+  // Headroom that remains for ADDITIONAL after-tax contributions on top of
+  // current pace — i.e. how much more the user could mega-backdoor this year
+  // without bumping any other lever.
+  afterTaxHeadroom:         number;
+  capReached:               boolean;
+};
+
+/**
+ * Project full-year §415(c) total additions and surface mega-backdoor Roth
+ * headroom. Pretax/Roth elective comes pre-capped from project401kWithCap;
+ * employer match and after-tax both project linearly from YTD on the
+ * regular-salary gross axis (after-tax is taken on salary, not RSU).
+ */
+export function project415cTotal(args: {
+  ytdEmployee:           number;   // ytd401k (pretax/Roth elective)
+  ytdEmployerMatch:      number;
+  ytdAfterTax:           number;   // ytdAfterTax401k
+  ytdGross:              number;   // salary cash gross YTD (RSU excluded)
+  projectedGross:        number;   // salary cash gross projected year-end
+  projectedEmployee:     number;   // pretax §402(g)-capped projection (from project401kWithCap)
+  year?:                 number;
+}): Mega401kProjection {
+  const irsLimit = irs401kTotalLimit(args.year ?? new Date().getUTCFullYear());
+  // Scale = total-year / elapsed-year, derived from the gross ratio. Falls
+  // back to 1 when ytdGross is 0 (no projection possible).
+  const scale = args.ytdGross > 0 ? args.projectedGross / args.ytdGross : 1;
+  const projectedEmployerMatch = args.ytdEmployerMatch * scale;
+  const projectedAfterTax      = args.ytdAfterTax * scale;
+  const uncappedTotal          = args.projectedEmployee + projectedEmployerMatch + projectedAfterTax;
+  const projectedTotal         = Math.min(irsLimit, uncappedTotal);
+  const ytdTotal               = args.ytdEmployee + args.ytdEmployerMatch + args.ytdAfterTax;
+  const headroom               = Math.max(0, irsLimit - projectedTotal);
+  // After-tax headroom = total headroom plus any room not consumed by
+  // employer match + employee elective at year-end. The user can convert
+  // this much more (via in-plan Roth conversion or in-service rollover)
+  // before hitting §415(c) — assuming their plan supports it.
+  const afterTaxHeadroom       = Math.max(0, irsLimit - args.projectedEmployee - projectedEmployerMatch - projectedAfterTax);
+  return {
+    irsLimit,
+    ytdEmployee:            args.ytdEmployee,
+    ytdEmployerMatch:       args.ytdEmployerMatch,
+    ytdAfterTax:            args.ytdAfterTax,
+    ytdTotal,
+    projectedEmployee:      args.projectedEmployee,
+    projectedEmployerMatch,
+    projectedAfterTax,
+    projectedTotal,
+    headroom,
+    afterTaxHeadroom,
+    capReached:             uncappedTotal >= irsLimit,
+  };
 }
 
 // ── Defaults for a fresh scenario ────────────────────────────────────────

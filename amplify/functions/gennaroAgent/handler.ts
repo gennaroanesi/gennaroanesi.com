@@ -21,6 +21,7 @@ import type { Schema } from "../../data/resource";
 import {
   projectFromPaychecks, project401kWithCap, contribPctToReachCap,
   irs401kElectiveLimit, taxOwedFederal, taxGap, additionalMedicareTaxOwed,
+  project415cTotal, extractEmployerMatchYtd,
   type FilingStatus, type RsuVestCadence,
 } from "../../../components/finance/planning";
 
@@ -701,7 +702,7 @@ const tools: Anthropic.Tool[] = [
   {
     name: "project_401k_progress",
     description:
-      "Pace check toward the IRS §402(g) employee elective deferral cap. Returns YTD contribution, current contribution %, projected year-end 401k (capped), headroom, whether the cap will be reached, and `pctToReachCap` — the rate the user would need to contribute from now on to just hit the cap. Use this when the user asks about being on pace, maxing out 401k, or whether they should bump their contribution %.",
+      "Pace check toward the IRS §402(g) employee elective deferral cap. Returns YTD contribution, current contribution %, projected year-end 401k (capped), headroom, whether the cap will be reached, and `pctToReachCap` — the rate the user would need to contribute from now on to just hit the cap. Also returns a `megaBackdoor` block (null when the user isn't using it) with §415(c) total-additions projection: projected employee elective + employer match + after-tax employee contributions, `irsLimit` ($70k–$72k), `headroom`, and `afterTaxHeadroom` — how much more after-tax 401k they could contribute this year before hitting §415(c) (the mega-backdoor Roth limit). Use this when the user asks about being on pace, maxing out 401k, mega-backdoor headroom, or whether they should bump their contribution %.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1146,6 +1147,25 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           projectedGross: proj.projectedGross,
           year,
         });
+        // Mega-backdoor / §415(c) — only emit when there's actual employer
+        // match or after-tax 401k YTD; otherwise this view is noise.
+        let lineItems = latest.lineItems;
+        if (typeof lineItems === "string") {
+          try { lineItems = JSON.parse(lineItems); } catch { /* leave as string */ }
+        }
+        const ytdEmployerMatch = extractEmployerMatchYtd(lineItems);
+        const ytdAfterTax      = latest.ytdAfterTax401k ?? 0;
+        const mega = (ytdEmployerMatch > 0 || ytdAfterTax > 0)
+          ? project415cTotal({
+              ytdEmployee:        latest.ytd401k  ?? 0,
+              ytdEmployerMatch,
+              ytdAfterTax,
+              ytdGross:           latest.ytdGross ?? 0,
+              projectedGross:     proj.projectedGross,
+              projectedEmployee:  capInfo.projected401k,
+              year,
+            })
+          : null;
         return stringify({ ok: true, data: {
           person:           input.person,
           year,
@@ -1159,6 +1179,7 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           capReached:       capInfo.capReached,
           excessOverCap:    capInfo.excessOverCap,
           pctToReachCap:    pctToCap,
+          megaBackdoor:     mega,
         } });
       }
 

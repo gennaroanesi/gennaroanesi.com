@@ -26,7 +26,8 @@ import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
   additionalMedicareTaxOwed, contribPctToReachCap, irs401kElectiveLimit,
-  type RsuVestCadence, type FilingStatus,
+  project415cTotal, extractEmployerMatchYtd,
+  type RsuVestCadence, type FilingStatus, type Mega401kProjection,
 } from "@/components/finance/planning";
 
 // Mirrors the settings shape persisted by /finance/tax-outlook so the
@@ -388,6 +389,10 @@ export default function FinanceDashboard() {
     pctToCap:        number | null;   // % from-now-on that would just hit the cap (null if unreachable / already maxed)
     paceLabel:       "MAXED" | "ON_PACE" | "BEHIND";
     stale:           boolean;
+    // Mega-backdoor / §415(c) view. Only populated when the latest stub has
+    // either an employer-match line OR a non-zero ytdAfterTax401k — otherwise
+    // the user isn't using mega-backdoor and the second bar is hidden.
+    mega?:           Mega401kProjection;
   };
   const k401Progress = useMemo<K401Entry[]>(() => {
     const year = new Date(today).getUTCFullYear();
@@ -416,6 +421,22 @@ export default function FinanceDashboard() {
         ytd401k >= irsLimit                ? "MAXED"
           : capInfo.capReached             ? "ON_PACE"
           :                                  "BEHIND";
+      // Mega-backdoor / §415(c) view — only show when there's actual
+      // employer match or after-tax contribution to track. Otherwise the
+      // second bar would just duplicate the §402(g) one.
+      const ytdEmployerMatch = extractEmployerMatchYtd(latest.lineItems);
+      const ytdAfterTax      = latest.ytdAfterTax401k ?? 0;
+      const mega = (ytdEmployerMatch > 0 || ytdAfterTax > 0)
+        ? project415cTotal({
+            ytdEmployee:        ytd401k,
+            ytdEmployerMatch,
+            ytdAfterTax,
+            ytdGross,
+            projectedGross:     proj.projectedGross,
+            projectedEmployee:  capInfo.projected401k,
+            year,
+          })
+        : undefined;
       out.push({
         person, ytd401k, currentPct,
         projected401k: capInfo.projected401k,
@@ -425,6 +446,7 @@ export default function FinanceDashboard() {
         pctToCap,
         paceLabel,
         stale:         isPaycheckStale(latest.payDate ?? today, today),
+        mega,
       });
     }
     return out;
@@ -1161,6 +1183,50 @@ export default function FinanceDashboard() {
                             <>{fmtCurrency(k.headroom, "USD")} headroom remaining at current pace.</>
                           )}
                         </p>
+
+                        {/* Mega-backdoor / §415(c) total cap — only when the
+                            stub has employer match or after-tax 401k activity.
+                            Three stacked segments on a single bar: employee
+                            elective (paceColor) + employer match (purple) +
+                            after-tax (gold) → headroom is whatever's left of
+                            the $70k–$72k ceiling. */}
+                        {k.mega && (() => {
+                          const lim = k.mega.irsLimit;
+                          // Stack segments in priority order (employee →
+                          // match → after-tax) and clamp the tail to whatever
+                          // headroom remains — keeps the bar from overflowing
+                          // when the uncapped projection exceeds the §415(c)
+                          // ceiling.
+                          const emp = Math.min(1, k.mega.projectedEmployee / lim);
+                          const mch = Math.max(0, Math.min(1 - emp, k.mega.projectedEmployerMatch / lim));
+                          const aft = Math.max(0, Math.min(1 - emp - mch, k.mega.projectedAfterTax / lim));
+                          return (
+                            <div className="mt-2 pt-2 border-t border-gray-200 dark:border-darkBorder">
+                              <div className="flex items-baseline justify-between mb-1">
+                                <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
+                                  §415(c) · total ceiling
+                                </p>
+                                <span className="text-[10px] text-gray-400 tabular-nums">
+                                  {fmtCurrency(k.mega.afterTaxHeadroom, "USD")} mega-room
+                                </span>
+                              </div>
+                              <div className="relative h-2.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden flex">
+                                <div style={{ width: `${emp * 100}%`, backgroundColor: paceColor }} title={`Employee ${fmtCurrency(k.mega.projectedEmployee, "USD")}`} />
+                                <div style={{ width: `${mch * 100}%`, backgroundColor: "#a78bfa" }}  title={`Employer match ${fmtCurrency(k.mega.projectedEmployerMatch, "USD")}`} />
+                                <div style={{ width: `${aft * 100}%`, backgroundColor: "#d4a843" }}  title={`After-tax ${fmtCurrency(k.mega.projectedAfterTax, "USD")}`} />
+                              </div>
+                              <div className="flex items-baseline justify-between text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+                                <span className="tabular-nums">
+                                  Proj. {fmtCurrency(k.mega.projectedTotal, "USD")} of {fmtCurrency(lim, "USD")}
+                                </span>
+                                <span className="flex items-center gap-2 tabular-nums">
+                                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "#a78bfa" }} />match {fmtCurrency(k.mega.projectedEmployerMatch, "USD")}</span>
+                                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "#d4a843" }} />after-tax {fmtCurrency(k.mega.projectedAfterTax, "USD")}</span>
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
