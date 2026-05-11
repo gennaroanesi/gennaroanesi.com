@@ -25,7 +25,7 @@ import { Sparkline } from "@/components/common/sparkline";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
-  additionalMedicareTaxOwed,
+  additionalMedicareTaxOwed, contribPctToReachCap, irs401kElectiveLimit,
   type RsuVestCadence, type FilingStatus,
 } from "@/components/finance/planning";
 
@@ -371,6 +371,63 @@ export default function FinanceDashboard() {
       return { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
     })() : null;
     return { entries, combined };
+  }, [paychecks, today, paycheckSettings.rsuVestCadence]);
+
+  // ── 401k progress (Phase 4) ───────────────────────────────────────────────
+  // Per-person pacing toward the IRS §402(g) employee-elective-deferral cap.
+  // Driven off the latest stub's ytd401k + ytdGross + the same projection
+  // helpers the tax outlook uses, so the two tiles stay consistent.
+  type K401Entry = {
+    person:          PaycheckPerson;
+    ytd401k:         number;
+    currentPct:      number;          // YTD avg contribution %
+    projected401k:   number;          // year-end projection, IRS-cap-aware
+    irsLimit:        number;
+    headroom:        number;          // limit − projected, ≥ 0
+    capReached:      boolean;         // true when the projection actually hits the cap
+    pctToCap:        number | null;   // % from-now-on that would just hit the cap (null if unreachable / already maxed)
+    paceLabel:       "MAXED" | "ON_PACE" | "BEHIND";
+    stale:           boolean;
+  };
+  const k401Progress = useMemo<K401Entry[]>(() => {
+    const year = new Date(today).getUTCFullYear();
+    const out: K401Entry[] = [];
+    for (const person of ["ME", "SPOUSE"] as PaycheckPerson[]) {
+      const mine = paychecks
+        .filter((p) => p.person === person)
+        .filter((p) => (p.payDate ?? "").startsWith(`${year}`))
+        .sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""));
+      if (mine.length === 0) continue;
+      const cadence = paycheckSettings.rsuVestCadence[person] ?? "IRREGULAR";
+      const proj = projectFromPaychecks({ paychecks: mine, rsuVestCadence: cadence });
+      if (!proj) continue;
+      const latest = mine[0];
+      const ytdGross  = latest.ytdGross  ?? 0;
+      const ytd401k   = latest.ytd401k   ?? 0;
+      const currentPct = ytdGross > 0 ? ytd401k / ytdGross : 0;
+      const capInfo = project401kWithCap({
+        ytd401k, ytdGross, projectedGross: proj.projectedGross, contributionPct: currentPct, year,
+      });
+      const pctToCap = contribPctToReachCap({
+        ytd401k, ytdGross, projectedGross: proj.projectedGross, year,
+      });
+      const irsLimit = irs401kElectiveLimit(year);
+      const paceLabel: K401Entry["paceLabel"] =
+        ytd401k >= irsLimit                ? "MAXED"
+          : capInfo.capReached             ? "ON_PACE"
+          :                                  "BEHIND";
+      out.push({
+        person, ytd401k, currentPct,
+        projected401k: capInfo.projected401k,
+        irsLimit:      capInfo.irsLimit,
+        headroom:      capInfo.headroom,
+        capReached:    capInfo.capReached,
+        pctToCap,
+        paceLabel,
+        stale:         isPaycheckStale(latest.payDate ?? today, today),
+      });
+    }
+    return out;
   }, [paychecks, today, paycheckSettings.rsuVestCadence]);
 
   // Upcoming: recurring occurrences + future-dated transactions
@@ -1041,6 +1098,72 @@ export default function FinanceDashboard() {
                       </p>
                     </div>
                   )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* ── 401k progress (Phase 4) ──────────────────────────────── */}
+          {!loadingPaychecks && k401Progress.length > 0 && (
+            <section>
+              <div className="flex items-baseline justify-between mb-3 gap-2">
+                <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">401k progress</h2>
+                <a href="/finance/tax-outlook" className="text-xs font-semibold" style={{ color: FINANCE_COLOR }}>
+                  Tax outlook →
+                </a>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {k401Progress.map((k) => {
+                    // Fill ratios (each clamped to [0,1] for the visual). The
+                    // projection bar shows IRS-cap-aware year-end forecast;
+                    // YTD is the actual contribution so far.
+                    const ytdPct       = Math.min(1, k.ytd401k / k.irsLimit);
+                    const projectedPct = Math.min(1, k.projected401k / k.irsLimit);
+                    const paceColor =
+                      k.paceLabel === "MAXED"   ? "#10b981"
+                        : k.paceLabel === "ON_PACE" ? FINANCE_COLOR
+                        :                             "#f59e0b";
+                    return (
+                      <div key={k.person} className="flex flex-col gap-2">
+                        <div className="flex items-baseline justify-between">
+                          <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
+                            {PAYCHECK_PERSON_LABELS[k.person]}
+                          </p>
+                          <span
+                            className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full"
+                            style={{ backgroundColor: paceColor + "22", color: paceColor }}
+                          >
+                            {k.paceLabel === "MAXED" ? "Maxed" : k.paceLabel === "ON_PACE" ? "On pace" : "Behind"}
+                          </span>
+                        </div>
+                        {/* Stacked bar: solid YTD + lighter projected-addition + dark headroom */}
+                        <div className="relative h-2.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden">
+                          <div className="absolute inset-y-0 left-0" style={{ width: `${projectedPct * 100}%`, backgroundColor: paceColor, opacity: 0.4 }} />
+                          <div className="absolute inset-y-0 left-0" style={{ width: `${ytdPct * 100}%`, backgroundColor: paceColor }} />
+                        </div>
+                        <div className="flex items-baseline justify-between text-[11px] text-gray-500 dark:text-gray-400">
+                          <span className="tabular-nums">
+                            <span className="font-semibold text-gray-700 dark:text-gray-200">{fmtCurrency(k.ytd401k, "USD")}</span>
+                            {" "}of {fmtCurrency(k.irsLimit, "USD")} · current {(k.currentPct * 100).toFixed(1)}%
+                          </span>
+                          <span className="tabular-nums">
+                            Proj. {fmtCurrency(k.projected401k, "USD")}
+                          </span>
+                        </div>
+                        {/* Hint line: pace-to-cap advice when behind, headroom when ahead/maxed. */}
+                        <p className="text-[10px] text-gray-400">
+                          {k.paceLabel === "MAXED" ? (
+                            <>You've hit the §402(g) cap for {new Date(today).getUTCFullYear()}.</>
+                          ) : k.pctToCap != null && k.paceLabel === "BEHIND" ? (
+                            <>Contribute <span className="font-semibold" style={{ color: paceColor }}>{(k.pctToCap * 100).toFixed(1)}%</span> from now on to hit the {fmtCurrency(k.irsLimit, "USD")} cap.</>
+                          ) : (
+                            <>{fmtCurrency(k.headroom, "USD")} headroom remaining at current pace.</>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </section>

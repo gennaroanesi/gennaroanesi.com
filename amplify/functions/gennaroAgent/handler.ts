@@ -14,6 +14,15 @@ import { generateClient } from "aws-amplify/data";
 import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
 import { env } from "$amplify/env/gennaroAgent";
 import type { Schema } from "../../data/resource";
+// Pure-TS helpers shared with the dashboard / tax-outlook UI — bundled by
+// esbuild at deploy time. Keep this import surface minimal so a future
+// frontend-only refactor doesn't accidentally bring browser-only deps into
+// the Lambda bundle.
+import {
+  projectFromPaychecks, project401kWithCap, contribPctToReachCap,
+  irs401kElectiveLimit, taxOwedFederal, taxGap, additionalMedicareTaxOwed,
+  type FilingStatus, type RsuVestCadence,
+} from "../../../components/finance/planning";
 
 const MODEL_ID   = "claude-sonnet-4-6";
 const MAX_TURNS  = 10;    // safety cap on the tool-calling loop
@@ -639,6 +648,70 @@ const tools: Anthropic.Tool[] = [
       },
     },
   },
+  // ── Paychecks + tax / 401k projections (Phase 5) ─────────────────────
+  {
+    name: "list_paychecks",
+    description:
+      "List paycheck rows (one row per pay stub) with optional person and date-range filters. Heavy `lineItems` blob is omitted — call get_latest_paycheck if you need the per-deduction breakdown. Each row has gross, taxableWage, fedWh, oasdi, medicare, contrib401k, ytdGross, ytdFedWh, ytd401k, etc. `person` is ME or SPOUSE.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        person: { type: "string", description: "ME or SPOUSE." },
+        from:   { type: "string", description: "Inclusive YYYY-MM-DD." },
+        to:     { type: "string", description: "Inclusive YYYY-MM-DD." },
+      },
+    },
+  },
+  {
+    name: "get_latest_paycheck",
+    description: "Fetch the single most recent paycheck for a person — the YTD columns on this row are the source of truth for AGI / tax / 401k projections. Returns null if no paychecks exist for that person.",
+    input_schema: {
+      type: "object" as const,
+      properties: { person: { type: "string", description: "ME or SPOUSE." } },
+      required: ["person"],
+    },
+  },
+  {
+    name: "project_agi",
+    description:
+      "Project year-end AGI components (gross, taxable wage, withholdings, 401k, RSU/bonus supplemental) from current-year paychecks. Use this rather than summing list_paychecks yourself — the helper handles RSU/bonus decomposition + cadence and matches the dashboard tile's numbers. Omit `person` to get both ME and SPOUSE in one call.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        person:         { type: "string", description: "ME or SPOUSE. Omit for both." },
+        year:           { type: "integer", description: "Defaults to current calendar year." },
+        rsuVestCadence: { type: "string", description: "QUARTERLY | MONTHLY | SEMIANNUAL | ANNUAL | IRREGULAR. Defaults to IRREGULAR (no RSU extrapolation)." },
+      },
+    },
+  },
+  {
+    name: "project_tax",
+    description:
+      "Estimate year-end federal tax liability and refund/owed gap. Pulls projections from project_agi, applies the §402(g) cap correction to taxable wages, runs bracket math, adds Additional Medicare Tax. `filingStatus` is SINGLE or MFJ — when MFJ and both persons have paychecks on file, the response includes a `combined` block with the joint outcome. Defaults to SINGLE.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        person:         { type: "string", description: "ME or SPOUSE. Omit for both." },
+        filingStatus:   { type: "string", description: "SINGLE or MFJ. Default SINGLE." },
+        year:           { type: "integer" },
+        rsuVestCadence: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "project_401k_progress",
+    description:
+      "Pace check toward the IRS §402(g) employee elective deferral cap. Returns YTD contribution, current contribution %, projected year-end 401k (capped), headroom, whether the cap will be reached, and `pctToReachCap` — the rate the user would need to contribute from now on to just hit the cap. Use this when the user asks about being on pace, maxing out 401k, or whether they should bump their contribution %.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        person:         { type: "string", description: "ME or SPOUSE." },
+        year:           { type: "integer" },
+        rsuVestCadence: { type: "string" },
+      },
+      required: ["person"],
+    },
+  },
 ];
 
 // ── Tool dispatcher ─────────────────────────────────────────────────────────
@@ -923,6 +996,172 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           "voltageRating", "currentRatingA", "powerRatingW", "tolerancePct", "color",
         ]);
 
+      // ── Paycheck reads + projections (Phase 5) ──────────────────────────
+      case "list_paychecks": {
+        const filters: any[] = [];
+        if (input.person) filters.push({ person: { eq: input.person } });
+        if (input.from)   filters.push({ payDate: { ge: input.from } });
+        if (input.to)     filters.push({ payDate: { le: input.to } });
+        const filter = filters.length === 0 ? undefined
+          : filters.length === 1 ? filters[0]
+          : { and: filters };
+        const { items, truncated } = await listAllWithMeta(c.models.financePaycheck as any, filter, 500);
+        // Strip the heavy lineItems blob from each row — listing 26 paychecks
+        // would otherwise blow the agent's context. The detail tool returns
+        // them when needed.
+        const slim = items.map((p: any) => {
+          const { lineItems: _omit, ...rest } = p;
+          return rest;
+        });
+        return stringify({ ok: true, data: { items: slim, truncated } });
+      }
+      case "get_latest_paycheck": {
+        if (!input.person) return stringify({ ok: false, error: "person is required" });
+        const { items } = await listAllWithMeta(
+          c.models.financePaycheck as any,
+          { person: { eq: input.person } },
+          500,
+        );
+        if (items.length === 0) return stringify({ ok: true, data: null });
+        const sorted = (items as any[]).sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""));
+        const latest = sorted[0];
+        if (latest.lineItems && typeof latest.lineItems === "string") {
+          try { latest.lineItems = JSON.parse(latest.lineItems); } catch { /* keep as string */ }
+        }
+        return stringify({ ok: true, data: latest });
+      }
+      case "project_agi": {
+        const persons: string[] = input.person ? [input.person] : ["ME", "SPOUSE"];
+        const year = input.year ?? new Date().getUTCFullYear();
+        const cadence: RsuVestCadence = (input.rsuVestCadence ?? "IRREGULAR") as RsuVestCadence;
+        const perPerson: any[] = [];
+        for (const person of persons) {
+          const { items } = await listAllWithMeta(
+            c.models.financePaycheck as any,
+            { and: [{ person: { eq: person } }, { payDate: { ge: `${year}-01-01` } }, { payDate: { le: `${year}-12-31` } }] },
+            500,
+          );
+          if (items.length === 0) continue;
+          const proj = projectFromPaychecks({ paychecks: items as any, rsuVestCadence: cadence });
+          if (!proj) continue;
+          perPerson.push({
+            person,
+            paychecksOnFile:        items.length,
+            paychecksElapsed:       proj.paychecksElapsed,
+            paychecksPerYear:       proj.paychecksPerYear,
+            projectedGross:         proj.projectedGross,
+            projectedTaxableWage:   proj.projectedTaxableWage,
+            projectedFedWh:         proj.projectedFedWh,
+            projectedOasdi:         proj.projectedOasdi,
+            projectedMedicare:      proj.projectedMedicare,
+            projected401k:          proj.projected401k,
+            projectedRsuGross:      proj.projectedRsuGross,
+            projectedBonusGross:    proj.projectedBonusGross,
+            projectedTotalEarnings: proj.projectedTotalEarnings,
+            projectedNet:           proj.projectedNet,
+          });
+        }
+        return stringify({ ok: true, data: { year, rsuVestCadence: cadence, perPerson } });
+      }
+      case "project_tax": {
+        const persons: string[] = input.person ? [input.person] : ["ME", "SPOUSE"];
+        const year     = input.year ?? new Date().getUTCFullYear();
+        const cadence: RsuVestCadence = (input.rsuVestCadence ?? "IRREGULAR") as RsuVestCadence;
+        const filing: FilingStatus = (input.filingStatus ?? "SINGLE") as FilingStatus;
+        const perPerson: any[] = [];
+        for (const person of persons) {
+          const { items } = await listAllWithMeta(
+            c.models.financePaycheck as any,
+            { and: [{ person: { eq: person } }, { payDate: { ge: `${year}-01-01` } }, { payDate: { le: `${year}-12-31` } }] },
+            500,
+          );
+          if (items.length === 0) continue;
+          const proj = projectFromPaychecks({ paychecks: items as any, rsuVestCadence: cadence });
+          if (!proj) continue;
+          const latest = (items as any[]).sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""))[0];
+          const currentPct = (latest.ytdGross ?? 0) > 0 ? (latest.ytd401k ?? 0) / (latest.ytdGross ?? 1) : 0;
+          const capInfo    = project401kWithCap({
+            ytd401k:         latest.ytd401k  ?? 0,
+            ytdGross:        latest.ytdGross ?? 0,
+            projectedGross:  proj.projectedGross,
+            contributionPct: currentPct,
+            year,
+          });
+          // Apply the §402(g) correction to taxable wages — when 401k caps
+          // mid-year, the linear projection understates taxable income.
+          const correctedTaxableWage = proj.projectedTaxableWage + capInfo.excessOverCap;
+          const bracketTax  = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing, year });
+          const addlMedicare = additionalMedicareTaxOwed({
+            combinedMedicareWages: proj.projectedTotalEarnings,
+            filingStatus:          filing,
+          });
+          const taxOwed = bracketTax + addlMedicare;
+          perPerson.push({
+            person,
+            projectedTaxableWage: correctedTaxableWage,
+            projectedFedWh:       proj.projectedFedWh,
+            taxOwed,
+            gap:                  taxGap(proj.projectedFedWh, taxOwed),
+          });
+        }
+        // MFJ combined view — only valid when both persons present + filing is MFJ.
+        let combined: any = null;
+        if (filing === "MFJ" && perPerson.length === 2) {
+          const taxableWage = perPerson.reduce((s, p) => s + p.projectedTaxableWage, 0);
+          const fedWh       = perPerson.reduce((s, p) => s + p.projectedFedWh, 0);
+          // For Additional Medicare on MFJ we need combined Medicare-wages —
+          // re-derive from the projections above. Note: this assumes both
+          // persons used the same rsuVestCadence, which is fine for an
+          // agent-side estimate.
+          const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ", year });
+          const taxOwed     = bracketTax;
+          combined = { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
+        }
+        return stringify({ ok: true, data: { year, filingStatus: filing, rsuVestCadence: cadence, perPerson, combined } });
+      }
+      case "project_401k_progress": {
+        if (!input.person) return stringify({ ok: false, error: "person is required" });
+        const year     = input.year ?? new Date().getUTCFullYear();
+        const cadence: RsuVestCadence = (input.rsuVestCadence ?? "IRREGULAR") as RsuVestCadence;
+        const { items } = await listAllWithMeta(
+          c.models.financePaycheck as any,
+          { and: [{ person: { eq: input.person } }, { payDate: { ge: `${year}-01-01` } }, { payDate: { le: `${year}-12-31` } }] },
+          500,
+        );
+        if (items.length === 0) return stringify({ ok: true, data: null });
+        const proj = projectFromPaychecks({ paychecks: items as any, rsuVestCadence: cadence });
+        if (!proj) return stringify({ ok: true, data: null });
+        const latest = (items as any[]).sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""))[0];
+        const currentPct = (latest.ytdGross ?? 0) > 0 ? (latest.ytd401k ?? 0) / (latest.ytdGross ?? 1) : 0;
+        const capInfo = project401kWithCap({
+          ytd401k:         latest.ytd401k  ?? 0,
+          ytdGross:        latest.ytdGross ?? 0,
+          projectedGross:  proj.projectedGross,
+          contributionPct: currentPct,
+          year,
+        });
+        const pctToCap = contribPctToReachCap({
+          ytd401k:        latest.ytd401k  ?? 0,
+          ytdGross:       latest.ytdGross ?? 0,
+          projectedGross: proj.projectedGross,
+          year,
+        });
+        return stringify({ ok: true, data: {
+          person:           input.person,
+          year,
+          rsuVestCadence:   cadence,
+          ytd401k:          latest.ytd401k ?? 0,
+          ytdGross:         latest.ytdGross ?? 0,
+          currentPct,
+          irsLimit:         irs401kElectiveLimit(year),
+          projected401k:    capInfo.projected401k,
+          headroom:         capInfo.headroom,
+          capReached:       capInfo.capReached,
+          excessOverCap:    capInfo.excessOverCap,
+          pctToReachCap:    pctToCap,
+        } });
+      }
+
       default:
         return stringify({ ok: false, error: `Unknown tool: ${name}` });
     }
@@ -958,10 +1197,11 @@ function buildSystemPrompt(chatContext: unknown): string {
     } catch { /* ignore */ }
   }
 
-  return `You are the assistant for Gennaro's personal dashboard. You help summarize and explore two domains today:
+  return `You are the assistant for Gennaro's personal dashboard. You help summarize and explore three domains today:
 
 1. FINANCE — accounts, transactions, recurring items, savings goals, holdings, ticker quotes, assets, loans.
-2. INVENTORY — physical items (firearms, ammo, musical instruments, 3D-printer filaments, photography gear). A base item record holds name/brand/price; category-specific detail tables hold the specs. The list_<category> tools already join them.
+2. PAYCHECKS — pay stubs (one row per check), with year-to-date columns that drive AGI / tax / 401k projections. Two persons: ME and SPOUSE.
+3. INVENTORY — physical items (firearms, ammo, musical instruments, 3D-printer filaments, photography gear). A base item record holds name/brand/price; category-specific detail tables hold the specs. The list_<category> tools already join them.
 
 Today is ${dateFmt.format(now)} (${TZ}).
 
@@ -987,6 +1227,8 @@ Guidelines:
 - Ammo calibers are free-text (e.g. "9mm", "9mm Luger", "9x19 Parabellum"). Use contains-match. For "how many X do I have", list_ammo returns totalRoundsAvailable — use that directly.
 - Instrument types are uppercase enums: GUITAR, BASS, AMPLIFIER, PEDAL, KEYBOARD. "Guitars" maps to type=GUITAR.
 - Electronics types are uppercase enums: RESISTOR, CAPACITOR, INDUCTOR, DIODE, LED, TRANSISTOR, IC, MODULE, BREADBOARD, WIRE_CONNECTOR, TOOL, CONSUMABLE, OTHER. Pick the most specific bucket.
+- For paycheck / tax / 401k questions, ALWAYS prefer the project_* tools (project_agi, project_tax, project_401k_progress) — they read the latest stub's YTD column and project to year-end correctly (RSU/bonus decomposition, §402(g) cap, Additional Medicare). Don't list all paychecks and sum manually — that's slower and skips the cap correction.
+- When the user asks about refunds, AGI, taxable income, or "am I on pace", use project_tax with their household filing status (MFJ unless they say otherwise) and surface the gap and the contribution-percentage hint.
 - Keep responses terse and direct. Don't narrate tool calls; just use the results.${ctxBlock}`;
 }
 
