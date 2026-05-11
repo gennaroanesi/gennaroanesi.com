@@ -437,7 +437,16 @@ export function tickerAggregate(
   quotes: QuoteMap,
 ): TickerAggregate {
   const tickerUpper = ticker.toUpperCase();
-  const myLots       = lots.filter((l) => (l.ticker ?? "").toUpperCase() === tickerUpper);
+  const myLots       = lots
+    .filter((l) => (l.ticker ?? "").toUpperCase() === tickerUpper)
+    .sort((a, b) => {
+      const ap = a.purchaseDate ?? "9999-12-31";
+      const bp = b.purchaseDate ?? "9999-12-31";
+      if (ap !== bp) return ap.localeCompare(bp);
+      const av = a.vestDate ?? "9999-12-31";
+      const bv = b.vestDate ?? "9999-12-31";
+      return av.localeCompare(bv);
+    });
   const vestedLots   = myLots.filter(isLotVested);
   const unvestedLots = myLots.filter((l) => !isLotVested(l));
   const totalQty = vestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
