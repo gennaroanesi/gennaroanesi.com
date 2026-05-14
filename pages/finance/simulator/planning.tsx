@@ -58,6 +58,7 @@ export default function PlanningSimulatorPage() {
   }, [scenarios, setScenarios]);
 
   const [activeId, setActiveId] = useState<string>("");
+  const [showConfig, setShowConfig] = useState(true);
   useEffect(() => {
     const hasActive = !!activeId && scenarios.some((s) => s.id === activeId);
     if (hasActive) return;
@@ -196,25 +197,39 @@ export default function PlanningSimulatorPage() {
               placeholder="Scenario name"
               className="bg-transparent border-b border-gray-200 dark:border-darkBorder text-base font-semibold text-gray-700 dark:text-gray-200 focus:outline-none focus:border-emerald-500 px-1 py-0.5 max-w-sm w-full"
             />
-            <button
-              onClick={() => deleteScenario(active.id)}
-              disabled={scenarios.length <= 1}
-              className="text-[11px] text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title={scenarios.length <= 1 ? "Can't delete the last scenario" : "Delete this scenario"}
-            >
-              Delete scenario
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowConfig((v) => !v)}
+                className="text-[11px] font-semibold px-2 py-1 rounded border transition-colors"
+                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                title={showConfig ? "Collapse configuration to focus on the values table" : "Show configuration cards"}
+              >
+                {showConfig ? "▾ Hide configuration" : "▸ Show configuration"}
+              </button>
+              <button
+                onClick={() => deleteScenario(active.id)}
+                disabled={scenarios.length <= 1}
+                className="text-[11px] text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                title={scenarios.length <= 1 ? "Can't delete the last scenario" : "Delete this scenario"}
+              >
+                Delete scenario
+              </button>
+            </div>
           </div>
 
-          {/* ── Editors (4 cards) ───────────────────────────────────── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
-            <SalaryCard scenario={active} update={updateActive} />
-            <PaycheckCard scenario={active} update={updateActive} />
-            <SupplementalCard scenario={active} update={updateActive} />
-            <HorizonCard scenario={active} update={updateActive} />
-          </div>
+          {showConfig && (
+            <>
+              {/* ── Editors (4 cards) ───────────────────────────────────── */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                <SalaryCard scenario={active} update={updateActive} />
+                <PaycheckCard scenario={active} update={updateActive} />
+                <SupplementalCard scenario={active} update={updateActive} />
+                <HorizonCard scenario={active} update={updateActive} />
+              </div>
 
-          <SpendCard scenario={active} update={updateActive} />
+              <SpendCard scenario={active} update={updateActive} />
+            </>
+          )}
 
           {/* ── Year grid output ────────────────────────────────────── */}
           <YearGrid
