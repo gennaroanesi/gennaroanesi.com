@@ -53,10 +53,10 @@ export default function ElectronicsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "ELECTRONICS" }, active: { ne: false } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "ELECTRONICS" } }, limit: 500 }),
         client.models.inventoryElectronic.list({ limit: 500 }),
       ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, ElectronicRecord>();
       (detailData ?? []).forEach((d) => map.set(d.itemId, d));
       setDetails(map);
@@ -72,9 +72,9 @@ export default function ElectronicsPage() {
 
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/electronics", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -83,8 +83,8 @@ export default function ElectronicsPage() {
     if (item && detail) openEdit(item, detail);
   }, [router.isReady, router.query.id, items, details]);
 
-  function openNew() {
-    setItemDraft({ category: "ELECTRONICS", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "ELECTRONICS", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setDetailDraft({ type: "RESISTOR" });
     setPanel({ kind: "new" });
   }
@@ -112,7 +112,7 @@ export default function ElectronicsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         if (errors || !newItem) return;
         const { data: newDetail } = await client.models.inventoryElectronic.create({
@@ -149,7 +149,7 @@ export default function ElectronicsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         await client.models.inventoryElectronic.update({
           id:              panel.detail.id,

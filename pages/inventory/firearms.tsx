@@ -45,10 +45,10 @@ export default function FirearmsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "FIREARM" }, active: { ne: false } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "FIREARM" } }, limit: 500 }),
         client.models.inventoryFirearm.list({ limit: 500 }),
       ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, FirearmRecord>();
       (detailData ?? []).forEach((d) => map.set(d.itemId, d));
       setDetails(map);
@@ -64,9 +64,9 @@ export default function FirearmsPage() {
 
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/firearms", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -75,8 +75,8 @@ export default function FirearmsPage() {
     if (item && firearm) openEdit(item, firearm);
   }, [router.isReady, router.query.id, items, details]);
 
-  function openNew() {
-    setItemDraft({ category: "FIREARM", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "FIREARM", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setFirearmDraft({});
     setPanel({ kind: "new" });
   }
@@ -104,7 +104,7 @@ export default function FirearmsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         if (errors || !newItem) return;
         const { data: newFirearm } = await client.models.inventoryFirearm.create({
@@ -138,7 +138,7 @@ export default function FirearmsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         await client.models.inventoryFirearm.update({
           id:           panel.firearm.id,

@@ -20,7 +20,8 @@ const schema = a.schema({
       currency: a.string().default("USD"),
       notes: a.string(),
       imageKeys: a.string().array(), // S3 keys under inventory/{id}/
-      active: a.boolean().default(true),
+      active: a.boolean().default(true), // DEPRECATED — superseded by `status`; drop in a follow-up PR once all reads migrate.
+      status: a.enum(["WISHLIST", "OWNED", "SOLD"]),
       priceSold: a.float(),
     })
     .authorization((allow) => [allow.group("admins")]),

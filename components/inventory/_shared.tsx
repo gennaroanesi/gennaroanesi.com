@@ -494,30 +494,36 @@ export function BaseItemFields({
           value={item.notes ?? ""}
           onChange={(e) => onChange({ notes: e.target.value })} />
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className={labelCls}>Price Sold</label>
-          <input type="number" min={0} step={0.01} className={inputCls} placeholder="0.00"
-            value={item.priceSold ?? ""}
-            onChange={(e) => onChange({ priceSold: parseFloat(e.target.value) || null })} />
+      <div>
+        <label className={labelCls}>Status</label>
+        <div className="grid grid-cols-3 gap-0 rounded-md overflow-hidden border border-gray-200 dark:border-darkBorder">
+          {(["WISHLIST", "OWNED", "SOLD"] as const).map((s) => {
+            const current = (item.status ?? "OWNED") as "WISHLIST" | "OWNED" | "SOLD";
+            const isActive = current === s;
+            const colors = { WISHLIST: "#d4a843", OWNED: "#10B981", SOLD: "#9ca3af" } as const;
+            const labels = { WISHLIST: "Wishlist", OWNED: "Owned", SOLD: "Sold" } as const;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onChange({ status: s })}
+                className="px-2 py-2 text-xs font-medium transition-colors"
+                style={{
+                  backgroundColor: isActive ? colors[s] + "22" : "transparent",
+                  color: isActive ? colors[s] : "#6b7280",
+                }}
+              >
+                {labels[s]}
+              </button>
+            );
+          })}
         </div>
-        <div className="flex flex-col justify-end pb-1">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <span className={labelCls}>Active</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={item.active !== false}
-              onClick={() => onChange({ active: !(item.active !== false) })}
-              className="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none"
-              style={{ backgroundColor: item.active !== false ? "#8B5CF6" : "#9ca3af" }}>
-              <span
-                className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform"
-                style={{ transform: item.active !== false ? "translateX(16px)" : "translateX(0)" }}
-              />
-            </button>
-          </label>
-        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Price Sold</label>
+        <input type="number" min={0} step={0.01} className={inputCls} placeholder="0.00"
+          value={item.priceSold ?? ""}
+          onChange={(e) => onChange({ priceSold: parseFloat(e.target.value) || null })} />
       </div>
     </>
   );

@@ -8,6 +8,7 @@ import { CATEGORY_CONFIG, Category } from "@/components/inventory/_shared";
 import { ToolsNav } from "@/components/tools-nav";
 
 const NAV_ITEMS: { key: string; label: string; href: string; color: string }[] = [
+  { key: "wishlist",    label: "Wishlist",    href: "/inventory/wishlist",    color: "#d4a843" },
   { key: "all",         label: "All Items",   href: "/inventory",             color: "#BCABAE" },
   { key: "firearms",    label: "Firearms",    href: "/inventory/firearms",    color: CATEGORY_CONFIG.FIREARM.color },
   { key: "ammo",        label: "Ammo",        href: "/inventory/ammo",        color: CATEGORY_CONFIG.AMMO.color },
@@ -25,6 +26,7 @@ const SETTINGS_ITEMS: { key: string; label: string; href: string; color: string 
 
 function activeKey(pathname: string): string {
   if (pathname === "/inventory") return "all";
+  if (pathname.includes("wishlist"))    return "wishlist";
   if (pathname.includes("firearms"))    return "firearms";
   if (pathname.includes("ammo"))        return "ammo";
   if (pathname.includes("filaments"))   return "filaments";
@@ -118,7 +120,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
             Add New
           </p>
           <div className="px-2 flex flex-col gap-1">
-            {NAV_ITEMS.filter((i) => i.key !== "all").map((item) => (
+            {NAV_ITEMS.filter((i) => i.key !== "all" && i.key !== "wishlist").map((item) => (
               <NextLink
                 key={item.key}
                 href={`${item.href}?new=1`}

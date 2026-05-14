@@ -52,10 +52,10 @@ export default function PhotographyPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "PHOTOGRAPHY" }, active: { ne: false } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "PHOTOGRAPHY" } }, limit: 500 }),
         client.models.inventoryPhotography.list({ limit: 500 }),
       ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, PhotographyRecord>();
       (detailData ?? []).forEach((d) => map.set(d.itemId, d));
       setDetails(map);
@@ -71,9 +71,9 @@ export default function PhotographyPage() {
 
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/photography", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -82,8 +82,8 @@ export default function PhotographyPage() {
     if (item && photo) openEdit(item, photo);
   }, [router.isReady, router.query.id, items, details]);
 
-  function openNew() {
-    setItemDraft({ category: "PHOTOGRAPHY", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "PHOTOGRAPHY", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setPhotoDraft({ type: "CAMERA" });
     setPanel({ kind: "new" });
   }
@@ -111,7 +111,7 @@ export default function PhotographyPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         if (errors || !newItem) return;
         const { data: newPhoto } = await client.models.inventoryPhotography.create({
@@ -149,7 +149,7 @@ export default function PhotographyPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         await client.models.inventoryPhotography.update({
           id:                panel.photo.id,

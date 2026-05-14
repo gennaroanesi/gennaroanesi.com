@@ -111,12 +111,12 @@ export default function AmmoPage() {
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
         client.models.inventoryItem.list({
-          filter: { category: { eq: "AMMO" }, active: { ne: false } },
+          filter: { category: { eq: "AMMO" } },
           limit: 500,
         }),
         client.models.inventoryAmmo.list({ limit: 500 }),
       ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, AmmoRecord>();
       (detailData ?? []).forEach((d) => map.set(d.itemId, d));
       setDetails(map);
@@ -132,9 +132,9 @@ export default function AmmoPage() {
 
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/ammo", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -143,8 +143,8 @@ export default function AmmoPage() {
     if (item && ammo) openEdit(item, ammo);
   }, [router.isReady, router.query.id, items, details]);
 
-  function openNew() {
-    setItemDraft({ category: "AMMO", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "AMMO", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setAmmoDraft({ unit: "ROUNDS", quantity: 0 });
     setPanel({ kind: "new" });
   }
@@ -194,7 +194,7 @@ export default function AmmoPage() {
             currency: itemDraft.currency ?? "USD",
             notes: itemDraft.notes ?? null,
             priceSold: itemDraft.priceSold ?? null,
-            active: itemDraft.active ?? true,
+            status: itemDraft.status ?? "OWNED",
           });
         if (errors || !newItem) return;
         const { data: newAmmo } = await client.models.inventoryAmmo.create({
@@ -243,7 +243,7 @@ export default function AmmoPage() {
           currency: itemDraft.currency ?? "USD",
           notes: itemDraft.notes ?? null,
           priceSold: itemDraft.priceSold ?? null,
-          active: itemDraft.active ?? true,
+          status: itemDraft.status ?? "OWNED",
         });
         await client.models.inventoryAmmo.update({
           id: panel.ammo.id,

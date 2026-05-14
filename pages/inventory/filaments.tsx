@@ -53,10 +53,10 @@ export default function FilamentsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "FILAMENT" }, active: { ne: false } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "FILAMENT" } }, limit: 500 }),
         client.models.inventoryFilament.list({ limit: 500 }),
       ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, FilamentRecord>();
       (detailData ?? []).forEach((d) => map.set(d.itemId, d));
       setDetails(map);
@@ -73,9 +73,9 @@ export default function FilamentsPage() {
   // Open new panel if ?new=1 param present
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/filaments", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -84,8 +84,8 @@ export default function FilamentsPage() {
     if (item && filament) openEdit(item, filament);
   }, [router.isReady, router.query.id, items, details]);
 
-  function openNew() {
-    setItemDraft({ category: "FILAMENT", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "FILAMENT", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setFilamentDraft({ material: "PLA", diameter: "d175", weightG: 1000, quantity: 1 });
     setPanel({ kind: "new" });
   }
@@ -113,7 +113,7 @@ export default function FilamentsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         if (errors || !newItem) return;
         const { data: newFilament } = await client.models.inventoryFilament.create({
@@ -146,7 +146,7 @@ export default function FilamentsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         await client.models.inventoryFilament.update({
           id:       panel.filament.id,

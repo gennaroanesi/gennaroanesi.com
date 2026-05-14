@@ -42,7 +42,7 @@ export default function InventoryPage() {
     try {
       const [{ data: itemData }, { data: fwData }, { data: amData }, { data: flData }, { data: instData }, { data: phData }, { data: elData }] =
         await Promise.all([
-          client.models.inventoryItem.list({ filter: { active: { ne: false } }, limit: 500 }),
+          client.models.inventoryItem.list({ limit: 500 }),
           client.models.inventoryFirearm.list({ limit: 500 }),
           client.models.inventoryAmmo.list({ limit: 500 }),
           client.models.inventoryFilament.list({ limit: 500 }),
@@ -50,7 +50,7 @@ export default function InventoryPage() {
           client.models.inventoryPhotography.list({ limit: 500 }),
           client.models.inventoryElectronic.list({ limit: 500 }),
         ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       setFirearms(fwData ?? []);
       setAmmos(amData ?? []);
       setFilaments(flData ?? []);

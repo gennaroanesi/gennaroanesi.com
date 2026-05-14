@@ -55,10 +55,10 @@ export default function InstrumentsPage() {
     setLoading(true);
     try {
       const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "INSTRUMENT" }, active: { ne: false } }, limit: 500 }),
+        client.models.inventoryItem.list({ filter: { category: { eq: "INSTRUMENT" } }, limit: 500 }),
         client.models.inventoryInstrument.list({ limit: 500 }),
       ]);
-      setItems(itemData ?? []);
+      setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, InstrumentRecord>();
       (detailData ?? []).forEach((d) => map.set(d.itemId, d));
       setDetails(map);
@@ -74,9 +74,9 @@ export default function InstrumentsPage() {
 
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/instruments", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -85,8 +85,8 @@ export default function InstrumentsPage() {
     if (item && instrument) openEdit(item, instrument);
   }, [router.isReady, router.query.id, items, details]);
 
-  function openNew() {
-    setItemDraft({ category: "INSTRUMENT", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "INSTRUMENT", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setInstrumentDraft({ type: "GUITAR" });
     setPartsDraft([]);
     setPanel({ kind: "new" });
@@ -121,7 +121,7 @@ export default function InstrumentsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         if (errors || !newItem) return;
         const { data: newInstrument } = await client.models.inventoryInstrument.create({
@@ -155,7 +155,7 @@ export default function InstrumentsPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         await client.models.inventoryInstrument.update({
           id:           panel.instrument.id,

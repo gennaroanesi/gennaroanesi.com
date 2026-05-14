@@ -38,10 +38,10 @@ export default function OtherPage() {
     setLoading(true);
     try {
       const { data } = await client.models.inventoryItem.list({
-        filter: { category: { eq: "OTHER" }, active: { ne: false } },
+        filter: { category: { eq: "OTHER" } },
         limit: 500,
       });
-      setItems(data ?? []);
+      setItems((data ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
     } finally {
       setLoading(false);
     }
@@ -54,9 +54,9 @@ export default function OtherPage() {
 
   useEffect(() => {
     if (!router.isReady || router.query.new !== "1") return;
-    openNew();
+    openNew(router.query.wishlist === "1");
     router.replace("/inventory/other", undefined, { shallow: true });
-  }, [router.isReady, router.query.new]);
+  }, [router.isReady, router.query.new, router.query.wishlist]);
 
   useEffect(() => {
     if (!router.isReady || !router.query.id || items.length === 0) return;
@@ -64,8 +64,8 @@ export default function OtherPage() {
     if (item) openEdit(item);
   }, [router.isReady, router.query.id, items]);
 
-  function openNew() {
-    setItemDraft({ category: "OTHER", currency: "USD", active: true });
+  function openNew(isWishlist = false) {
+    setItemDraft({ category: "OTHER", currency: "USD", status: isWishlist ? "WISHLIST" : "OWNED" });
     setPanel({ kind: "new" });
   }
 
@@ -91,7 +91,7 @@ export default function OtherPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         if (errors || !newItem) return;
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
@@ -112,7 +112,7 @@ export default function OtherPage() {
           currency:      itemDraft.currency      ?? "USD",
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
-          active:        itemDraft.active        ?? true,
+          status:        itemDraft.status        ?? "OWNED",
         });
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
         await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
