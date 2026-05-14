@@ -515,7 +515,7 @@ export default function AmmoPage() {
                 Log Use
               </button>
               <button
-                onClick={openNew}
+                onClick={() => openNew()}
                 className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
               >
                 + Add Ammo

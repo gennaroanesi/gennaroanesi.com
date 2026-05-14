@@ -242,7 +242,7 @@ export default function ElectronicsPage() {
         <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold" style={{ color: ACCENT }}>Electronics</h1>
-            <button onClick={openNew}
+            <button onClick={() => openNew()}
               className="px-4 py-2 rounded text-sm font-semibold text-white hover:opacity-90 transition-opacity"
               style={{ backgroundColor: ACCENT }}>
               + Add Electronics
