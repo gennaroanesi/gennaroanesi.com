@@ -211,7 +211,11 @@ export function summarizeRecurring(
   const days = daysInclusive(range);
   const items: RecurringItem[] = expenseRules.map((r) => {
     const perYear = CADENCE_PER_YEAR[(r.cadence as string) ?? "MONTHLY"] ?? 12;
-    const expected = Math.abs(r.amount ?? 0) * perYear * (days / 365);
+    // Expected = rule amount × how many times it should occur in the window.
+    // Occurrence-based (not day-prorated) so a $205/mo rule reads $205 for any
+    // single month and $2,460 for a year — instead of drifting with month length.
+    const occurrences = Math.round(perYear * (days / 365));
+    const expected = Math.abs(r.amount ?? 0) * occurrences;
     const a = actualByRule.get(r.id) ?? { actual: 0, count: 0 };
     return {
       ruleId: r.id,
