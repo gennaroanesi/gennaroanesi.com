@@ -414,8 +414,10 @@ export default function ReviewPage() {
                             tickFormatter={(v: any) => `${v}%`} tick={{ fontSize: 11 }} width={40}
                           />
                           <Tooltip
-                            formatter={(v: any, name: any) =>
-                              String(name).includes("%") ? `${Number(v).toFixed(0)}%` : fmtCurrency(Number(v))}
+                            formatter={(v: any, name: any, p: any) =>
+                              String(name).includes("%")
+                                ? `${Number(v).toFixed(0)}%`
+                                : `${fmtCurrency(Number(v))} · ${p?.payload?.count ?? 0} tx`}
                             cursor={{ fillOpacity: 0.06 }}
                           />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
