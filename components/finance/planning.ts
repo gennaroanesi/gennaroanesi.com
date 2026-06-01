@@ -434,13 +434,18 @@ function daysIntoYear(isoDate: string): number {
  */
 export function inferPaychecksPerYear(p: { periodStart?: string | null; periodEnd?: string | null }, defaultPpy = 26): number {
   if (!p.periodStart || !p.periodEnd) return defaultPpy;
+  // `+1` makes the period length inclusive: a Mon→Sun week is a 7-day period,
+  // a 14-day biweekly run from Sun→second-Sat is 14 days, etc.
   const days = Math.round(
     (new Date(p.periodEnd + "T00:00:00Z").getTime()
       - new Date(p.periodStart + "T00:00:00Z").getTime()) / 86400000,
   ) + 1;
-  if (days <= 8)  return 52;
-  if (days <= 13) return 26;
-  if (days <= 18) return 24;
+  // Thresholds sit at the midpoints between cadences so the natural period
+  // length lands inside the correct bracket: weekly 7d, biweekly 14d,
+  // semimonthly 15–16d, monthly 28–31d.
+  if (days <= 10) return 52;
+  if (days <= 14) return 26;
+  if (days <= 22) return 24;
   return 12;
 }
 
