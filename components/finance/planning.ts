@@ -416,13 +416,6 @@ export function planYears(scenario: PlanScenario): number[] {
 // no historical sum required. The latest stub's `ytd*` numbers ARE the
 // authoritative YTD figure; everything else is forward extrapolation.
 
-/** Days into a calendar year for an ISO `YYYY-MM-DD` date. */
-function daysIntoYear(isoDate: string): number {
-  const d = new Date(isoDate + "T00:00:00Z");
-  const start = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.max(1, Math.round((d.getTime() - start.getTime()) / 86400000) + 1);
-}
-
 /**
  * Best-effort cadence inference from a paycheck's period length. Falls
  * back to `defaultPpy` (typically 26 = biweekly) when the period dates
@@ -561,10 +554,16 @@ export function projectFromPaychecks(args: {
 
   const ppy = paychecksPerYearOverride ?? inferPaychecksPerYear(latestRegular);
 
-  // Day-of-year is taken off the regular paycheck — RSU stubs have a
-  // single-day period that fakes out the cadence math.
-  const dayOfYear = daysIntoYear(latestRegular.payDate);
-  const elapsed   = Math.min(ppy, Math.max(1, Math.round((dayOfYear / 365) * ppy)));
+  // Count actual regular (salary > 0) paychecks YTD instead of estimating
+  // from day-of-year × ppy. Biweekly cadence drifts off the calendar — by
+  // mid-May you've received 11 biweekly paychecks but day-of-year math
+  // only credits 10, which inflated the linear projection. RSU/bonus-only
+  // stubs are excluded so they don't double-count alongside the regular
+  // paycheck that paid out on the same day.
+  const regularCount = paychecks.filter(
+    (p) => Math.max(0, (p.gross ?? 0) - (p.bonusGross ?? 0) - (p.rsuGross ?? 0)) > 0,
+  ).length;
+  const elapsed   = Math.min(ppy, Math.max(1, regularCount));
   const scale     = ppy / elapsed;
 
   // ── Decompose YTD into salary vs supplemental ───────────────────────
