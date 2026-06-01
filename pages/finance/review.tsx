@@ -32,6 +32,7 @@ import {
   summarizeIncome,
   summarizeExpenses,
   summarizeRecurring,
+  detectRecurringSuggestions,
   summarizeCreditCards,
   computeStockReview,
   computeGoalEvolution,
@@ -181,6 +182,7 @@ export default function ReviewPage() {
       income: summarizeIncome(txs, accounts, range),
       expenses: summarizeExpenses(txs, accounts, recurrings, range),
       recurring: summarizeRecurring(txs, recurrings, accounts, range),
+      recurringSuggestions: detectRecurringSuggestions(txs, accounts, recurrings, range.toIso),
       cards: summarizeCreditCards(txs, accounts, range),
       stock: computeStockReview(holdingSnaps, lots, quotes, trades, range, ytd),
       goalEvo: computeGoalEvolution(goalSnaps, goals, range),
@@ -190,7 +192,7 @@ export default function ReviewPage() {
 
   if (authState !== "authenticated") return null;
 
-  const { range, income, expenses, recurring, cards, stock, goalEvo, trend } = view;
+  const { range, income, expenses, recurring, recurringSuggestions, cards, stock, goalEvo, trend } = view;
   const net = income.total - expenses.total;
 
   return (
@@ -333,6 +335,38 @@ export default function ReviewPage() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Looks-recurring-but-unmatched suggestions */}
+            {recurringSuggestions.length > 0 && (
+              <div className={`${CARD} mt-3 border-dashed`}>
+                <p className="text-xs text-gray-400 mb-2">
+                  Looks recurring — no rule yet{" "}
+                  <span className="text-gray-400/70">(repeats monthly with a steady amount; last 12 months)</span>
+                </p>
+                <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                  {recurringSuggestions.map((s) => (
+                    <div key={s.key} className="flex items-center justify-between py-2 gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm truncate">{s.label}</p>
+                        <p className="text-[11px] text-gray-400 truncate">
+                          {s.cadence} · {s.occurrences}× over {s.months} mo · {s.accountName} · last {fmtDate(s.lastDate)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 whitespace-nowrap">
+                        <span className="text-sm font-medium" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(s.medianAmount)}</span>
+                        <NextLink
+                          href="/finance/recurring?new=1"
+                          className="text-xs hover:underline"
+                          style={{ color: FINANCE_COLOR }}
+                        >
+                          + Rule
+                        </NextLink>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

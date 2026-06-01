@@ -230,6 +230,121 @@ export function summarizeRecurring(
   return { items, total };
 }
 
+// ── Unmatched recurring detection ─────────────────────────────────────────────
+// Surfaces charges that LOOK like a fixed recurring obligation (repeat across
+// months, stable amount) but match no financeRecurring rule — so it's obvious
+// what rules to add. Scans a trailing window (recurrence needs history), not
+// just the selected period.
+
+/** Coarse merchant key: strip digits/punctuation/noise words, keep first tokens. */
+function normalizeMerchant(desc: string): string {
+  return desc
+    .toUpperCase()
+    .replace(/[0-9]+/g, " ")
+    .replace(/[^A-Z ]+/g, " ")
+    .replace(/\b(POS|PURCHASE|PAYMENT|PMT|DEBIT|CARD|ACH|RECURRING|AUTOPAY|AUTO PAY|WEB|ONLINE|XX+)\b/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(" ");
+}
+
+function cadenceLabelFromGap(medianGapDays: number): string {
+  if (medianGapDays <= 10) return "~weekly";
+  if (medianGapDays <= 20) return "~biweekly";
+  if (medianGapDays <= 45) return "~monthly";
+  if (medianGapDays <= 135) return "~quarterly";
+  if (medianGapDays <= 270) return "~semiannually";
+  return "~annually";
+}
+
+function median(nums: number[]): number {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+export type RecurringSuggestion = {
+  key: string;
+  label: string;
+  accountName: string;
+  occurrences: number;
+  months: number;
+  medianAmount: number;
+  cadence: string;
+  lastDate: string;
+};
+
+/**
+ * @param asOfIso  end of the trailing window (usually the period's toIso)
+ * @param windowMonths  how far back to look (default 12)
+ */
+export function detectRecurringSuggestions(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  recurrings: RecurringRecord[],
+  asOfIso: string,
+  windowMonths = 12,
+  maxResults = 8,
+): RecurringSuggestion[] {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const fromDate = new Date(`${asOfIso}T00:00:00Z`);
+  fromDate.setUTCMonth(fromDate.getUTCMonth() - windowMonths);
+  const fromIso = fromDate.toISOString().slice(0, 10);
+  const window: DateRange = { fromIso, toIso: asOfIso, label: "" };
+
+  type Group = { label: string; accountName: string; dates: string[]; amounts: number[] };
+  const groups = new Map<string, Group>();
+
+  for (const tx of txs) {
+    if (!inRange(tx.date, window)) continue;
+    const v = expenseMagnitude(tx, acctById);
+    if (v == null) continue;
+    if (matchTxToRecurring(tx, recurrings)) continue;          // already covered by a rule
+    const desc = (tx.description ?? "").trim();
+    const key = normalizeMerchant(desc);
+    if (!key) continue;
+    const g = groups.get(key) ?? {
+      label: desc || key,
+      accountName: acctById.get(tx.accountId)?.name ?? "Unknown",
+      dates: [], amounts: [],
+    };
+    g.dates.push(tx.date as string);
+    g.amounts.push(v);
+    groups.set(key, g);
+  }
+
+  const out: RecurringSuggestion[] = [];
+  for (const [key, g] of groups) {
+    const months = new Set(g.dates.map((d) => d.slice(0, 7)));
+    if (g.amounts.length < 3 || months.size < 3) continue;     // needs real repetition
+    const med = median(g.amounts);
+    if (med < 15) continue;                                    // ignore trivial amounts
+    // Stability: ≥60% of charges within ±20% of the median (filters variable spend like groceries).
+    const stable = g.amounts.filter((a) => Math.abs(a - med) <= 0.2 * med).length;
+    if (stable / g.amounts.length < 0.6) continue;
+    const sortedDates = [...g.dates].sort();
+    const gaps: number[] = [];
+    for (let i = 1; i < sortedDates.length; i++) {
+      gaps.push(Math.round((Date.parse(`${sortedDates[i]}T00:00:00Z`) - Date.parse(`${sortedDates[i - 1]}T00:00:00Z`)) / 86400000));
+    }
+    out.push({
+      key,
+      label: g.label,
+      accountName: g.accountName,
+      occurrences: g.amounts.length,
+      months: months.size,
+      medianAmount: med,
+      cadence: cadenceLabelFromGap(median(gaps)),
+      lastDate: sortedDates[sortedDates.length - 1],
+    });
+  }
+
+  out.sort((a, b) => b.medianAmount * b.occurrences - a.medianAmount * a.occurrences);
+  return out.slice(0, maxResults);
+}
+
 // ── Expenses (discretionary breakdown) ─────────────────────────────────────────
 
 export type ExpenseSummary = {
