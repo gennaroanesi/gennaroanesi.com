@@ -5,15 +5,18 @@
  * no client — takes already-fetched records and returns view-model objects the
  * page renders. Unit-testable in isolation.
  *
- * Income vs. expense model (deliberate, see feedback):
- * - INCOME is NOT derived from transaction sign (that wrongly counts credit-card
- *   payments, loan paydowns, and refunds as income). It comes from the paycheck
- *   ledger: salary / bonus / RSU. See summarizeIncome.
- * - EXPENSES are real outflows: negative-amount / EXPENSE transactions, EXCLUDING
- *   transfers (TRANSFER type, toAccountId set, or "Transfers" category), credit-
- *   card *payments* (already counted as the underlying card charges), investment
- *   trades, and LOAN-account rows (debt mechanics tracked in the Loans section).
- *   Credit-card *charges* (the actual purchases) ARE counted. See expenseMagnitude.
+ * Income vs. expense model (deliberate, per feedback):
+ * - INCOME = the user's payroll deposits into CHECKING accounts that match a
+ *   salary pattern (default: "META"). NOT transaction sign (which wrongly
+ *   counted card payments/refunds) and NOT the paycheck ledger. Spouse income
+ *   is out of scope. See SALARY_DESCRIPTION_PATTERNS / summarizeIncome.
+ * - EXPENSES = real outflows, EXCLUDING transfers, credit-card *payments*,
+ *   investment trades, and LOAN-account rows. See expenseMagnitude.
+ * - Outflows that match a financeRecurring rule (mortgage, car, insurance, …)
+ *   are pulled OUT of the discretionary category/account breakdown and shown in
+ *   their own Recurring section. See matchTxToRecurring / summarizeRecurring.
+ * - Credit-card *charges* get their own section + ticket-size distribution,
+ *   since that's where purchase-size analysis is meaningful.
  */
 
 import type {
@@ -24,9 +27,14 @@ import type {
   TickerQuoteRecord,
   HoldingSnapshotRecord,
   GoalSnapshotRecord,
-  PaycheckRecord,
+  RecurringRecord,
 } from "./_shared";
-import { realizedGain, PAYCHECK_PERSON_LABELS } from "./_shared";
+import {
+  realizedGain,
+  matchesUserPattern,
+  findRecurringMatches,
+  RECURRING_MATCH_AUTO_THRESHOLD,
+} from "./_shared";
 import {
   buildQuoteMap,
   tickerAggregate,
@@ -52,12 +60,10 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** Last calendar day of a 1-indexed month. */
 function lastDayOfMonth(year: number, month1: number): number {
   return new Date(Date.UTC(year, month1, 0)).getUTCDate();
 }
 
-/** Inclusive ISO date bounds + a human label for a period. */
 export function periodRange(p: Period): DateRange {
   if (p.kind === "month") {
     const from = `${p.year}-${pad2(p.month)}-01`;
@@ -67,7 +73,6 @@ export function periodRange(p: Period): DateRange {
   return { fromIso: `${p.year}-01-01`, toIso: `${p.year}-12-31`, label: String(p.year) };
 }
 
-/** Year-to-date range ending at the period's end (for YTD stock figures). */
 export function ytdRange(p: Period): DateRange {
   const r = periodRange(p);
   return { fromIso: `${p.year}-01-01`, toIso: r.toIso, label: `${p.year} YTD` };
@@ -78,87 +83,73 @@ function inRange(dateIso: string | null | undefined, r: DateRange): boolean {
   return dateIso >= r.fromIso && dateIso <= r.toIso;
 }
 
+function daysInclusive(r: DateRange): number {
+  return Math.round((Date.parse(`${r.toIso}T00:00:00Z`) - Date.parse(`${r.fromIso}T00:00:00Z`)) / 86400000) + 1;
+}
+
 /** Posted (i.e. not explicitly PENDING) — null/undefined status counts as posted. */
 function isPosted(tx: TransactionRecord): boolean {
   return tx.status !== "PENDING";
 }
 
-// ── Shared buckets ────────────────────────────────────────────────────────────
+// ── Shared bucket shapes ──────────────────────────────────────────────────────
 
 export type CategoryBucket = { category: string; amount: number; count: number };
 export type AccountBucket = { accountId: string; accountName: string; type: string | null; amount: number; count: number };
-export type NamedBucket = { name: string; amount: number; count: number };
 
 function sortedByAmount<T extends { amount: number }>(m: Map<string, T>): T[] {
   return [...m.values()].sort((a, b) => b.amount - a.amount);
 }
 
-// ── Income (from paychecks) ─────────────────────────────────────────────────
+// ── Income (salary deposits into checking) ────────────────────────────────────
 
-export type IncomeSummary = {
-  total: number;                 // Σ net pay in the period
-  bySource: NamedBucket[];       // Salary / Bonus / RSU
-  byPerson: NamedBucket[];       // Gennaro / Cristine
-  paycheckCount: number;
-};
+/** Description patterns that mark a checking deposit as the user's salary.
+ *  Substring (case-insensitive) or /regex/ form. Tune as payroll memos change. */
+export const SALARY_DESCRIPTION_PATTERNS = ["/meta/i"];
 
-/**
- * Income = paychecks whose payDate falls in the range. Each paycheck's NET is
- * split into Salary / Bonus / RSU proportionally to its gross components, so the
- * source buckets reconcile to net cash received. Cash interest/dividends and
- * other deposits are intentionally NOT counted here (add later if needed).
- */
-export function summarizeIncome(paychecks: PaycheckRecord[], range: DateRange): IncomeSummary {
-  const bySource = new Map<string, NamedBucket>();
-  const byPerson = new Map<string, NamedBucket>();
-  let total = 0;
-  let paycheckCount = 0;
-
-  const bump = (m: Map<string, NamedBucket>, name: string, amt: number) => {
-    if (amt === 0) return;
-    const b = m.get(name) ?? { name, amount: 0, count: 0 };
-    b.amount += amt; b.count += 1; m.set(name, b);
-  };
-
-  for (const p of paychecks) {
-    if (!inRange(p.payDate, range)) continue;
-    const net = p.net ?? 0;
-    if (net === 0) continue;
-    paycheckCount += 1;
-    total += net;
-
-    const gross = p.gross ?? 0;
-    const bonus = p.bonusGross ?? 0;
-    const rsu = p.rsuGross ?? 0;
-    const salary = Math.max(0, gross - bonus - rsu);
-
-    let sNet = net, bNet = 0, rNet = 0;
-    if (gross > 0) {
-      sNet = net * (salary / gross);
-      bNet = net * (bonus / gross);
-      rNet = net * (rsu / gross);
-    } else if (rsu > 0) { rNet = net; sNet = 0; }
-    else if (bonus > 0) { bNet = net; sNet = 0; }
-
-    bump(bySource, "Salary", sNet);
-    bump(bySource, "Bonus", bNet);
-    bump(bySource, "RSU", rNet);
-
-    const personName = PAYCHECK_PERSON_LABELS[(p.person as "ME" | "SPOUSE") ?? "ME"] ?? "Unknown";
-    bump(byPerson, personName, net);
-  }
-
-  return { total, bySource: sortedByAmount(bySource), byPerson: sortedByAmount(byPerson), paycheckCount };
+function isSalaryDeposit(tx: TransactionRecord, acctById: Map<string, AccountRecord>): number | null {
+  if (!isPosted(tx)) return null;
+  if (tx.type === "TRANSFER" || tx.type === "BUY" || tx.type === "SELL") return null;
+  if (tx.toAccountId) return null;
+  const amt = tx.amount ?? 0;
+  if (amt <= 0) return null;                                   // deposits only
+  if (acctById.get(tx.accountId)?.type !== "CHECKING") return null;
+  const desc = tx.description ?? "";
+  if (!SALARY_DESCRIPTION_PATTERNS.some((p) => matchesUserPattern(p, desc))) return null;
+  return amt;
 }
 
-// ── Expenses ──────────────────────────────────────────────────────────────────
+export type IncomeLine = { id: string; date: string; description: string; accountName: string; amount: number };
+export type IncomeSummary = { total: number; count: number; deposits: IncomeLine[] };
 
-/**
- * The counted-expense magnitude for a transaction (positive), or null if it
- * isn't real spending. Excludes transfers, credit-card payments, investment
- * trades, and LOAN-account rows. Used everywhere expenses are summed so the
- * summary, distribution, and trend stay consistent.
- */
+export function summarizeIncome(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  range: DateRange,
+): IncomeSummary {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const deposits: IncomeLine[] = [];
+  let total = 0;
+  for (const tx of txs) {
+    if (!inRange(tx.date, range)) continue;
+    const v = isSalaryDeposit(tx, acctById);
+    if (v == null) continue;
+    total += v;
+    deposits.push({
+      id: tx.id,
+      date: tx.date as string,
+      description: tx.description ?? "Salary",
+      accountName: acctById.get(tx.accountId)?.name ?? "Checking",
+      amount: v,
+    });
+  }
+  deposits.sort((a, b) => (a.date < b.date ? 1 : -1));
+  return { total, count: deposits.length, deposits };
+}
+
+// ── Expense predicate ─────────────────────────────────────────────────────────
+
+/** Counted-expense magnitude (positive) or null if not real spending. */
 function expenseMagnitude(tx: TransactionRecord, acctById: Map<string, AccountRecord>): number | null {
   if (!isPosted(tx)) return null;
   if (tx.type === "TRANSFER" || tx.type === "BUY" || tx.type === "SELL") return null;
@@ -172,71 +163,142 @@ function expenseMagnitude(tx: TransactionRecord, acctById: Map<string, AccountRe
   return Math.abs(amt);
 }
 
+// ── Recurring matching ────────────────────────────────────────────────────────
+
+const CADENCE_PER_YEAR: Record<string, number> = {
+  WEEKLY: 52, BIWEEKLY: 26, MONTHLY: 12, QUARTERLY: 4, SEMIANNUALLY: 2, ANNUALLY: 1,
+};
+
+/** The recurring rule a transaction realizes: explicit link wins, else a
+ *  high-confidence fuzzy match against the user's rules. */
+function matchTxToRecurring(tx: TransactionRecord, recurrings: RecurringRecord[]): RecurringRecord | null {
+  if (tx.recurringId) return recurrings.find((r) => r.id === tx.recurringId) ?? null;
+  const cands = findRecurringMatches(tx, recurrings, RECURRING_MATCH_AUTO_THRESHOLD);
+  return cands[0]?.rule ?? null;
+}
+
+export type RecurringItem = {
+  ruleId: string;
+  description: string;
+  cadence: string | null;
+  category: string | null;
+  expected: number;       // expected spend across the range (per cadence × range length)
+  actual: number;         // matched actual spend in the range
+  count: number;          // # matched transactions
+};
+export type RecurringSummary = { items: RecurringItem[]; total: number };
+
+export function summarizeRecurring(
+  txs: TransactionRecord[],
+  recurrings: RecurringRecord[],
+  accounts: AccountRecord[],
+  range: DateRange,
+): RecurringSummary {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const expenseRules = recurrings.filter((r) => r.type === "EXPENSE" && r.active !== false);
+
+  const actualByRule = new Map<string, { actual: number; count: number }>();
+  for (const tx of txs) {
+    if (!inRange(tx.date, range)) continue;
+    const v = expenseMagnitude(tx, acctById);
+    if (v == null) continue;
+    const rule = matchTxToRecurring(tx, recurrings);
+    if (!rule || rule.type !== "EXPENSE") continue;
+    const cur = actualByRule.get(rule.id) ?? { actual: 0, count: 0 };
+    cur.actual += v; cur.count += 1; actualByRule.set(rule.id, cur);
+  }
+
+  const days = daysInclusive(range);
+  const items: RecurringItem[] = expenseRules.map((r) => {
+    const perYear = CADENCE_PER_YEAR[(r.cadence as string) ?? "MONTHLY"] ?? 12;
+    const expected = Math.abs(r.amount ?? 0) * perYear * (days / 365);
+    const a = actualByRule.get(r.id) ?? { actual: 0, count: 0 };
+    return {
+      ruleId: r.id,
+      description: r.description ?? "Recurring",
+      cadence: (r.cadence as string) ?? null,
+      category: r.category ?? null,
+      expected,
+      actual: a.actual,
+      count: a.count,
+    };
+  });
+
+  // Surface rules with activity first, then large expected (likely missing/upcoming).
+  items.sort((a, b) => (b.actual - a.actual) || (b.expected - a.expected));
+  const total = items.reduce((s, i) => s + i.actual, 0);
+  return { items, total };
+}
+
+// ── Expenses (discretionary breakdown) ─────────────────────────────────────────
+
 export type ExpenseSummary = {
-  total: number;
-  txCount: number;
-  byCategory: CategoryBucket[];
-  byAccount: AccountBucket[];
-  creditCardSpend: AccountBucket[];   // counted expenses charged to CREDIT accounts
+  total: number;             // ALL counted expenses (recurring + discretionary)
+  discretionaryTotal: number;
+  recurringTotal: number;
+  txCount: number;           // discretionary tx count
+  byCategory: CategoryBucket[];   // discretionary only
+  byAccount: AccountBucket[];     // discretionary only
 };
 
 export function summarizeExpenses(
   txs: TransactionRecord[],
   accounts: AccountRecord[],
+  recurrings: RecurringRecord[],
   range: DateRange,
 ): ExpenseSummary {
   const acctById = new Map(accounts.map((a) => [a.id, a]));
   let total = 0;
+  let recurringTotal = 0;
   let txCount = 0;
   const byCategory = new Map<string, CategoryBucket>();
   const byAccount = new Map<string, AccountBucket>();
-  const creditCardSpend = new Map<string, AccountBucket>();
-
-  const bumpCat = (cat: string, amt: number) => {
-    const b = byCategory.get(cat) ?? { category: cat, amount: 0, count: 0 };
-    b.amount += amt; b.count += 1; byCategory.set(cat, b);
-  };
-  const bumpAcct = (m: Map<string, AccountBucket>, acc: AccountRecord | undefined, accountId: string, amt: number) => {
-    const b = m.get(accountId) ?? {
-      accountId, accountName: acc?.name ?? "Unknown account",
-      type: (acc?.type as string) ?? null, amount: 0, count: 0,
-    };
-    b.amount += amt; b.count += 1; m.set(accountId, b);
-  };
 
   for (const tx of txs) {
     if (!inRange(tx.date, range)) continue;
     const v = expenseMagnitude(tx, acctById);
     if (v == null) continue;
+    total += v;
+
+    const rule = matchTxToRecurring(tx, recurrings);
+    if (rule && rule.type === "EXPENSE") { recurringTotal += v; continue; }  // shown in Recurring section
+
+    txCount += 1;
     const acc = acctById.get(tx.accountId);
-    total += v; txCount += 1;
-    bumpCat(effectiveCategory(tx), v);
-    bumpAcct(byAccount, acc, tx.accountId, v);
-    if (acc?.type === "CREDIT") bumpAcct(creditCardSpend, acc, tx.accountId, v);
+    const cat = effectiveCategory(tx);
+    const cb = byCategory.get(cat) ?? { category: cat, amount: 0, count: 0 };
+    cb.amount += v; cb.count += 1; byCategory.set(cat, cb);
+    const ab = byAccount.get(tx.accountId) ?? {
+      accountId: tx.accountId, accountName: acc?.name ?? "Unknown account",
+      type: (acc?.type as string) ?? null, amount: 0, count: 0,
+    };
+    ab.amount += v; ab.count += 1; byAccount.set(tx.accountId, ab);
   }
 
   return {
-    total, txCount,
+    total,
+    recurringTotal,
+    discretionaryTotal: total - recurringTotal,
+    txCount,
     byCategory: sortedByAmount(byCategory),
     byAccount: sortedByAmount(byAccount),
-    creditCardSpend: sortedByAmount(creditCardSpend),
   };
 }
 
-// ── Expense distribution ──────────────────────────────────────────────────────
-// Answers "is spend driven by many small charges or a few big ones?"
+// ── Credit-card spending + ticket-size distribution ────────────────────────────
 
-export type AmountBucket = { label: string; count: number; amount: number };
 export type ExpenseLine = { id: string; date: string; description: string; accountName: string; category: string; amount: number };
+export type AmountBucket = { label: string; count: number; amount: number };
 
-export type ExpenseDistribution = {
-  buckets: AmountBucket[];          // by ticket size
-  topTransactions: ExpenseLine[];   // largest individual expenses
+export type CreditCardReview = {
   total: number;
+  perCard: AccountBucket[];
+  buckets: AmountBucket[];          // by ticket size, across all cards
+  topTransactions: ExpenseLine[];
   count: number;
   medianTicket: number;
-  top5Share: number | null;         // share of total from the 5 biggest charges
-  countForHalf: number;             // # of largest charges that make up ~50% of spend
+  top5Share: number | null;
+  countForHalf: number;
 };
 
 const SIZE_EDGES: { label: string; max: number }[] = [
@@ -247,26 +309,36 @@ const SIZE_EDGES: { label: string; max: number }[] = [
   { label: "$2k+", max: Infinity },
 ];
 
-export function computeExpenseDistribution(
+/** Credit-card charges only (account.type === CREDIT, real spending). Includes
+ *  recurring subscriptions billed to a card — this lens is about purchase size. */
+export function summarizeCreditCards(
   txs: TransactionRecord[],
   accounts: AccountRecord[],
   range: DateRange,
   topN = 10,
-): ExpenseDistribution {
+): CreditCardReview {
   const acctById = new Map(accounts.map((a) => [a.id, a]));
   const lines: ExpenseLine[] = [];
+  const perCard = new Map<string, AccountBucket>();
+
   for (const tx of txs) {
     if (!inRange(tx.date, range)) continue;
+    const acc = acctById.get(tx.accountId);
+    if (acc?.type !== "CREDIT") continue;
     const v = expenseMagnitude(tx, acctById);
     if (v == null) continue;
     lines.push({
-      id: tx.id,
-      date: tx.date as string,
+      id: tx.id, date: tx.date as string,
       description: tx.description ?? "(no description)",
-      accountName: acctById.get(tx.accountId)?.name ?? "Unknown",
+      accountName: acc?.name ?? "Card",
       category: effectiveCategory(tx),
       amount: v,
     });
+    const b = perCard.get(tx.accountId) ?? {
+      accountId: tx.accountId, accountName: acc?.name ?? "Card",
+      type: "CREDIT", amount: 0, count: 0,
+    };
+    b.amount += v; b.count += 1; perCard.set(tx.accountId, b);
   }
 
   const buckets: AmountBucket[] = SIZE_EDGES.map((e) => ({ label: e.label, count: 0, amount: 0 }));
@@ -279,25 +351,20 @@ export function computeExpenseDistribution(
   const sorted = [...lines].sort((a, b) => b.amount - a.amount);
   const total = lines.reduce((s, l) => s + l.amount, 0);
 
-  // # of largest charges that cumulatively reach 50% of spend.
   let cum = 0, countForHalf = 0;
-  for (const l of sorted) {
-    if (cum >= total / 2) break;
-    cum += l.amount; countForHalf += 1;
-  }
-
+  for (const l of sorted) { if (cum >= total / 2) break; cum += l.amount; countForHalf += 1; }
   const top5 = sorted.slice(0, 5).reduce((s, l) => s + l.amount, 0);
-  const amountsAsc = lines.map((l) => l.amount).sort((a, b) => a - b);
-  const median = amountsAsc.length
-    ? (amountsAsc.length % 2
-        ? amountsAsc[(amountsAsc.length - 1) / 2]
-        : (amountsAsc[amountsAsc.length / 2 - 1] + amountsAsc[amountsAsc.length / 2]) / 2)
+
+  const asc = lines.map((l) => l.amount).sort((a, b) => a - b);
+  const median = asc.length
+    ? (asc.length % 2 ? asc[(asc.length - 1) / 2] : (asc[asc.length / 2 - 1] + asc[asc.length / 2]) / 2)
     : 0;
 
   return {
+    total,
+    perCard: sortedByAmount(perCard),
     buckets,
     topTransactions: sorted.slice(0, topN),
-    total,
     count: lines.length,
     medianTicket: median,
     top5Share: total > 0 ? top5 / total : null,
@@ -311,24 +378,22 @@ export type Mover = {
   ticker: string;
   startValue: number;
   endValue: number;
-  change: number;        // endValue − startValue (value swing; includes any buys/sells)
-  pct: number | null;    // change / startValue
+  change: number;
+  pct: number | null;
 };
 
 export type StockReview = {
   currentMarketValue: number;
   currentCostBasis: number | null;
-  currentUnrealizedGain: number | null;   // market − cost (lifetime), from live lots+quotes
-  periodGain: number | null;              // contribution-adjusted; null when snapshots don't cover the start
-  realizedPeriodGain: number;             // Σ realized gain on SELLs in the period
-  ytdRealizedGain: number;                // Σ realized gain on SELLs YTD
+  currentUnrealizedGain: number | null;
+  periodGain: number | null;
+  realizedPeriodGain: number;
+  ytdRealizedGain: number;
   topGainers: Mover[];
   topLosers: Mover[];
-  dataSparse: boolean;                    // true when no holding snapshot at/before the range start
+  dataSparse: boolean;
 };
 
-/** Pick the snapshot to represent a ticker at a boundary: latest on/before
- *  `boundaryIso`; if none exists, the earliest available (flagged sparse by caller). */
 function snapshotAt(snaps: HoldingSnapshotRecord[], boundaryIso: string): HoldingSnapshotRecord | null {
   let best: HoldingSnapshotRecord | null = null;
   for (const s of snaps) {
@@ -350,7 +415,7 @@ export function computeStockReview(
   holdingSnapshots: HoldingSnapshotRecord[],
   lots: HoldingLotRecord[],
   quotes: TickerQuoteRecord[],
-  trades: TransactionRecord[],   // BUY + SELL transactions
+  trades: TransactionRecord[],
   range: DateRange,
   ytd: DateRange,
   topN = 5,
@@ -362,7 +427,7 @@ export function computeStockReview(
   for (const t of uniqueTickers(lots)) {
     const agg = tickerAggregate(t, lots, quoteMap);
     currentMarketValue += agg.marketValue ?? 0;
-    if (agg.totalCost == null) currentCostBasis = null;          // unknown cost on any lot → whole basis unknown
+    if (agg.totalCost == null) currentCostBasis = null;
     else if (currentCostBasis != null) currentCostBasis += agg.totalCost;
   }
   const currentUnrealizedGain = currentCostBasis == null ? null : currentMarketValue - currentCostBasis;
@@ -409,8 +474,8 @@ export function computeStockReview(
   for (const tx of trades) {
     if (!isPosted(tx) || !inRange(tx.date, range)) continue;
     const amt = tx.amount ?? 0;
-    if (tx.type === "BUY") netContrib += -amt;   // cash spent (amt negative) → positive cost added
-    if (tx.type === "SELL") netContrib -= amt;   // proceeds (amt positive) → reduces net invested
+    if (tx.type === "BUY") netContrib += -amt;
+    if (tx.type === "SELL") netContrib -= amt;
   }
   const periodGain = dataSparse ? null : endTotal - startTotal - netContrib;
 
@@ -497,14 +562,12 @@ export function computeGoalEvolution(
 export type TrendPoint = { bucket: string; label: string; income: number; expense: number; net: number };
 
 /**
- * Income vs. expense bucketed within the period — by month for a year view, by
- * WEEK for a month view (day-by-day was too noisy). Income comes from paychecks
- * (placed in the bucket of their payDate); expense uses the same exclusion rules
- * as the rest of the review.
+ * Income vs. expense bucketed within the period — monthly for a year view,
+ * weekly (WoW) for a month view. Income = salary deposits; expense uses the
+ * same exclusion rules as the rest of the review.
  */
 export function computeTrend(
   txs: TransactionRecord[],
-  paychecks: PaycheckRecord[],
   accounts: AccountRecord[],
   period: Period,
 ): TrendPoint[] {
@@ -512,7 +575,6 @@ export function computeTrend(
   const acctById = new Map(accounts.map((a) => [a.id, a]));
   const buckets = new Map<string, TrendPoint>();
 
-  // Map a date to its bucket key + seed empty buckets so gaps still render.
   let keyOf: (dateIso: string) => string;
   if (period.kind === "year") {
     for (let m = 1; m <= 12; m++) {
@@ -521,7 +583,6 @@ export function computeTrend(
     }
     keyOf = (d) => d.slice(0, 7);
   } else {
-    // Weekly buckets: 7-day chunks anchored at the 1st (week 1 = days 1–7, …).
     const days = lastDayOfMonth(period.year, period.month);
     const monthAbbr = MONTH_NAMES[period.month - 1].slice(0, 3);
     for (let startDay = 1; startDay <= days; startDay += 7) {
@@ -535,20 +596,19 @@ export function computeTrend(
     };
   }
 
-  // Expenses.
   for (const tx of txs) {
     if (!inRange(tx.date, range)) continue;
-    const v = expenseMagnitude(tx, acctById);
-    if (v == null) continue;
-    const b = buckets.get(keyOf(tx.date as string));
-    if (b) b.expense += v;
-  }
-
-  // Income from paychecks.
-  for (const p of paychecks) {
-    if (!inRange(p.payDate, range)) continue;
-    const b = buckets.get(keyOf(p.payDate as string));
-    if (b) b.income += p.net ?? 0;
+    const date = tx.date as string;
+    const exp = expenseMagnitude(tx, acctById);
+    if (exp != null) {
+      const b = buckets.get(keyOf(date));
+      if (b) b.expense += exp;
+    }
+    const inc = isSalaryDeposit(tx, acctById);
+    if (inc != null) {
+      const b = buckets.get(keyOf(date));
+      if (b) b.income += inc;
+    }
   }
 
   for (const b of buckets.values()) b.net = b.income - b.expense;

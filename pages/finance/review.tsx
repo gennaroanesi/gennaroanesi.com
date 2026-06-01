@@ -23,7 +23,7 @@ import {
   type TickerQuoteRecord,
   type HoldingSnapshotRecord,
   type GoalSnapshotRecord,
-  type PaycheckRecord,
+  type RecurringRecord,
 } from "@/components/finance/_shared";
 import {
   type Period,
@@ -31,13 +31,13 @@ import {
   ytdRange,
   summarizeIncome,
   summarizeExpenses,
-  computeExpenseDistribution,
+  summarizeRecurring,
+  summarizeCreditCards,
   computeStockReview,
   computeGoalEvolution,
   computeTrend,
   type CategoryBucket,
   type AccountBucket,
-  type NamedBucket,
 } from "@/components/finance/review";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ function fmtCompact(n: number): string {
   return `${sign}$${abs.toFixed(0)}`;
 }
 
-// ── Small presentational helpers ──────────────────────────────────────────────
+// ── Presentational helpers ────────────────────────────────────────────────────
 
 function StatCard({ label, value, color, hint }: { label: string; value: string; color?: string; hint?: string }) {
   return (
@@ -88,13 +88,10 @@ function SparseNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Horizontal bar breakdown for {name, amount}[] rows. */
 function BreakdownBars({
   data, color, emptyLabel,
 }: { data: { name: string; amount: number }[]; color: string; emptyLabel: string }) {
-  if (data.length === 0) {
-    return <p className="text-sm text-gray-400 py-6 text-center">{emptyLabel}</p>;
-  }
+  if (data.length === 0) return <p className="text-sm text-gray-400 py-6 text-center">{emptyLabel}</p>;
   const top = data.slice(0, 12);
   return (
     <ResponsiveContainer width="100%" height={Math.max(120, top.length * 34)}>
@@ -111,7 +108,6 @@ function BreakdownBars({
 
 const catToBars = (b: CategoryBucket[]) => b.map((x) => ({ name: x.category, amount: x.amount }));
 const acctToBars = (b: AccountBucket[]) => b.map((x) => ({ name: x.accountName, amount: x.amount }));
-const namedToBars = (b: NamedBucket[]) => b.map((x) => ({ name: x.name, amount: x.amount }));
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
@@ -120,7 +116,7 @@ export default function ReviewPage() {
 
   const [txs, setTxs] = useState<TransactionRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
-  const [paychecks, setPaychecks] = useState<PaycheckRecord[]>([]);
+  const [recurrings, setRecurrings] = useState<RecurringRecord[]>([]);
   const [lots, setLots] = useState<HoldingLotRecord[]>([]);
   const [quotes, setQuotes] = useState<TickerQuoteRecord[]>([]);
   const [holdingSnaps, setHoldingSnaps] = useState<HoldingSnapshotRecord[]>([]);
@@ -138,10 +134,10 @@ export default function ReviewPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, a, pc, l, q, hs, gs, g] = await Promise.all([
+      const [t, a, rec, l, q, hs, gs, g] = await Promise.all([
         listAll(client.models.financeTransaction),
         listAll(client.models.financeAccount),
-        listAll(client.models.financePaycheck as any),
+        listAll(client.models.financeRecurring as any),
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeHoldingSnapshot),
@@ -150,7 +146,7 @@ export default function ReviewPage() {
       ]);
       setTxs(t as TransactionRecord[]);
       setAccounts(a as AccountRecord[]);
-      setPaychecks(pc as PaycheckRecord[]);
+      setRecurrings(rec as RecurringRecord[]);
       setLots(l as HoldingLotRecord[]);
       setQuotes(q as TickerQuoteRecord[]);
       setHoldingSnaps(hs as HoldingSnapshotRecord[]);
@@ -173,9 +169,8 @@ export default function ReviewPage() {
   const availableYears = useMemo(() => {
     const ys = new Set<number>([curYear]);
     for (const t of txs) if (t.date) ys.add(Number(t.date.slice(0, 4)));
-    for (const p of paychecks) if (p.payDate) ys.add(Number(p.payDate.slice(0, 4)));
     return [...ys].sort((a, b) => b - a);
-  }, [txs, paychecks, curYear]);
+  }, [txs, curYear]);
 
   const view = useMemo(() => {
     const range = periodRange(period);
@@ -183,18 +178,19 @@ export default function ReviewPage() {
     const trades = txs.filter((t) => t.type === "BUY" || t.type === "SELL");
     return {
       range,
-      income: summarizeIncome(paychecks, range),
-      expenses: summarizeExpenses(txs, accounts, range),
-      dist: computeExpenseDistribution(txs, accounts, range),
+      income: summarizeIncome(txs, accounts, range),
+      expenses: summarizeExpenses(txs, accounts, recurrings, range),
+      recurring: summarizeRecurring(txs, recurrings, accounts, range),
+      cards: summarizeCreditCards(txs, accounts, range),
       stock: computeStockReview(holdingSnaps, lots, quotes, trades, range, ytd),
       goalEvo: computeGoalEvolution(goalSnaps, goals, range),
-      trend: computeTrend(txs, paychecks, accounts, period),
+      trend: computeTrend(txs, accounts, period),
     };
-  }, [period, txs, accounts, paychecks, lots, quotes, holdingSnaps, goalSnaps, goals]);
+  }, [period, txs, accounts, recurrings, lots, quotes, holdingSnaps, goalSnaps, goals]);
 
   if (authState !== "authenticated") return null;
 
-  const { range, income, expenses, dist, stock, goalEvo, trend } = view;
+  const { range, income, expenses, recurring, cards, stock, goalEvo, trend } = view;
   const net = income.total - expenses.total;
 
   return (
@@ -255,21 +251,21 @@ export default function ReviewPage() {
                 label="Income"
                 value={fmtCurrency(income.total)}
                 color={INCOME_COLOR}
-                hint={`${income.paycheckCount} paycheck${income.paycheckCount === 1 ? "" : "s"}`}
+                hint={`salary · ${income.count} deposit${income.count === 1 ? "" : "s"}`}
               />
               <StatCard
                 label="Expenses"
                 value={fmtCurrency(expenses.total)}
                 color={EXPENSE_COLOR}
-                hint={`${expenses.txCount} charge${expenses.txCount === 1 ? "" : "s"}`}
+                hint={`${fmtCurrency(recurring.total)} recurring · ${fmtCurrency(expenses.discretionaryTotal)} other`}
               />
               <StatCard label="Net" value={fmtCurrency(net, "USD", true)} color={amountColor(net)} hint="income − expenses" />
             </div>
 
-            {income.paycheckCount === 0 && (
+            {income.count === 0 && (
               <p className="text-xs text-gray-400 mt-2">
-                No paychecks recorded in this period — income is derived from the paycheck ledger, not bank deposits.{" "}
-                <NextLink href="/finance/paychecks" className="hover:underline" style={{ color: FINANCE_COLOR }}>Add paychecks</NextLink>.
+                No salary deposits matched this period — income is detected from checking deposits matching the salary
+                pattern (currently &ldquo;META&rdquo;). Adjust <code>SALARY_DESCRIPTION_PATTERNS</code> if your payroll memo differs.
               </p>
             )}
 
@@ -289,101 +285,138 @@ export default function ReviewPage() {
               </ResponsiveContainer>
             </div>
 
-            {/* ── Income ───────────────────────────────────────────── */}
-            <SectionTitle hint={fmtCurrency(income.total)}>Income</SectionTitle>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className={CARD}>
-                <p className="text-xs text-gray-400 mb-2">By source</p>
-                <BreakdownBars data={namedToBars(income.bySource)} color={INCOME_COLOR} emptyLabel="No paychecks this period." />
-              </div>
-              <div className={CARD}>
-                <p className="text-xs text-gray-400 mb-2">By person</p>
-                <BreakdownBars data={namedToBars(income.byPerson)} color={INCOME_COLOR} emptyLabel="No paychecks this period." />
-              </div>
-            </div>
-
-            {/* ── Expenses ─────────────────────────────────────────── */}
-            <SectionTitle hint={fmtCurrency(expenses.total)}>Expenses</SectionTitle>
+            {/* ── Expenses (discretionary) ─────────────────────────── */}
+            <SectionTitle hint={`${fmtCurrency(expenses.discretionaryTotal)} · excludes recurring & transfers`}>Spending</SectionTitle>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className={CARD}>
                 <p className="text-xs text-gray-400 mb-2">By category</p>
-                <BreakdownBars data={catToBars(expenses.byCategory)} color={EXPENSE_COLOR} emptyLabel="No spending this period." />
+                <BreakdownBars data={catToBars(expenses.byCategory)} color={EXPENSE_COLOR} emptyLabel="No discretionary spending this period." />
               </div>
               <div className={CARD}>
                 <p className="text-xs text-gray-400 mb-2">By account</p>
-                <BreakdownBars data={acctToBars(expenses.byAccount)} color={EXPENSE_COLOR} emptyLabel="No spending this period." />
+                <BreakdownBars data={acctToBars(expenses.byAccount)} color={EXPENSE_COLOR} emptyLabel="No discretionary spending this period." />
               </div>
             </div>
 
-            {/* Credit-card breakdown */}
-            <div className={`${CARD} mt-3`}>
-              <p className="text-xs text-gray-400 mb-2">Credit-card spend (charges, excl. payments)</p>
-              {expenses.creditCardSpend.length === 0 ? (
-                <p className="text-sm text-gray-400 py-4 text-center">No credit-card charges this period.</p>
-              ) : (
-                <div className="divide-y divide-gray-100 dark:divide-darkBorder">
-                  {expenses.creditCardSpend.map((c) => (
-                    <div key={c.accountId} className="flex items-center justify-between py-2 gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <AccountBadge type={c.type as any} />
-                        <span className="text-sm truncate">{c.accountName}</span>
-                        <span className="text-xs text-gray-400">{c.count} tx</span>
-                      </div>
-                      <span className="text-sm font-medium" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(c.amount)}</span>
-                    </div>
-                  ))}
+            {/* ── Recurring ────────────────────────────────────────── */}
+            <SectionTitle hint={`${fmtCurrency(recurring.total)} matched`}>Recurring</SectionTitle>
+            {recurring.items.length === 0 ? (
+              <p className="text-sm text-gray-400 py-2">
+                No recurring rules.{" "}
+                <NextLink href="/finance/recurring" className="hover:underline" style={{ color: FINANCE_COLOR }}>Add some</NextLink>{" "}
+                (mortgage, car, insurance…) so these stop landing in discretionary spending.
+              </p>
+            ) : (
+              <div className={CARD}>
+                <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-xs text-gray-400 mb-1">
+                  <span>Rule</span><span className="text-right">Expected</span><span className="text-right">Actual</span>
                 </div>
-              )}
-            </div>
-
-            {/* ── Expense distribution ─────────────────────────────── */}
-            <SectionTitle hint="big purchases vs. many small ones">Spending shape</SectionTitle>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className={CARD}>
-                <p className="text-xs text-gray-400 mb-2">By ticket size</p>
-                {dist.count === 0 ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">No spending this period.</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={180}>
-                    <BarChart data={dist.buckets} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                      <CartesianGrid vertical={false} strokeOpacity={0.1} />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                      <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
-                      <Tooltip
-                        formatter={(v: any, _n: any, p: any) => [`${fmtCurrency(Number(v))} · ${p?.payload?.count} tx`, "Total"]}
-                        cursor={{ fillOpacity: 0.06 }}
-                      />
-                      <Bar dataKey="amount" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {dist.count > 0 && (
-                  <p className="text-xs text-gray-400 mt-2">
-                    {dist.count} charges · median {fmtCurrency(dist.medianTicket)}
-                    {dist.top5Share != null && <> · top 5 = {(dist.top5Share * 100).toFixed(0)}% of spend</>}
-                    {" "}· {dist.countForHalf} charge{dist.countForHalf === 1 ? "" : "s"} make up half
-                  </p>
-                )}
-              </div>
-              <div className={CARD}>
-                <p className="text-xs text-gray-400 mb-2">Biggest charges</p>
-                {dist.topTransactions.length === 0 ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">No spending this period.</p>
-                ) : (
-                  <div className="divide-y divide-gray-100 dark:divide-darkBorder">
-                    {dist.topTransactions.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between py-1.5 gap-2">
+                <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                  {recurring.items.map((r) => {
+                    const over = r.actual > r.expected * 1.15 && r.expected > 0;
+                    const missing = r.actual === 0;
+                    return (
+                      <div key={r.ruleId} className="grid grid-cols-[1fr_auto_auto] gap-x-4 items-center py-2">
                         <div className="min-w-0">
-                          <p className="text-sm truncate">{t.description}</p>
-                          <p className="text-[11px] text-gray-400 truncate">{fmtDate(t.date)} · {t.accountName} · {t.category}</p>
+                          <p className="text-sm truncate">{r.description}</p>
+                          <p className="text-[11px] text-gray-400">
+                            {r.cadence?.toLowerCase()}{r.category ? ` · ${r.category}` : ""}{r.count ? ` · ${r.count} matched` : ""}
+                          </p>
                         </div>
-                        <span className="text-sm font-medium whitespace-nowrap" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(t.amount)}</span>
+                        <span className="text-sm text-right text-gray-400 tabular-nums">{fmtCurrency(r.expected)}</span>
+                        <span
+                          className="text-sm text-right font-medium tabular-nums"
+                          style={{ color: missing ? "#9ca3af" : over ? EXPENSE_COLOR : undefined }}
+                        >
+                          {missing ? "—" : fmtCurrency(r.actual)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Credit-card spending ─────────────────────────────── */}
+            <SectionTitle hint={`${fmtCurrency(cards.total)} charged`}>Credit-card spending</SectionTitle>
+            {cards.count === 0 ? (
+              <p className="text-sm text-gray-400 py-2">No credit-card charges this period.</p>
+            ) : (
+              <>
+                {cards.perCard.length > 0 && (
+                  <div className={`${CARD} mb-3`}>
+                    <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                      {cards.perCard.map((c) => (
+                        <div key={c.accountId} className="flex items-center justify-between py-2 gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <AccountBadge type={c.type as any} />
+                            <span className="text-sm truncate">{c.accountName}</span>
+                            <span className="text-xs text-gray-400">{c.count} charges</span>
+                          </div>
+                          <span className="text-sm font-medium" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(c.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className={CARD}>
+                    <p className="text-xs text-gray-400 mb-2">By ticket size</p>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={cards.buckets} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                        <CartesianGrid vertical={false} strokeOpacity={0.1} />
+                        <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                        <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
+                        <Tooltip
+                          formatter={(v: any, _n: any, p: any) => [`${fmtCurrency(Number(v))} · ${p?.payload?.count} tx`, "Total"]}
+                          cursor={{ fillOpacity: 0.06 }}
+                        />
+                        <Bar dataKey="amount" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <p className="text-xs text-gray-400 mt-2">
+                      {cards.count} charges · median {fmtCurrency(cards.medianTicket)}
+                      {cards.top5Share != null && <> · top 5 = {(cards.top5Share * 100).toFixed(0)}%</>}
+                      {" "}· {cards.countForHalf} make up half
+                    </p>
+                  </div>
+                  <div className={CARD}>
+                    <p className="text-xs text-gray-400 mb-2">Biggest charges</p>
+                    <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                      {cards.topTransactions.map((t) => (
+                        <div key={t.id} className="flex items-center justify-between py-1.5 gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm truncate">{t.description}</p>
+                            <p className="text-[11px] text-gray-400 truncate">{fmtDate(t.date)} · {t.accountName} · {t.category}</p>
+                          </div>
+                          <span className="text-sm font-medium whitespace-nowrap" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(t.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ── Income detail ────────────────────────────────────── */}
+            {income.deposits.length > 0 && (
+              <>
+                <SectionTitle hint={fmtCurrency(income.total)}>Salary deposits</SectionTitle>
+                <div className={CARD}>
+                  <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                    {income.deposits.map((d) => (
+                      <div key={d.id} className="flex items-center justify-between py-1.5 gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm truncate">{d.description}</p>
+                          <p className="text-[11px] text-gray-400 truncate">{fmtDate(d.date)} · {d.accountName}</p>
+                        </div>
+                        <span className="text-sm font-medium whitespace-nowrap" style={{ color: INCOME_COLOR }}>{fmtCurrency(d.amount)}</span>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              </>
+            )}
 
             {/* ── Stocks ───────────────────────────────────────────── */}
             <SectionTitle hint="brokerage + retirement">Stocks</SectionTitle>
