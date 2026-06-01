@@ -421,7 +421,13 @@ export function summarizeExpenses(
 // ── Credit-card spending + ticket-size distribution ────────────────────────────
 
 export type ExpenseLine = { id: string; date: string; description: string; accountName: string; category: string; amount: number };
-export type AmountBucket = { label: string; count: number; amount: number };
+export type AmountBucket = {
+  label: string;
+  count: number;
+  amount: number;
+  cumCountPct: number;   // cumulative % of charges up to & incl. this bucket (0–100)
+  cumSpendPct: number;   // cumulative % of spend up to & incl. this bucket (0–100)
+};
 
 export type CreditCardReview = {
   total: number;
@@ -474,7 +480,7 @@ export function summarizeCreditCards(
     b.amount += v; b.count += 1; perCard.set(tx.accountId, b);
   }
 
-  const buckets: AmountBucket[] = SIZE_EDGES.map((e) => ({ label: e.label, count: 0, amount: 0 }));
+  const buckets: AmountBucket[] = SIZE_EDGES.map((e) => ({ label: e.label, count: 0, amount: 0, cumCountPct: 0, cumSpendPct: 0 }));
   for (const l of lines) {
     const idx = SIZE_EDGES.findIndex((e) => l.amount < e.max);
     const b = buckets[idx === -1 ? buckets.length - 1 : idx];
@@ -483,6 +489,15 @@ export function summarizeCreditCards(
 
   const sorted = [...lines].sort((a, b) => b.amount - a.amount);
   const total = lines.reduce((s, l) => s + l.amount, 0);
+
+  // Cumulative shares across buckets (ascending ticket size) for the Pareto line.
+  let cumCount = 0, cumSpend = 0;
+  const totalCount = lines.length;
+  for (const b of buckets) {
+    cumCount += b.count; cumSpend += b.amount;
+    b.cumCountPct = totalCount ? (cumCount / totalCount) * 100 : 0;
+    b.cumSpendPct = total ? (cumSpend / total) * 100 : 0;
+  }
 
   let cum = 0, countForHalf = 0;
   for (const l of sorted) { if (cum >= total / 2) break; cum += l.amount; countForHalf += 1; }

@@ -3,7 +3,7 @@ import NextLink from "next/link";
 import {
   ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
-  LineChart, Line, Legend,
+  LineChart, Line, Legend, ComposedChart,
 } from "recharts";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
@@ -400,28 +400,38 @@ export default function ReviewPage() {
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className={CARD}>
-                    <p className="text-xs text-gray-400 mb-2">By ticket size</p>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={cards.buckets} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
-                        <CartesianGrid vertical={false} strokeOpacity={0.1} />
-                        <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                        <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
-                        <Tooltip
-                          formatter={(v: any, _n: any, p: any) => [`${fmtCurrency(Number(v))} · ${p?.payload?.count} tx`, "Total"]}
-                          cursor={{ fillOpacity: 0.06 }}
-                        />
-                        <Bar dataKey="amount" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
+                  <div className={`${CARD} flex flex-col`}>
+                    <p className="text-xs text-gray-400 mb-2">By ticket size · spend (bars) + cumulative % of charges</p>
+                    <div className="flex-1 min-h-[260px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={cards.buckets} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
+                          <CartesianGrid vertical={false} strokeOpacity={0.1} />
+                          <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                          <YAxis yAxisId="left" tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
+                          <YAxis
+                            yAxisId="right" orientation="right" domain={[0, 100]}
+                            tickFormatter={(v: any) => `${v}%`} tick={{ fontSize: 11 }} width={40}
+                          />
+                          <Tooltip
+                            formatter={(v: any, name: any) =>
+                              String(name).includes("%") ? `${Number(v).toFixed(0)}%` : fmtCurrency(Number(v))}
+                            cursor={{ fillOpacity: 0.06 }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Bar yAxisId="left" dataKey="amount" name="Spend" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
+                          <Line yAxisId="right" type="monotone" dataKey="cumCountPct" name="Cum. % of charges" stroke={AMBER} strokeWidth={2} dot={{ r: 2 }} />
+                          <Line yAxisId="right" type="monotone" dataKey="cumSpendPct" name="Cum. % of spend" stroke="#60a5fa" strokeWidth={2} dot={{ r: 2 }} strokeDasharray="4 3" />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
                     <p className="text-xs text-gray-400 mt-2">
                       {cards.count} charges · median {fmtCurrency(cards.medianTicket)}
                       {cards.top5Share != null && <> · top 5 = {(cards.top5Share * 100).toFixed(0)}%</>}
                       {" "}· {cards.countForHalf} make up half
                     </p>
                   </div>
-                  <div className={CARD}>
+                  <div className={`${CARD} flex flex-col`}>
                     <p className="text-xs text-gray-400 mb-2">Biggest charges</p>
                     <div className="divide-y divide-gray-100 dark:divide-darkBorder">
                       {cards.topTransactions.map((t) => (
