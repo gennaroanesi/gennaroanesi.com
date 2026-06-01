@@ -34,6 +34,8 @@ import {
   matchesUserPattern,
   findRecurringMatches,
   RECURRING_MATCH_AUTO_THRESHOLD,
+  advanceByCadence,
+  type Cadence,
 } from "./_shared";
 import {
   buildQuoteMap,
@@ -81,10 +83,6 @@ export function ytdRange(p: Period): DateRange {
 function inRange(dateIso: string | null | undefined, r: DateRange): boolean {
   if (!dateIso) return false;
   return dateIso >= r.fromIso && dateIso <= r.toIso;
-}
-
-function daysInclusive(r: DateRange): number {
-  return Math.round((Date.parse(`${r.toIso}T00:00:00Z`) - Date.parse(`${r.fromIso}T00:00:00Z`)) / 86400000) + 1;
 }
 
 /** Posted (i.e. not explicitly PENDING) — null/undefined status counts as posted. */
@@ -165,9 +163,29 @@ function expenseMagnitude(tx: TransactionRecord, acctById: Map<string, AccountRe
 
 // ── Recurring matching ────────────────────────────────────────────────────────
 
-const CADENCE_PER_YEAR: Record<string, number> = {
-  WEEKLY: 52, BIWEEKLY: 26, MONTHLY: 12, QUARTERLY: 4, SEMIANNUALLY: 2, ANNUALLY: 1,
-};
+/**
+ * Calendar-accurate count of a rule's scheduled occurrences within the range.
+ * Steps from the rule's anchor (startDate, else nextDate) by its cadence — so
+ * an annual rule billed in May counts 1 only when the range includes its May
+ * anniversary, and 0 otherwise. No proration.
+ */
+function countOccurrencesInRange(rule: RecurringRecord, range: DateRange): number {
+  const cadence = rule.cadence as Cadence | null;
+  const anchor = (rule.startDate as string | null) ?? (rule.nextDate as string | null);
+  if (!cadence || !anchor) return 0;
+  const end = (rule.endDate as string | null) ?? null;
+  let cur = anchor;
+  let count = 0;
+  let guard = 0;
+  while (cur <= range.toIso && guard < 6000) {
+    guard++;
+    if (cur >= range.fromIso && (!end || cur <= end)) count++;
+    const next = advanceByCadence(cur, cadence, anchor);
+    if (next <= cur) break;   // safety: never advance → bail
+    cur = next;
+  }
+  return count;
+}
 
 /** The recurring rule a transaction realizes: explicit link wins, else a
  *  high-confidence fuzzy match against the user's rules. */
@@ -208,13 +226,9 @@ export function summarizeRecurring(
     cur.actual += v; cur.count += 1; actualByRule.set(rule.id, cur);
   }
 
-  const days = daysInclusive(range);
   const items: RecurringItem[] = expenseRules.map((r) => {
-    const perYear = CADENCE_PER_YEAR[(r.cadence as string) ?? "MONTHLY"] ?? 12;
-    // Expected = rule amount × how many times it should occur in the window.
-    // Occurrence-based (not day-prorated) so a $205/mo rule reads $205 for any
-    // single month and $2,460 for a year — instead of drifting with month length.
-    const occurrences = Math.round(perYear * (days / 365));
+    // Expected = rule amount × its actual scheduled occurrences in the window.
+    const occurrences = countOccurrencesInRange(r, range);
     const expected = Math.abs(r.amount ?? 0) * occurrences;
     const a = actualByRule.get(r.id) ?? { actual: 0, count: 0 };
     return {
