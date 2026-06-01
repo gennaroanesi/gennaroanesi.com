@@ -74,6 +74,7 @@ export default function TransactionsPage() {
   // Bulk / inline category editing
   const [selected,     setSelected]     = useState<Set<string>>(new Set());
   const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkGroup,    setBulkGroup]    = useState("");
   const [savingCats,   setSavingCats]   = useState(false);
 
   const saveCategory = useCallback(async (ids: string[], category: string) => {
@@ -88,6 +89,16 @@ export default function TransactionsPage() {
     } finally { setSavingCats(false); }
   }, []);
   const saveOne = useCallback((id: string, category: string) => { void saveCategory([id], category); }, [saveCategory]);
+  const saveGroup = useCallback(async (ids: string[], groupId: string | null) => {
+    setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, spendGroupId: groupId } as TransactionRecord) : t)));
+    setSavingCats(true);
+    try {
+      for (const id of ids) {
+        try { await client.models.financeTransaction.update({ id, spendGroupId: groupId } as any); }
+        catch (e) { console.error("group update failed", id, e); }
+      }
+    } finally { setSavingCats(false); }
+  }, []);
   const toggleSelect = useCallback((id: string) => {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
@@ -421,8 +432,32 @@ export default function TransactionsPage() {
                 className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
                 style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
               >
-                {savingCats ? "Applying…" : "Apply to selected"}
+                {savingCats ? "Applying…" : "Set category"}
               </button>
+
+              {spendGroups.length > 0 && (
+                <>
+                  <span className="text-gray-300 dark:text-darkBorder">|</span>
+                  <select
+                    value={bulkGroup}
+                    onChange={(e) => setBulkGroup(e.target.value)}
+                    className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-700 dark:text-gray-200"
+                  >
+                    <option value="">Set group…</option>
+                    <option value="__none__">— None (untag) —</option>
+                    {spendGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                  <button
+                    disabled={!bulkGroup || savingCats}
+                    onClick={async () => { await saveGroup([...selected], bulkGroup === "__none__" ? null : bulkGroup); setBulkGroup(""); setSelected(new Set()); }}
+                    className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
+                    style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                  >
+                    {savingCats ? "Applying…" : "Set group"}
+                  </button>
+                </>
+              )}
+
               <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
             </div>
           )}
