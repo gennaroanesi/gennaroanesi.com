@@ -121,6 +121,7 @@ export type AccountRecord     = Schema["financeAccount"]["type"];
 export type TransactionRecord = Schema["financeTransaction"]["type"];
 export type RecurringRecord   = Schema["financeRecurring"]["type"];
 export type GoalRecord        = Schema["financeSavingsGoal"]["type"];
+export type SpendGroupRecord  = Schema["financeSpendGroup"]["type"];
 export type GoalFundingSourceRecord = Schema["financeGoalFundingSource"]["type"];
 export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
 export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];

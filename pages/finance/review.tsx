@@ -24,6 +24,7 @@ import {
   type HoldingSnapshotRecord,
   type GoalSnapshotRecord,
   type RecurringRecord,
+  type SpendGroupRecord,
 } from "@/components/finance/_shared";
 import {
   type Period,
@@ -34,6 +35,7 @@ import {
   summarizeRecurring,
   detectRecurringSuggestions,
   summarizeCreditCards,
+  summarizeGroups,
   computeStockReview,
   computeGoalEvolution,
   computeTrend,
@@ -123,6 +125,7 @@ export default function ReviewPage() {
   const [holdingSnaps, setHoldingSnaps] = useState<HoldingSnapshotRecord[]>([]);
   const [goalSnaps, setGoalSnaps] = useState<GoalSnapshotRecord[]>([]);
   const [goals, setGoals] = useState<GoalRecord[]>([]);
+  const [spendGroups, setSpendGroups] = useState<SpendGroupRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   const today = todayIso();
@@ -135,7 +138,7 @@ export default function ReviewPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, a, rec, l, q, hs, gs, g] = await Promise.all([
+      const [t, a, rec, l, q, hs, gs, g, sg] = await Promise.all([
         listAll(client.models.financeTransaction),
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring as any),
@@ -144,6 +147,7 @@ export default function ReviewPage() {
         listAll(client.models.financeHoldingSnapshot),
         listAll(client.models.financeGoalSnapshot),
         listAll(client.models.financeSavingsGoal),
+        listAll(client.models.financeSpendGroup as any),
       ]);
       setTxs(t as TransactionRecord[]);
       setAccounts(a as AccountRecord[]);
@@ -153,6 +157,7 @@ export default function ReviewPage() {
       setHoldingSnaps(hs as HoldingSnapshotRecord[]);
       setGoalSnaps(gs as GoalSnapshotRecord[]);
       setGoals(g as GoalRecord[]);
+      setSpendGroups(sg as SpendGroupRecord[]);
     } finally {
       setLoading(false);
     }
@@ -184,15 +189,16 @@ export default function ReviewPage() {
       recurring: summarizeRecurring(txs, recurrings, accounts, range),
       recurringSuggestions: detectRecurringSuggestions(txs, accounts, recurrings, range.toIso),
       cards: summarizeCreditCards(txs, accounts, range),
+      groups: summarizeGroups(txs, accounts, spendGroups, range),
       stock: computeStockReview(holdingSnaps, lots, quotes, trades, range, ytd),
       goalEvo: computeGoalEvolution(goalSnaps, goals, range),
       trend: computeTrend(txs, accounts, period),
     };
-  }, [period, txs, accounts, recurrings, lots, quotes, holdingSnaps, goalSnaps, goals]);
+  }, [period, txs, accounts, recurrings, spendGroups, lots, quotes, holdingSnaps, goalSnaps, goals]);
 
   if (authState !== "authenticated") return null;
 
-  const { range, income, expenses, recurring, recurringSuggestions, cards, stock, goalEvo, trend } = view;
+  const { range, income, expenses, recurring, recurringSuggestions, cards, groups, stock, goalEvo, trend } = view;
   const net = income.total - expenses.total;
 
   return (
@@ -463,6 +469,29 @@ export default function ReviewPage() {
                           <p className="text-[11px] text-gray-400 truncate">{fmtDate(d.date)} · {d.accountName}</p>
                         </div>
                         <span className="text-sm font-medium whitespace-nowrap" style={{ color: INCOME_COLOR }}>{fmtCurrency(d.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ── Groups (trips / projects) ────────────────────────── */}
+            {groups.length > 0 && (
+              <>
+                <SectionTitle hint="spend tagged to a group this period">Groups</SectionTitle>
+                <div className={CARD}>
+                  <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                    {groups.map((g) => (
+                      <div key={g.groupId} className="flex items-center justify-between py-2 gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <NextLink href="/finance/groups" className="text-sm truncate hover:underline">{g.name}</NextLink>
+                          {g.kind && <span className="text-[10px] uppercase tracking-wide text-gray-400">{g.kind.toLowerCase()}</span>}
+                          <span className="text-xs text-gray-400">{g.count} tx</span>
+                        </div>
+                        <span className="text-sm font-medium" style={{ color: EXPENSE_COLOR }}>
+                          {fmtCurrency(g.amount)}{g.budget != null ? <span className="text-gray-400 font-normal"> / {fmtCurrency(g.budget)}</span> : null}
+                        </span>
                       </div>
                     ))}
                   </div>

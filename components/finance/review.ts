@@ -28,6 +28,7 @@ import type {
   HoldingSnapshotRecord,
   GoalSnapshotRecord,
   RecurringRecord,
+  SpendGroupRecord,
 } from "./_shared";
 import {
   realizedGain,
@@ -519,6 +520,42 @@ export function summarizeCreditCards(
     top5Share: total > 0 ? top5 / total : null,
     countForHalf,
   };
+}
+
+// ── Spend groups (trips / projects) active in the period ──────────────────────
+
+export type GroupSpend = {
+  groupId: string;
+  name: string;
+  kind: string | null;
+  amount: number;        // counted spend tagged to this group within the range
+  count: number;
+  budget: number | null; // whole-group budget (context; not period-scoped)
+};
+
+export function summarizeGroups(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  groups: SpendGroupRecord[],
+  range: DateRange,
+): GroupSpend[] {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const byGroup = new Map<string, { amount: number; count: number }>();
+  for (const tx of txs) {
+    const gid = (tx as any).spendGroupId as string | null | undefined;
+    if (!gid || !inRange(tx.date, range)) continue;
+    const v = expenseMagnitude(tx, acctById);
+    if (v == null) continue;
+    const cur = byGroup.get(gid) ?? { amount: 0, count: 0 };
+    cur.amount += v; cur.count += 1; byGroup.set(gid, cur);
+  }
+  const out: GroupSpend[] = [];
+  for (const g of groups) {
+    const s = byGroup.get(g.id);
+    if (!s || s.amount === 0) continue;
+    out.push({ groupId: g.id, name: g.name ?? "Group", kind: (g.kind as string) ?? null, amount: s.amount, count: s.count, budget: g.budget ?? null });
+  }
+  return out.sort((a, b) => b.amount - a.amount);
 }
 
 // ── Stock review ────────────────────────────────────────────────────────────

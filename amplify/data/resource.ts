@@ -492,6 +492,7 @@ const schema = a.schema({
       date: a.date().required(), // YYYY-MM-DD
       status: a.enum(["POSTED", "PENDING"]), // POSTED affects balance; PENDING is forecast only
       goalId: a.id(), // optional tag → financeSavingsGoal.id
+      spendGroupId: a.id(), // optional tag → financeSpendGroup.id (trip/project/event)
       toAccountId: a.id(), // TRANSFER destination account
       importHash: a.string(), // dedup fingerprint: hash(date+amount+description)
       // Optional link to the financeRecurring rule this tx realizes. Set by
@@ -556,6 +557,24 @@ const schema = a.schema({
       // monthly contribution via future-value-of-annuity. Null = use default (5%).
       // Set to 0 for pure-cash goals where compound growth is not realistic.
       expectedAnnualGrowth: a.float(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Spend Group ──────────────────────────────────────────────
+  // A logical grouping of transactions that cuts ACROSS categories — e.g. a
+  // trip, a remodel, a wedding. Orthogonal to `category` (what kind of spend)
+  // and to `goalId` (a savings target). Transactions tag in via
+  // financeTransaction.spendGroupId. `budget` is optional; the Review/Groups
+  // page compares actual tagged spend against it. startDate/endDate bound the
+  // group's window (used for the "auto-assign transactions in range" helper).
+  financeSpendGroup: a
+    .model({
+      name: a.string().required(),
+      kind: a.enum(["TRIP", "PROJECT", "EVENT", "OTHER"]),
+      budget: a.float(),          // optional target
+      startDate: a.date(),
+      endDate: a.date(),
+      notes: a.string(),
     })
     .authorization((allow) => [allow.group("admins")]),
 

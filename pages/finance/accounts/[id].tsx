@@ -6,7 +6,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, HoldingLotRecord, TickerQuoteRecord,
-  GoalRecord, GoalFundingSourceRecord, RecurringRecord,
+  GoalRecord, GoalFundingSourceRecord, RecurringRecord, SpendGroupRecord,
   ACCOUNT_TYPES, ASSET_TYPES, ASSET_TYPE_LABELS, FINANCE_COLOR,
   ACCOUNT_TYPE_LABELS,
   RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, isInvestedAccount,
@@ -50,6 +50,7 @@ export default function AccountDetailPage() {
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
   const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
+  const [spendGroups,  setSpendGroups]  = useState<SpendGroupRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [saving,       setSaving]       = useState(false);
   const [refreshing,   setRefreshing]   = useState(false);
@@ -68,7 +69,7 @@ export default function AccountDetailPage() {
     if (!accountId) return;
     setLoading(true);
     try {
-      const [accRecs, txs, lotRecs, quoteRecs, goalRecs, mappingRecs, recRecs] = await Promise.all([
+      const [accRecs, txs, lotRecs, quoteRecs, goalRecs, mappingRecs, recRecs, groupRecs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
         listAll(client.models.financeHoldingLot),
@@ -76,6 +77,7 @@ export default function AccountDetailPage() {
         listAll(client.models.financeSavingsGoal),
         listAll(client.models.financeGoalFundingSource),
         listAll(client.models.financeRecurring),
+        listAll(client.models.financeSpendGroup as any),
       ]);
       setAccounts(accRecs);
       // The shared panel can save TRANSFERs that change accountId or move
@@ -89,6 +91,7 @@ export default function AccountDetailPage() {
       setGoals(goalRecs);
       setMappings(mappingRecs);
       setRecurrings(recRecs);
+      setSpendGroups(groupRecs as SpendGroupRecord[]);
     } finally {
       setLoading(false);
     }
@@ -856,6 +859,7 @@ export default function AccountDetailPage() {
             accounts={accounts}
             lots={lots}
             recurrings={recurrings}
+            spendGroups={spendGroups}
             onClose={() => setPanel(null)}
             onSetTransactions={setTransactions}
             onSetAccounts={setAccounts}
@@ -869,6 +873,7 @@ export default function AccountDetailPage() {
             accounts={accounts}
             lots={lots}
             recurrings={recurrings}
+            spendGroups={spendGroups}
             onClose={() => setPanel(null)}
             onSetTransactions={setTransactions}
             onSetAccounts={setAccounts}

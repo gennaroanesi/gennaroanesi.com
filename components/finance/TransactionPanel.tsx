@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   client,
-  AccountRecord, TransactionRecord, HoldingLotRecord, RecurringRecord,
+  AccountRecord, TransactionRecord, HoldingLotRecord, RecurringRecord, SpendGroupRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, amountColor,
   inputCls, labelCls,
@@ -19,6 +19,7 @@ export type TransactionPanelProps = {
   accounts:    AccountRecord[];
   lots:        HoldingLotRecord[];
   recurrings:  RecurringRecord[];
+  spendGroups?: SpendGroupRecord[];   // optional — for tagging a tx to a trip/project/event
 
   // Mode
   mode:        "create" | "edit";
@@ -40,7 +41,7 @@ export type TransactionPanelProps = {
 
 export function TransactionPanel(props: TransactionPanelProps) {
   const {
-    accounts, lots, recurrings,
+    accounts, lots, recurrings, spendGroups = [],
     mode, defaultType, defaultAccountId, lockAccount, editingTx,
     onClose,
     onSetTransactions, onSetAccounts, onSetLots,
@@ -218,6 +219,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
           date:              txDraft.date!,
           status:            (txDraft.status ?? "POSTED") as any,
           goalId:            txDraft.goalId ?? null,
+          spendGroupId:      txDraft.spendGroupId ?? null,
           toAccountId:       txDraft.toAccountId ?? null,
           importHash:        txDraft.importHash ?? null,
           ticker:            isTradeType(txType) ? (txDraft.ticker ?? "").toUpperCase() : null,
@@ -276,6 +278,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
           date:        txDraft.date!,
           status:      (txDraft.status ?? "POSTED") as any,
           goalId:      txDraft.goalId ?? null,
+          spendGroupId: txDraft.spendGroupId ?? null,
           toAccountId: txDraft.toAccountId ?? null,
           recurringId: txDraft.recurringId ?? null,
           notes:       txDraft.notes ?? null,
@@ -638,6 +641,18 @@ export function TransactionPanel(props: TransactionPanelProps) {
             value={txDraft.category ?? ""}
             onChange={(e) => setTxDraft((d) => ({ ...d, category: e.target.value }))} />
         </div>
+        {spendGroups.length > 0 && (
+          <div>
+            <label className={labelCls}>Group <span className="text-gray-400 font-normal">(trip / project)</span></label>
+            <select className={inputCls} value={txDraft.spendGroupId ?? ""}
+              onChange={(e) => setTxDraft((d) => ({ ...d, spendGroupId: e.target.value || null }))}>
+              <option value="">None</option>
+              {spendGroups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className={labelCls}>Notes</label>
           <textarea rows={3} className={`${inputCls} resize-none`} placeholder="Free-form context…"

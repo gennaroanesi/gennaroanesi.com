@@ -6,7 +6,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
-  HoldingLotRecord, TickerQuoteRecord, RecurringRecord,
+  HoldingLotRecord, TickerQuoteRecord, RecurringRecord, SpendGroupRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate, amountColor,
   computeGoalAllocations,
@@ -38,6 +38,7 @@ export default function TransactionsPage() {
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
+  const [spendGroups,  setSpendGroups]  = useState<SpendGroupRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [editingTx,    setEditingTx]    = useState<TransactionRecord | null>(null);
 
@@ -51,7 +52,7 @@ export default function TransactionsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, txs, gls, maps, lotRecs, quoteRecs, recRecs] = await Promise.all([
+      const [accs, txs, gls, maps, lotRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
         listAll(client.models.financeSavingsGoal),
@@ -59,6 +60,7 @@ export default function TransactionsPage() {
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeRecurring),
+        listAll(client.models.financeSpendGroup as any),
       ]);
       setAccounts(accs);
       setTransactions(txs);
@@ -67,6 +69,7 @@ export default function TransactionsPage() {
       setLots(lotRecs);
       setQuotes(quoteRecs);
       setRecurrings(recRecs);
+      setSpendGroups(groupRecs as SpendGroupRecord[]);
     } finally {
       setLoading(false);
     }
@@ -357,6 +360,7 @@ export default function TransactionsPage() {
             accounts={accounts}
             lots={lots}
             recurrings={recurrings}
+            spendGroups={spendGroups}
             onClose={() => setEditingTx(null)}
             onSetTransactions={setTransactions}
             onSetAccounts={setAccounts}

@@ -37,6 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Planning",
     items: [
       { key: "review",      label: "Review",      href: "/finance/review" },
+      { key: "groups",      label: "Groups",      href: "/finance/groups" },
       { key: "tax-outlook", label: "Tax outlook", href: "/finance/tax-outlook" },
       { key: "goals",       label: "Goals",       href: "/finance/goals" },
       { key: "simulator",   label: "Simulator",   href: "/finance/simulator/cashflow" },
@@ -59,6 +60,7 @@ function activeKey(pathname: string): string {
   // Match most-specific first — "accounts" appears in /finance/accounts and /finance/accounts/[id]
   if (pathname === "/finance")           return "dashboard";
   if (pathname.includes("review"))       return "review";
+  if (pathname.includes("groups"))       return "groups";
   if (pathname.includes("accounts"))     return "accounts";
   if (pathname.includes("transactions")) return "transactions";
   if (pathname.includes("recurring"))    return "recurring";
