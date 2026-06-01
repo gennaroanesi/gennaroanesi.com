@@ -441,10 +441,11 @@ export type CreditCardReview = {
 };
 
 const SIZE_EDGES: { label: string; max: number }[] = [
-  { label: "< $25", max: 25 },
-  { label: "$25–100", max: 100 },
-  { label: "$100–500", max: 500 },
-  { label: "$500–2k", max: 2000 },
+  { label: "< $50", max: 50 },
+  { label: "$50–250", max: 250 },
+  { label: "$250–500", max: 500 },
+  { label: "$500–1k", max: 1000 },
+  { label: "$1–2k", max: 2000 },
   { label: "$2k+", max: Infinity },
 ];
 
