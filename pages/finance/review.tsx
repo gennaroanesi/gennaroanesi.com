@@ -197,7 +197,9 @@ export default function ReviewPage() {
 
   return (
     <FinanceLayout>
-      <div className="px-4 py-5 md:px-6 max-w-5xl mx-auto overflow-y-auto h-full">
+      <div className="flex flex-col h-full">
+        {/* Fixed header: period selector + headline cards stay put while the body scrolls */}
+        <div className="flex-shrink-0 border-b border-gray-200 dark:border-darkBorder bg-white dark:bg-darkBg px-4 md:px-8 pt-4 pb-3">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
           <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
@@ -206,7 +208,7 @@ export default function ReviewPage() {
         </div>
 
         {/* Header + period selector */}
-        <div className="flex items-baseline justify-between mb-5 gap-3 flex-wrap">
+        <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Review</h1>
             <p className="text-xs text-gray-400 mt-0.5">{range.label} · income, spending, investments &amp; goals</p>
@@ -243,27 +245,32 @@ export default function ReviewPage() {
           </div>
         </div>
 
+        {/* Headline cards — pinned with the selector */}
+        {!loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <StatCard
+              label="Income"
+              value={fmtCurrency(income.total)}
+              color={INCOME_COLOR}
+              hint={`salary · ${income.count} deposit${income.count === 1 ? "" : "s"}`}
+            />
+            <StatCard
+              label="Expenses"
+              value={fmtCurrency(expenses.total)}
+              color={EXPENSE_COLOR}
+              hint={`${fmtCurrency(recurring.total)} recurring · ${fmtCurrency(expenses.discretionaryTotal)} other`}
+            />
+            <StatCard label="Net" value={fmtCurrency(net, "USD", true)} color={amountColor(net)} hint="income − expenses" />
+          </div>
+        )}
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-5">
         {loading && <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>}
 
         {!loading && (
           <>
-            {/* ── Headline ─────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <StatCard
-                label="Income"
-                value={fmtCurrency(income.total)}
-                color={INCOME_COLOR}
-                hint={`salary · ${income.count} deposit${income.count === 1 ? "" : "s"}`}
-              />
-              <StatCard
-                label="Expenses"
-                value={fmtCurrency(expenses.total)}
-                color={EXPENSE_COLOR}
-                hint={`${fmtCurrency(recurring.total)} recurring · ${fmtCurrency(expenses.discretionaryTotal)} other`}
-              />
-              <StatCard label="Net" value={fmtCurrency(net, "USD", true)} color={amountColor(net)} hint="income − expenses" />
-            </div>
-
             {income.count === 0 && (
               <p className="text-xs text-gray-400 mt-2">
                 No salary deposits matched this period — income is detected from checking deposits matching the salary
@@ -536,6 +543,7 @@ export default function ReviewPage() {
             <div className="h-12" />
           </>
         )}
+        </div>
       </div>
     </FinanceLayout>
   );
