@@ -405,13 +405,13 @@ export default function ReviewPage() {
                     <p className="text-xs text-gray-400 mb-2">By ticket size · spend (bars) + cumulative % of spend</p>
                     <div className="flex-1 min-h-[260px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={cards.buckets} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
+                        <ComposedChart data={cards.buckets} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                           <CartesianGrid vertical={false} strokeOpacity={0.1} />
                           <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                           <YAxis yAxisId="left" tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
                           <YAxis
-                            yAxisId="right" orientation="right" domain={[0, 100]}
-                            tickFormatter={(v: any) => `${v}%`} tick={{ fontSize: 11 }} width={40}
+                            yAxisId="right" orientation="right" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]}
+                            tickFormatter={(v: any) => `${Math.round(v)}%`} tick={{ fontSize: 11 }} width={44}
                           />
                           <Tooltip
                             formatter={(v: any, name: any, p: any) =>
