@@ -6,7 +6,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, HoldingLotRecord, TickerQuoteRecord,
-  GoalRecord, GoalFundingSourceRecord,
+  GoalRecord, GoalFundingSourceRecord, RecurringRecord,
   ACCOUNT_TYPES, ASSET_TYPES, ASSET_TYPE_LABELS, FINANCE_COLOR,
   ACCOUNT_TYPE_LABELS,
   RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, isInvestedAccount,
@@ -20,11 +20,18 @@ import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls, SortIcon,
 } from "@/components/common/table";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
+import { TransactionPanel } from "@/components/finance/TransactionPanel";
+import { ImportPanel } from "@/components/finance/ImportPanel";
+import type { TxType } from "@/components/finance/_shared";
+import { isTradeType, realizedGain } from "@/components/finance/_shared";
 
 type PanelState =
   | { kind: "new-lot" }
-  | { kind: "edit-lot"; lot: HoldingLotRecord }
+  | { kind: "edit-lot";    lot: HoldingLotRecord }
   | { kind: "edit-acc" }
+  | { kind: "new-tx";      defaultType?: TxType }
+  | { kind: "edit-tx";     tx: TransactionRecord }
+  | { kind: "import" }
   | null;
 
 export default function AccountDetailPage() {
@@ -33,11 +40,16 @@ export default function AccountDetailPage() {
   const accountId = typeof router.query.id === "string" ? router.query.id : "";
 
   const [account,      setAccount]      = useState<AccountRecord | null>(null);
+  // The shared TransactionPanel mutates `accounts` (currentBalance updates)
+  // via setAccounts. On this page we mirror that into setAccount so the
+  // header balance updates instantly after a save.
+  const [accounts,     setAccounts]     = useState<AccountRecord[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
+  const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [saving,       setSaving]       = useState(false);
   const [refreshing,   setRefreshing]   = useState(false);
@@ -56,24 +68,39 @@ export default function AccountDetailPage() {
     if (!accountId) return;
     setLoading(true);
     try {
-      const [{ data: acc }, txs, lotRecs, quoteRecs, goalRecs, mappingRecs] = await Promise.all([
-        client.models.financeAccount.get({ id: accountId }),
+      const [accRecs, txs, lotRecs, quoteRecs, goalRecs, mappingRecs, recRecs] = await Promise.all([
+        listAll(client.models.financeAccount),
         listAll(client.models.financeTransaction),
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeSavingsGoal),
         listAll(client.models.financeGoalFundingSource),
+        listAll(client.models.financeRecurring),
       ]);
-      setAccount(acc ?? null);
-      setTransactions(txs.filter((t) => t.accountId === accountId));
-      setLots(lotRecs.filter((l) => l.accountId === accountId));
+      setAccounts(accRecs);
+      // The shared panel can save TRANSFERs that change accountId or move
+      // transactions across accounts, so keep the full lots/transactions
+      // arrays in state (not just the ones for this account). Filtering
+      // happens in the renderer.
+      setAccount(accRecs.find((a) => a.id === accountId) ?? null);
+      setTransactions(txs);
+      setLots(lotRecs);
       setQuotes(quoteRecs);
       setGoals(goalRecs);
       setMappings(mappingRecs);
+      setRecurrings(recRecs);
     } finally {
       setLoading(false);
     }
   }, [accountId]);
+
+  // Keep `account` in sync when the shared panel updates `accounts` (e.g.
+  // adjusting the cash balance after a tx save).
+  useEffect(() => {
+    if (!accountId) return;
+    const match = accounts.find((a) => a.id === accountId);
+    if (match) setAccount(match);
+  }, [accounts, accountId]);
 
   useEffect(() => {
     if (authState !== "authenticated") return;
@@ -85,11 +112,22 @@ export default function AccountDetailPage() {
 
   const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
 
-  const tickers = useMemo(() => uniqueTickers(lots), [lots]);
+  // Filtered views — TransactionPanel/ImportPanel mutate the full arrays;
+  // the on-page holdings + tx list only render this account's slice.
+  const accountLots = useMemo(
+    () => lots.filter((l) => l.accountId === accountId),
+    [lots, accountId],
+  );
+  const accountTransactions = useMemo(
+    () => transactions.filter((t) => t.accountId === accountId),
+    [transactions, accountId],
+  );
+
+  const tickers = useMemo(() => uniqueTickers(accountLots), [accountLots]);
 
   const aggregates = useMemo(
-    () => tickers.map((t) => tickerAggregate(t, lots, quoteMap)),
-    [tickers, lots, quoteMap],
+    () => tickers.map((t) => tickerAggregate(t, accountLots, quoteMap)),
+    [tickers, accountLots, quoteMap],
   );
 
   const totalValue = account ? accountTotalValue(account, lots, quoteMap) : 0;
@@ -132,8 +170,33 @@ export default function AccountDetailPage() {
       key: "description",
       label: "Description",
       sortValue: (t) => (t.description ?? "").toLowerCase(),
-      searchValue: (t) => `${t.description ?? ""} ${t.category ?? ""}`,
-      render: (t) => <span className="text-gray-800 dark:text-gray-200 block max-w-[200px] truncate">{t.description || "—"}</span>,
+      searchValue: (t) => `${t.description ?? ""} ${t.category ?? ""} ${t.notes ?? ""}`,
+      render: (t) => {
+        const trade = isTradeType(t.type as any);
+        const gain  = realizedGain(t);
+        return (
+          <div className="flex flex-col gap-0.5">
+            <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
+              {trade && (
+                <span className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
+                  style={{
+                    backgroundColor: t.type === "BUY" ? "#10b98122" : "#f59e0b22",
+                    color:           t.type === "BUY" ? "#10b981"   : "#f59e0b",
+                  }}>
+                  {t.type}
+                </span>
+              )}
+              {t.description || "—"}
+            </span>
+            {gain != null && (
+              <span className="text-[10px] tabular-nums" style={{ color: amountColor(gain) }}
+                title="Realized gain on this sale (proceeds − consumed cost basis)">
+                Realized {fmtCurrency(gain, cur, true)}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "category",
@@ -164,7 +227,7 @@ export default function AccountDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [cur]);
 
-  const txCtl = useTableControls(transactions, {
+  const txCtl = useTableControls(accountTransactions, {
     defaultSortKey: "date",
     defaultSortDir: "desc",
     getSortValue: (row, key) => txColumns.find((c) => c.key === key)?.sortValue?.(row),
@@ -519,22 +582,22 @@ export default function AccountDetailPage() {
                   {aggregates.length > 0 && (
                     <SearchInput value={holdingsCtl.search} onChange={holdingsCtl.setSearch} placeholder="Search ticker…" />
                   )}
-                  <NextLink
-                    href={`/finance/transactions?action=buy&account=${accountId}`}
+                  <button
+                    onClick={() => setPanel({ kind: "new-tx", defaultType: "BUY" })}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors hover:opacity-80"
                     style={{ borderColor: "#10b98188", color: "#10b981" }}
                     title="Record a purchase: creates a transaction + a new lot"
                   >
                     + Buy
-                  </NextLink>
-                  <NextLink
-                    href={`/finance/transactions?action=sell&account=${accountId}`}
+                  </button>
+                  <button
+                    onClick={() => setPanel({ kind: "new-tx", defaultType: "SELL" })}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors hover:opacity-80"
                     style={{ borderColor: "#f59e0b88", color: "#f59e0b" }}
-                    title="Record a sale: creates a transaction + consumes a lot"
+                    title="Record a sale: creates a transaction + consumes lots"
                   >
                     + Sell
-                  </NextLink>
+                  </button>
                   <button
                     onClick={openNewLot}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors"
@@ -723,12 +786,27 @@ export default function AccountDetailPage() {
           <section>
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">
-                Transactions · {transactions.length}
+                Transactions · {accountTransactions.length}
               </h2>
-              <div className="flex items-center gap-2">
-                {transactions.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {accountTransactions.length > 0 && (
                   <SearchInput value={txCtl.search} onChange={txCtl.setSearch} placeholder="Search description, category…" />
                 )}
+                <button
+                  onClick={() => setPanel({ kind: "import" })}
+                  className="px-2 py-1 rounded text-xs font-semibold border transition-colors"
+                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                  title="Import a bank CSV into this account"
+                >
+                  Import CSV
+                </button>
+                <button
+                  onClick={() => setPanel({ kind: "new-tx" })}
+                  className="px-2 py-1 rounded text-xs font-semibold border transition-colors"
+                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                >
+                  + Transaction
+                </button>
                 <NextLink
                   href={`/finance/transactions?account=${accountId}`}
                   className="text-xs font-semibold"
@@ -739,7 +817,7 @@ export default function AccountDetailPage() {
               </div>
             </div>
 
-            {transactions.length === 0 ? (
+            {accountTransactions.length === 0 ? (
               <p className="text-sm text-gray-400 py-6 text-center">No transactions on this account yet.</p>
             ) : (
               <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
@@ -749,6 +827,7 @@ export default function AccountDetailPage() {
                   sortKey={txCtl.sortKey}
                   sortDir={txCtl.sortDir}
                   onSort={txCtl.handleSort}
+                  onRowClick={(tx) => setPanel({ kind: "edit-tx", tx })}
                   emptyMessage={txCtl.search ? "No matches" : "No transactions"}
                 />
                 <TableControls
@@ -766,8 +845,51 @@ export default function AccountDetailPage() {
 
         </div>
 
-        {/* ── Lot panel ────────────────────────────────────────────── */}
-        {panel && (
+        {/* ── Side panels ────────────────────────────────────────────── */}
+        {/* Transaction / import panels render their own chrome. */}
+        {panel?.kind === "new-tx" && (
+          <TransactionPanel
+            mode="create"
+            defaultType={panel.defaultType ?? "EXPENSE"}
+            defaultAccountId={accountId}
+            lockAccount
+            accounts={accounts}
+            lots={lots}
+            recurrings={recurrings}
+            onClose={() => setPanel(null)}
+            onSetTransactions={setTransactions}
+            onSetAccounts={setAccounts}
+            onSetLots={setLots}
+          />
+        )}
+        {panel?.kind === "edit-tx" && (
+          <TransactionPanel
+            mode="edit"
+            editingTx={panel.tx}
+            accounts={accounts}
+            lots={lots}
+            recurrings={recurrings}
+            onClose={() => setPanel(null)}
+            onSetTransactions={setTransactions}
+            onSetAccounts={setAccounts}
+            onSetLots={setLots}
+          />
+        )}
+        {panel?.kind === "import" && (
+          <ImportPanel
+            accounts={accounts}
+            transactions={transactions}
+            recurrings={recurrings}
+            defaultAccountId={accountId}
+            lockAccount
+            onClose={() => setPanel(null)}
+            onSetTransactions={setTransactions}
+            onSetAccounts={setAccounts}
+          />
+        )}
+
+        {/* Lot / account-edit panels (legacy inline) */}
+        {(panel?.kind === "new-lot" || panel?.kind === "edit-lot" || panel?.kind === "edit-acc") && (
           <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
 
             {/* Lot panel */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
@@ -8,37 +8,22 @@ import {
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
   HoldingLotRecord, TickerQuoteRecord, RecurringRecord,
   FINANCE_COLOR,
-  fmtCurrency, fmtDate, todayIso, amountColor,
+  fmtCurrency, fmtDate, amountColor,
   computeGoalAllocations,
-  inputCls, labelCls,
-  SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
-  parseBankCsv, type ParsedTransaction,
-  type TxType,
+  EmptyState, AccountBadge, StatusBadge,
   isTradeType, realizedGain,
-  parseLotConsumptions, type LotConsumption,
   listAll,
-  findRecurringMatches, applyRecurringMatch,
-  RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
-import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
+import { TransactionPanel } from "@/components/finance/TransactionPanel";
 
-// ── Panel state ───────────────────────────────────────────────────────────────
-
-type PanelState =
-  | { kind: "new-tx" }
-  | { kind: "edit-tx";   tx:  TransactionRecord }
-  | { kind: "import" }
-  | null;
-
-// ── Import preview row ────────────────────────────────────────────────────────
-
-type ImportRow = ParsedTransaction & {
-  selected:  boolean;
-  duplicate: boolean;
-};
+// The /finance/transactions surface is now a cross-account ledger viewer.
+// Creating transactions and importing CSVs both live on the account detail
+// page. Clicking a row here opens the same shared <TransactionPanel> in edit
+// mode — convenient for bulk corrections across accounts without losing the
+// global view.
 
 export default function TransactionsPage() {
   const { authState } = useRequireAuth();
@@ -46,53 +31,20 @@ export default function TransactionsPage() {
 
   const [accounts,     setAccounts]     = useState<AccountRecord[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
-  // Goals, mappings, lots, quotes are fetched only for the surplus-badge computation
-  // on the account chips. Actual mapping CRUD lives on /finance/accounts/[id].
+  // Goals + mappings + lots + quotes are loaded only to compute the surplus
+  // badge on the account chips. Mapping/lot CRUD lives elsewhere.
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
-  const [saving,       setSaving]       = useState(false);
-  const [panel,        setPanel]        = useState<PanelState>(null);
-  // Transient UI state for the edit-tx panel's "Change linked rule" toggle.
-  const [showMatchCandidates, setShowMatchCandidates] = useState(false);
+  const [editingTx,    setEditingTx]    = useState<TransactionRecord | null>(null);
 
   // Filters
   const [filterAccount, setFilterAccount] = useState<string>("");
   const [filterStatus,  setFilterStatus]  = useState<string>("");
   const [filterType,    setFilterType]    = useState<string>("");
-
-  // Transaction draft
-  const [txDraft, setTxDraft] = useState<Partial<TransactionRecord>>({});
-  // Trade-only UI state. Price and fees are entered in the panel but stored
-  // differently: amount = price·qty (signed); fees become a separate EXPENSE
-  // transaction created alongside the trade. sellLotPicks is the ordered list
-  // of lot IDs that a SELL will consume from, top → bottom.
-  const [tradePrice,   setTradePrice]   = useState<string>("");
-  const [tradeFees,    setTradeFees]    = useState<string>("");
-  const [sellLotPicks, setSellLotPicks] = useState<string[]>([]);
-
-  // Import state
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [importFormat,      setImportFormat]      = useState("");
-  const [importRows,        setImportRows]        = useState<ImportRow[]>([]);
-  const [importAccountId,   setImportAccountId]   = useState<string>("");
-  const [importReverse,     setImportReverse]     = useState(false);
-  // Date range narrows which rows in the CSV get considered + drives the
-  // "delete existing in range" reset behavior. Auto-populated from min/max
-  // of the parsed CSV's dates on file selection; user can tighten/loosen.
-  const [importStartDate,   setImportStartDate]   = useState<string>("");
-  const [importEndDate,     setImportEndDate]     = useState<string>("");
-  // When on: every existing transaction for the target account whose date
-  // falls inside [importStartDate, importEndDate] is deleted before the new
-  // rows are inserted. Handles bank exports that shift dates / change
-  // scheduled→posted (Chase does this) so re-importing produces drift +
-  // duplicates that the importHash dedup can't reliably catch.
-  const [importDeleteRange, setImportDeleteRange] = useState(false);
-
-  const today = todayIso();
 
   // ── Data fetching ─────────────────────────────────────────────────────────
 
@@ -125,22 +77,6 @@ export default function TransactionsPage() {
     fetchData();
   }, [authState, fetchData]);
 
-  useEffect(() => {
-    if (!router.isReady) return;
-    if (router.query.new === "1") {
-      openNewTx();
-      router.replace("/finance/transactions", undefined, { shallow: true });
-    }
-    // ?action=buy|sell&account=<id> deep-links to a pre-typed new-tx panel —
-    // the brokerage account detail page links here via "+ Buy" / "+ Sell".
-    const action = router.query.action;
-    if (typeof action === "string" && (action === "buy" || action === "sell")) {
-      const qAcc = typeof router.query.account === "string" ? router.query.account : "";
-      openNewTx(action === "buy" ? "BUY" : "SELL", qAcc || undefined);
-      router.replace("/finance/transactions", undefined, { shallow: true });
-    }
-  }, [router.isReady, router.query.new, router.query.action]);
-
   // Preselect account filter from ?account= query param
   useEffect(() => {
     if (!router.isReady) return;
@@ -150,449 +86,8 @@ export default function TransactionsPage() {
     }
   }, [router.isReady, router.query.account]);
 
-  // ── Openers ───────────────────────────────────────────────────────────────
+  // ── Derived data ──────────────────────────────────────────────────────────
 
-  function openNewTx(initialType: TxType = "EXPENSE", initialAccountId?: string) {
-    const isIncome = initialType === "INCOME" || initialType === "SELL";
-    setTxDraft({
-      date:      todayIso(),
-      status:    "POSTED",
-      type:      initialType,
-      accountId: initialAccountId,
-      // Income/Sell positive, others negative — matches the sign convention
-      // used elsewhere in the panel.
-      amount:    isIncome ? 0 : -0,
-    });
-    setTradePrice("");
-    setTradeFees("");
-    setSellLotPicks([]);
-    setPanel({ kind: "new-tx" });
-  }
-
-  function openEditTx(tx: TransactionRecord) {
-    setTxDraft({ ...tx });
-    setShowMatchCandidates(false);
-    // Editing trades is locked, but populate price for display from amount/qty.
-    if (isTradeType(tx.type as any) && tx.quantity) {
-      const price = Math.abs(tx.amount ?? 0) / tx.quantity;
-      setTradePrice(price ? price.toFixed(4).replace(/\.?0+$/, "") : "");
-    } else {
-      setTradePrice("");
-    }
-    setTradeFees("");
-    setSellLotPicks([]);
-    setPanel({ kind: "edit-tx", tx });
-  }
-
-  function openImport() {
-    setImportRows([]);
-    setImportFormat("");
-    setImportAccountId(accounts[0]?.id ?? "");
-    setImportReverse(false);
-    setImportStartDate("");
-    setImportEndDate("");
-    setImportDeleteRange(false);
-    setPanel({ kind: "import" });
-  }
-
-  // ── Save transaction ──────────────────────────────────────────────────────
-
-  async function handleSaveTx() {
-    if (!txDraft.accountId || !txDraft.date) return;
-    const txType = (txDraft.type ?? "EXPENSE") as TxType;
-    // For trades, derive amount from price·qty (signed by type). For
-    // non-trades, use the amount typed into the Amount input.
-    const priceNum = parseFloat(tradePrice) || 0;
-    const feesNum  = Math.max(0, parseFloat(tradeFees) || 0);
-    const tradeGross = isTradeType(txType) ? priceNum * (txDraft.quantity ?? 0) : 0;
-    const tradeSignedAmount = txType === "BUY" ? -tradeGross : tradeGross;
-
-    if (isTradeType(txType)) {
-      if (!txDraft.ticker || !txDraft.quantity || txDraft.quantity <= 0) {
-        alert("Ticker and quantity are required for BUY/SELL.");
-        return;
-      }
-      if (priceNum <= 0) {
-        alert("Price per share is required for BUY/SELL.");
-        return;
-      }
-      if (txType === "SELL" && sellLotPicks.length === 0) {
-        alert("Pick at least one lot to sell from.");
-        return;
-      }
-    } else if (txDraft.amount == null) {
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const isPosted = txDraft.status === "POSTED";
-      // Effective signed amount used for transaction creation + balance math.
-      const effectiveAmount = isTradeType(txType) ? tradeSignedAmount : txDraft.amount!;
-
-      if (panel?.kind === "new-tx") {
-        // Default a readable description when blank — handy for the tx list.
-        const autoDesc = isTradeType(txType)
-          ? `${txType === "BUY" ? "Buy" : "Sell"} ${txDraft.quantity} ${(txDraft.ticker ?? "").toUpperCase()}`
-          : null;
-        const description = txDraft.description?.trim() ? txDraft.description.trim() : autoDesc;
-
-        // ── BUY: create lot first so we can persist lotId on the transaction.
-        // Cost basis = price·qty (gross). Fees are logged as a separate
-        // EXPENSE further down and intentionally don't roll into the basis.
-        let createdLotId: string | null = null;
-        let createdLot: HoldingLotRecord | null = null;
-        if (txType === "BUY") {
-          const { data } = await client.models.financeHoldingLot.create({
-            accountId:    txDraft.accountId!,
-            ticker:       (txDraft.ticker ?? "").toUpperCase(),
-            assetType:    "STOCK" as any,
-            quantity:     txDraft.quantity!,
-            costBasis:    tradeGross || null,
-            purchaseDate: txDraft.date!,
-            isVested:     true,
-            notes:        null,
-          });
-          if (data) { createdLot = data; createdLotId = data.id; }
-        }
-
-        // ── SELL: consume from each picked lot in order until qty satisfied.
-        // Snapshot the breakdown into lotConsumptions for later reporting.
-        let consumedCostBasis: number | null = null;
-        let lotConsumptionsJson: string | null = null;
-        let firstLotId: string | null = null;
-        if (txType === "SELL") {
-          const sellQty = txDraft.quantity!;
-          // Verify total available across picks covers the sell qty.
-          const totalAvail = sellLotPicks.reduce((s, id) => {
-            const l = lots.find((x) => x.id === id);
-            return s + (l?.quantity ?? 0);
-          }, 0);
-          if (totalAvail + 1e-6 < sellQty) {
-            alert(`Selected lots only have ${totalAvail.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh — short ${(sellQty - totalAvail).toLocaleString("en-US", { maximumFractionDigits: 4 })}.`);
-            setSaving(false);
-            return;
-          }
-
-          let remaining = sellQty;
-          let runningCost = 0;
-          const breakdown: LotConsumption[] = [];
-          for (const lotId of sellLotPicks) {
-            if (remaining <= 1e-6) break;
-            const lot = lots.find((l) => l.id === lotId);
-            if (!lot) continue;
-            const lotQty = lot.quantity ?? 0;
-            if (lotQty <= 0) continue;
-            const takeQty = Math.min(remaining, lotQty);
-            const fraction = takeQty / lotQty;
-            const consumed = lot.costBasis != null ? lot.costBasis * fraction : 0;
-            breakdown.push({ lotId, qty: takeQty, costBasis: consumed });
-            runningCost += consumed;
-            remaining   -= takeQty;
-            const leftover = lotQty - takeQty;
-            if (leftover < 1e-6) {
-              await client.models.financeHoldingLot.delete({ id: lot.id });
-              setLots((p) => p.filter((l) => l.id !== lot.id));
-            } else {
-              const newCost = lot.costBasis != null ? lot.costBasis - consumed : null;
-              await client.models.financeHoldingLot.update({
-                id:        lot.id,
-                quantity:  leftover,
-                costBasis: newCost,
-              });
-              setLots((p) => p.map((l) => l.id === lot.id ? { ...l, quantity: leftover, costBasis: newCost } : l));
-            }
-          }
-          consumedCostBasis = runningCost || null;
-          lotConsumptionsJson = breakdown.length > 0 ? JSON.stringify(breakdown) : null;
-          firstLotId = breakdown[0]?.lotId ?? null;
-        }
-
-        const { data: newTx } = await client.models.financeTransaction.create({
-          accountId:         txDraft.accountId!,
-          amount:            effectiveAmount,
-          type:              txType as any,
-          category:          txDraft.category ?? null,
-          description:       description,
-          date:              txDraft.date!,
-          status:            (txDraft.status ?? "POSTED") as any,
-          goalId:            txDraft.goalId ?? null,
-          toAccountId:       txDraft.toAccountId ?? null,
-          importHash:        txDraft.importHash ?? null,
-          ticker:            isTradeType(txType) ? (txDraft.ticker ?? "").toUpperCase() : null,
-          quantity:          isTradeType(txType) ? txDraft.quantity ?? null : null,
-          lotId:             txType === "BUY" ? createdLotId : firstLotId,
-          consumedCostBasis: consumedCostBasis,
-          lotConsumptions:   lotConsumptionsJson,
-          notes:             txDraft.notes ?? null,
-        });
-        if (newTx) {
-          if (createdLot) setLots((p) => [...p, createdLot!]);
-          // Auto-match against recurring rules — skip for trade types since
-          // they don't represent recurring cash patterns.
-          const candidates = isTradeType(txType) ? [] : findRecurringMatches(newTx, recurrings);
-          let linked: TransactionRecord = newTx;
-          if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
-            await applyRecurringMatch(client, newTx, candidates[0].rule);
-            linked = { ...newTx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord;
-          }
-          setTransactions((prev) => [linked, ...prev]);
-          if (isPosted) await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
-
-          // ── Trade fees: spawn a sibling EXPENSE so the cash side reflects
-          // the net the brokerage actually moved. We intentionally don't fold
-          // fees into the trade amount/cost basis — keeping them as their own
-          // line makes them visible in reports and editable independently.
-          if (isTradeType(txType) && feesNum > 0) {
-            const ticker = (txDraft.ticker ?? "").toUpperCase();
-            const feeDesc = `Fees for ${txType} ${txDraft.quantity} ${ticker} on ${txDraft.date}`;
-            const { data: feeTx } = await client.models.financeTransaction.create({
-              accountId:   txDraft.accountId!,
-              amount:      -feesNum,
-              type:        "EXPENSE" as any,
-              category:    "Trading fees",
-              description: feeDesc,
-              date:        txDraft.date!,
-              status:      (txDraft.status ?? "POSTED") as any,
-              goalId:      null,
-              toAccountId: null,
-              notes:       `tradeTxId:${newTx.id}`,
-            });
-            if (feeTx) {
-              setTransactions((prev) => [feeTx, ...prev]);
-              if (isPosted) await adjustBalance(txDraft.accountId!, -feesNum, null, "EXPENSE");
-            }
-          }
-        }
-
-      } else if (panel?.kind === "edit-tx") {
-        const prev = panel.tx;
-        // Edit-tx for trade rows: only allow non-mutating fields. Changing
-        // amount/qty/lot would require reversing the lot mutation — skip for v1.
-        const editingTrade = isTradeType(prev.type as any);
-        await client.models.financeTransaction.update({
-          id:          prev.id,
-          // For trades, force the original accountId/amount/type/lot/qty/ticker
-          // through unchanged so an accidental form mutation can't drift them.
-          accountId:   editingTrade ? prev.accountId : txDraft.accountId!,
-          amount:      editingTrade ? prev.amount    : txDraft.amount!,
-          type:        editingTrade ? (prev.type as any) : ((txDraft.type ?? "EXPENSE") as any),
-          category:    txDraft.category ?? null,
-          description: txDraft.description ?? null,
-          date:        txDraft.date!,
-          status:      (txDraft.status ?? "POSTED") as any,
-          goalId:      txDraft.goalId ?? null,
-          toAccountId: txDraft.toAccountId ?? null,
-          recurringId: txDraft.recurringId ?? null,
-          notes:       txDraft.notes ?? null,
-        });
-
-        // Reverse old balance effect, apply new (skipped for trades since
-        // amount can't change in edit mode).
-        if (!editingTrade) {
-          if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
-          if (isPosted)                 await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
-        } else {
-          // Trades: only status flip from PENDING ↔ POSTED matters for cash.
-          if (prev.status !== "POSTED" && isPosted) {
-            await adjustBalance(prev.accountId!, prev.amount ?? 0, null, prev.type as TxType);
-          } else if (prev.status === "POSTED" && !isPosted) {
-            await adjustBalance(prev.accountId!, -(prev.amount ?? 0), null, prev.type as TxType);
-          }
-        }
-
-        setTransactions((p) => p.map((t) => t.id === prev.id ? { ...t, ...txDraft } as TransactionRecord : t));
-        // Refetch accounts to get updated balances
-        const accs = await listAll(client.models.financeAccount);
-        setAccounts(accs);
-      }
-
-      setPanel(null);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // ── Delete transaction ────────────────────────────────────────────────────
-
-  async function handleDeleteTx(tx: TransactionRecord) {
-    // For trades, the lot mutation isn't reversed automatically — only the
-    // cash side is. Warn the user so they can clean up the lot manually if
-    // needed (BUY left a lot behind; SELL shrunk/deleted one).
-    const msg = isTradeType(tx.type as any)
-      ? "Delete this trade? The cash side will be reversed but the lot side won't be — you may need to fix up the holding lot manually."
-      : "Delete this transaction?";
-    if (!confirm(msg)) return;
-    setSaving(true);
-    try {
-      if (tx.status === "POSTED") await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
-      // Cascade attachments first so we don't orphan S3 files / DB rows.
-      await deleteAttachmentsFor("TRANSACTION", tx.id);
-      await client.models.financeTransaction.delete({ id: tx.id });
-      setTransactions((p) => p.filter((t) => t.id !== tx.id));
-      const accs = await listAll(client.models.financeAccount);
-      setAccounts(accs);
-      setPanel(null);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // ── Adjust account balance helper ─────────────────────────────────────────
-
-  async function adjustBalance(accountId: string, delta: number, toAccountId: string | null, type: TxType | string) {
-    const acc = accounts.find((a) => a.id === accountId);
-    if (acc) {
-      const newBal = (acc.currentBalance ?? 0) + delta;
-      await client.models.financeAccount.update({ id: accountId, currentBalance: newBal });
-      setAccounts((p) => p.map((a) => a.id === accountId ? { ...a, currentBalance: newBal } : a));
-    }
-    // For TRANSFER, credit the destination account
-    if (type === "TRANSFER" && toAccountId) {
-      const dest = accounts.find((a) => a.id === toAccountId);
-      if (dest) {
-        const newBal = (dest.currentBalance ?? 0) + Math.abs(delta);
-        await client.models.financeAccount.update({ id: toAccountId, currentBalance: newBal });
-        setAccounts((p) => p.map((a) => a.id === toAccountId ? { ...a, currentBalance: newBal } : a));
-      }
-    }
-  }
-
-  // ── CSV Import ────────────────────────────────────────────────────────────
-
-  // If the reverse-sign toggle is on, flip the amount for all import math (display,
-  // classification, commit, balance preview). Dedup hash stays keyed on the parser's
-  // original amount so toggling doesn't break duplicate detection across re-imports.
-  function effectiveAmount(raw: number): number {
-    return importReverse ? -raw : raw;
-  }
-
-  // Rows that fall inside the date range. Rows outside are completely
-  // dropped from the preview + import — keeps the user's chosen range as
-  // the unambiguous source of truth.
-  const inRangeRows = useMemo(() => {
-    if (!importStartDate && !importEndDate) return importRows;
-    return importRows.filter((r) => {
-      if (importStartDate && r.date < importStartDate) return false;
-      if (importEndDate   && r.date > importEndDate)   return false;
-      return true;
-    });
-  }, [importRows, importStartDate, importEndDate]);
-
-  // Existing transactions that would be deleted when "delete-in-range" is
-  // committed. Always computed (independent of the toggle) so the user can
-  // see the count before deciding to flip it on.
-  const inRangeExistingTx = useMemo(() => {
-    if (!importAccountId || !importStartDate || !importEndDate) return [];
-    return transactions.filter((t) =>
-      t.accountId === importAccountId &&
-      (t.date ?? "") >= importStartDate &&
-      (t.date ?? "") <= importEndDate,
-    );
-  }, [transactions, importAccountId, importStartDate, importEndDate]);
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      const { format, rows } = parseBankCsv(text);
-      setImportFormat(format);
-      const existingHashes = new Set(transactions.map((t) => t.importHash).filter(Boolean));
-      setImportRows(
-        rows.map((r) => ({
-          ...r,
-          selected:  !existingHashes.has(r.hash),
-          duplicate: existingHashes.has(r.hash),
-        })),
-      );
-      // Auto-populate date range from min/max of parsed dates so the user
-      // can use it as-is or tighten manually. Sorted ISO strings work for
-      // YYYY-MM-DD comparison.
-      const dates = rows.map((r) => r.date).filter(Boolean).sort();
-      setImportStartDate(dates[0] ?? "");
-      setImportEndDate(dates[dates.length - 1] ?? "");
-    };
-    reader.readAsText(file);
-  }
-
-  async function handleImport() {
-    // When delete-in-range is on, ignore the duplicate check — the existing
-    // matches are about to be deleted, so importing the same hashes is fine.
-    const toImport = importDeleteRange
-      ? inRangeRows.filter((r) => r.selected)
-      : inRangeRows.filter((r) => r.selected && !r.duplicate);
-    if (toImport.length === 0 && (!importDeleteRange || inRangeExistingTx.length === 0)) return;
-    if (!importAccountId) return;
-    setSaving(true);
-    try {
-      // 1. Delete in-range existing transactions if requested. Tracks the
-      //    sum so the balance adjustment at the end is net (deleted out +
-      //    new in), not double-applied.
-      let deletedDelta = 0;
-      const deletedIds = new Set<string>();
-      if (importDeleteRange) {
-        for (const tx of inRangeExistingTx) {
-          await client.models.financeTransaction.delete({ id: tx.id });
-          deletedDelta -= tx.amount ?? 0;
-          deletedIds.add(tx.id);
-        }
-      }
-
-      // 2. Insert new rows.
-      const created: TransactionRecord[] = [];
-      for (const row of toImport) {
-        const amt: number  = effectiveAmount(row.amount);
-        const type: TxType = amt >= 0 ? "INCOME" : "EXPENSE";
-        const { data: tx } = await client.models.financeTransaction.create({
-          accountId:   importAccountId,
-          amount:      amt,
-          type:        type as any,
-          category:    row.category || null,
-          description: row.description,
-          date:        row.date,
-          status:      "POSTED" as any,
-          goalId:      null,
-          toAccountId: null,
-          importHash:  row.hash,
-        });
-        if (tx) {
-          // Same inline match attempt as manual entry. Imports often *are*
-          // recurring realizations, so the auto-link is the whole point.
-          const candidates = findRecurringMatches(tx, recurrings);
-          if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
-            await applyRecurringMatch(client, tx, candidates[0].rule);
-            created.push({ ...tx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord);
-          } else {
-            created.push(tx);
-          }
-        }
-      }
-
-      // 3. Adjust account balance by net of deletes + inserts.
-      const insertedDelta = toImport.reduce((s, r) => s + effectiveAmount(r.amount), 0);
-      const netDelta      = deletedDelta + insertedDelta;
-      if (netDelta !== 0) {
-        await adjustBalance(importAccountId, netDelta, null, "INCOME");
-      }
-
-      // 4. Sync local state — drop deleted rows, prepend created ones.
-      setTransactions((p) => [
-        ...created,
-        ...p.filter((t) => !deletedIds.has(t.id)),
-      ]);
-      const accs = await listAll(client.models.financeAccount);
-      setAccounts(accs);
-      setPanel(null);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // ── Filtered transactions ─────────────────────────────────────────────────
-
-  // Base filtered list: dropdowns act as filters first; search + sort run on top.
   const filtered = useMemo(
     () => transactions
       .filter((t) => !filterAccount || t.accountId === filterAccount)
@@ -601,7 +96,6 @@ export default function TransactionsPage() {
     [transactions, filterAccount, filterStatus, filterType],
   );
 
-  // Quick account lookup for columns
   const accountById = useMemo(() => {
     const m = new Map<string, AccountRecord>();
     for (const a of accounts) m.set(a.id, a);
@@ -614,8 +108,6 @@ export default function TransactionsPage() {
     return m;
   }, [recurrings]);
 
-  // Goal allocations — used to show surplus badges on account chips so the user can
-  // see at a glance which accounts have cash that isn't earmarked for any goal.
   const allocations = useMemo(
     () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
     [accounts, goals, mappings, lots, quotes],
@@ -639,41 +131,31 @@ export default function TransactionsPage() {
       render: (t) => {
         const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
         const trade = isTradeType(t.type as any);
-        const gain = realizedGain(t);
+        const gain  = realizedGain(t);
         return (
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
               {trade && (
-                <span
-                  className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
+                <span className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
                   style={{
                     backgroundColor: t.type === "BUY" ? "#10b98122" : "#f59e0b22",
                     color:           t.type === "BUY" ? "#10b981"   : "#f59e0b",
-                  }}
-                >
+                  }}>
                   {t.type}
                 </span>
               )}
               {t.description || "—"}
             </span>
             {gain != null && (
-              <span
-                className="text-[10px] tabular-nums"
-                style={{ color: amountColor(gain) }}
-                title="Realized gain on this sale (proceeds − consumed cost basis)"
-              >
+              <span className="text-[10px] tabular-nums" style={{ color: amountColor(gain) }}
+                title="Realized gain on this sale (proceeds − consumed cost basis)">
                 Realized {fmtCurrency(gain, "USD", true)}
               </span>
             )}
             {rule && (
-              <span
-                className="inline-flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400"
-                title={`Linked to recurring rule: ${rule.description ?? ""}`}
-              >
-                <span
-                  className="inline-block w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: FINANCE_COLOR }}
-                />
+              <span className="inline-flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400"
+                title={`Linked to recurring rule: ${rule.description ?? ""}`}>
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: FINANCE_COLOR }} />
                 {rule.description ?? "recurring"}
               </span>
             )}
@@ -737,17 +219,12 @@ export default function TransactionsPage() {
     initialPageSize: 100,
   });
 
-  // Sum of post-filter (account/status/type/search) row amounts. Shown next
-  // to the count when any filter is active, so the user can read off the net
-  // impact of whatever they're looking at — e.g. total spend at a vendor.
   const hasActiveFilter =
     !!filterAccount || !!filterStatus || !!filterType || !!txCtl.search.trim();
   const filteredSum = useMemo(
     () => txCtl.filtered.reduce((s, t) => s + (t.amount ?? 0), 0),
     [txCtl.filtered],
   );
-  // Prefer the filtered account's currency; fall back to USD. Multi-currency
-  // sums would be misleading anyway, so picking one is good enough.
   const filteredCurrency =
     (filterAccount && accountById.get(filterAccount)?.currency) || "USD";
 
@@ -768,35 +245,24 @@ export default function TransactionsPage() {
           {/* Header */}
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h1 className="text-2xl font-bold text-purple dark:text-rose">Transactions</h1>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={openImport} className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}>
-                Import CSV
-              </button>
-              <button onClick={() => openNewTx()} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
-                + Transaction
-              </button>
-            </div>
+            <p className="text-[11px] text-gray-400">
+              Create + import from each account&apos;s page.
+            </p>
           </div>
 
           {/* Account balance strip */}
           {accounts.filter((a) => a.active !== false).length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
               {accounts.filter((a) => a.active !== false).map((acc) => {
-                // Surplus: cash on this account that no mapped goal has absorbed.
-                // undefined = no mappings at all on this account; skip badge.
-                // > 0     = there's unallocated cash; nudge to map it.
                 const surplus = allocations.surplusByAccount.get(acc.id);
                 const showSurplus = surplus !== undefined && surplus > 0.5 && acc.type !== "CREDIT" && acc.type !== "LOAN";
                 return (
                   <a key={acc.id}
                     href={`/finance/accounts/${acc.id}`}
                     className="px-3 py-1 rounded-full text-xs font-semibold transition-opacity hover:opacity-80 border"
-                    style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
-                  >
+                    style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}>
                     {acc.name}:
                     {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 ? (() => {
-                      // currentBalance is negative when money is owed; flip sign for utilization
                       const owed = Math.max(0, -(acc.currentBalance ?? 0));
                       const util = Math.min(1, owed / (acc.creditLimit ?? 1));
                       return (
@@ -810,11 +276,9 @@ export default function TransactionsPage() {
                       <span className="tabular-nums">{" "}{fmtCurrency(acc.currentBalance, acc.currency ?? "USD")}</span>
                     )}
                     {showSurplus && (
-                      <span
-                        className="ml-1 tabular-nums font-medium"
+                      <span className="ml-1 tabular-nums font-medium"
                         style={{ color: "#f59e0b", opacity: 0.9 }}
-                        title={`${fmtCurrency(surplus, acc.currency ?? "USD")} not allocated to any goal`}
-                      >
+                        title={`${fmtCurrency(surplus, acc.currency ?? "USD")} not allocated to any goal`}>
                         · +{fmtCurrency(surplus, acc.currency ?? "USD")}
                       </span>
                     )}
@@ -855,7 +319,7 @@ export default function TransactionsPage() {
           {loading ? (
             <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
           ) : filtered.length === 0 ? (
-            <EmptyState label="transactions" onAdd={openNewTx} />
+            <EmptyState label="transactions" />
           ) : (
             <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               <DataTable
@@ -864,7 +328,7 @@ export default function TransactionsPage() {
                 sortKey={txCtl.sortKey}
                 sortDir={txCtl.sortDir}
                 onSort={txCtl.handleSort}
-                onRowClick={openEditTx}
+                onRowClick={(tx) => setEditingTx(tx)}
                 emptyMessage={txCtl.search ? "No matches" : "No transactions"}
               />
               <TableControls
@@ -885,656 +349,19 @@ export default function TransactionsPage() {
           )}
         </div>
 
-        {/* ── Side panel ───────────────────────────────────────────────── */}
-        {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-
-            {/* ── Transaction panel ─────────────────────────────────── */}
-            {(panel.kind === "new-tx" || panel.kind === "edit-tx") && (
-              <>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-                  <h2 className="text-base font-semibold dark:text-rose text-purple">
-                    {panel.kind === "new-tx" ? "New Transaction" : "Edit Transaction"}
-                  </h2>
-                  <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-                </div>
-                <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-                  <div>
-                    <label className={labelCls}>Account *</label>
-                    <select className={inputCls} value={txDraft.accountId ?? ""}
-                      onChange={(e) => setTxDraft((d) => ({ ...d, accountId: e.target.value }))}>
-                      <option value="">Select account…</option>
-                      {accounts.filter((a) => a.active !== false).map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className={labelCls}>Type</label>
-                      <select className={inputCls} value={txDraft.type ?? "EXPENSE"}
-                        disabled={panel.kind === "edit-tx" && isTradeType(panel.tx.type as any)}
-                        onChange={(e) => {
-                          const newType = e.target.value as TxType;
-                          setTxDraft((d) => {
-                            const raw = Math.abs(d.amount ?? 0);
-                            // INCOME + SELL bring cash IN (positive); rest go OUT (negative).
-                            const positive = newType === "INCOME" || newType === "SELL";
-                            return {
-                              ...d,
-                              type: newType as any,
-                              amount: positive ? raw : -raw,
-                            };
-                          });
-                        }}>
-                        <option value="INCOME">Income</option>
-                        <option value="EXPENSE">Expense</option>
-                        <option value="TRANSFER">Transfer</option>
-                        <option value="BUY">Buy</option>
-                        <option value="SELL">Sell</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelCls}>Status</label>
-                      <select className={inputCls} value={txDraft.status ?? "POSTED"}
-                        onChange={(e) => setTxDraft((d) => ({ ...d, status: e.target.value as any }))}>
-                        <option value="POSTED">Posted</option>
-                        <option value="PENDING">Pending</option>
-                      </select>
-                    </div>
-                  </div>
-                  {!isTradeType(txDraft.type as any) && (
-                    <div>
-                      <label className={labelCls}>Amount *</label>
-                      <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
-                        value={Math.abs(txDraft.amount ?? 0) || ""}
-                        onChange={(e) => {
-                          const raw = parseFloat(e.target.value) || 0;
-                          // Income brings cash in; everything else leaves the account.
-                          const positive = txDraft.type === "INCOME";
-                          const signed = positive ? Math.abs(raw) : -Math.abs(raw);
-                          setTxDraft((d) => ({ ...d, amount: signed }));
-                        }} />
-                    </div>
-                  )}
-                  {/* Trade fields — BUY (price + qty + ticker + fees) and SELL
-                      (same + ordered multi-lot picker). In edit mode for trades,
-                      everything renders disabled for visibility only. */}
-                  {isTradeType(txDraft.type as any) && (() => {
-                    const isEditingTrade = panel.kind === "edit-tx" && isTradeType(panel.tx.type as any);
-                    // Lots available to sell from, scoped to the selected account + ticker (if entered).
-                    const sellableLots = txDraft.type === "SELL"
-                      ? lots
-                          .filter((l) =>
-                            l.accountId === txDraft.accountId
-                            && (l.quantity ?? 0) > 0
-                            && (!txDraft.ticker || (l.ticker ?? "").toUpperCase() === (txDraft.ticker ?? "").toUpperCase()),
-                          )
-                          .sort((a, b) => (a.purchaseDate ?? "").localeCompare(b.purchaseDate ?? ""))
-                      : [];
-                    const sellableById = new Map(sellableLots.map((l) => [l.id, l] as const));
-                    // Ordered picks (drives consumption order). Drop stale IDs
-                    // that no longer match the available set (e.g. ticker changed).
-                    const orderedPicks = sellLotPicks
-                      .map((id) => sellableById.get(id))
-                      .filter((l): l is HoldingLotRecord => !!l);
-                    const unpicked = sellableLots.filter((l) => !sellLotPicks.includes(l.id));
-                    const priceNum = parseFloat(tradePrice) || 0;
-                    const qtyNum   = txDraft.quantity ?? 0;
-                    const grossAmt = priceNum * qtyNum;
-                    const feesNum  = Math.max(0, parseFloat(tradeFees) || 0);
-                    const selectedQty = orderedPicks.reduce((s, l) => s + (l.quantity ?? 0), 0);
-                    // Walk picks in order to compute consumed cost basis preview.
-                    let runningCost = 0;
-                    let runningRemaining = qtyNum;
-                    for (const lot of orderedPicks) {
-                      if (runningRemaining <= 1e-6) break;
-                      const lotQty = lot.quantity ?? 0;
-                      const takeQty = Math.min(runningRemaining, lotQty);
-                      if (lot.costBasis != null && lotQty > 0) {
-                        runningCost += lot.costBasis * (takeQty / lotQty);
-                      }
-                      runningRemaining -= takeQty;
-                    }
-                    const consumedPreview = qtyNum > 0 && runningRemaining <= 1e-6 ? runningCost : null;
-                    const gainPreview = consumedPreview != null && txDraft.type === "SELL"
-                      ? grossAmt - consumedPreview
-                      : null;
-
-                    function moveLot(lotId: string, dir: "up" | "down") {
-                      setSellLotPicks((picks) => {
-                        const idx = picks.indexOf(lotId);
-                        if (idx < 0) return picks;
-                        const swap = dir === "up" ? idx - 1 : idx + 1;
-                        if (swap < 0 || swap >= picks.length) return picks;
-                        const next = [...picks];
-                        [next[idx], next[swap]] = [next[swap], next[idx]];
-                        return next;
-                      });
-                    }
-
-                    return (
-                      <div className="rounded border border-gray-200 dark:border-darkBorder p-3 flex flex-col gap-3 bg-gray-50/50 dark:bg-white/[0.02]">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className={labelCls}>Ticker *</label>
-                            <input type="text" className={inputCls} placeholder="SWPPX"
-                              disabled={isEditingTrade}
-                              value={txDraft.ticker ?? ""}
-                              onChange={(e) => {
-                                const t = e.target.value.toUpperCase();
-                                setTxDraft((d) => ({ ...d, ticker: t }));
-                                // Clear lot picks if ticker changes — old picks may not match.
-                                if (txDraft.type === "SELL") setSellLotPicks([]);
-                              }} />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Quantity *</label>
-                            <input type="number" step="0.0001" min="0" className={inputCls} placeholder="0"
-                              disabled={isEditingTrade}
-                              value={txDraft.quantity ?? ""}
-                              onChange={(e) => setTxDraft((d) => ({ ...d, quantity: parseFloat(e.target.value) || 0 }))} />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className={labelCls}>Price per share *</label>
-                            <input type="number" step="0.0001" min="0" className={inputCls} placeholder="0.00"
-                              disabled={isEditingTrade}
-                              value={tradePrice}
-                              onChange={(e) => setTradePrice(e.target.value)} />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Fees</label>
-                            <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
-                              disabled={isEditingTrade}
-                              value={tradeFees}
-                              onChange={(e) => setTradeFees(e.target.value)} />
-                            <p className="text-[10px] text-gray-400 mt-0.5">
-                              Logged as a separate {txDraft.type === "BUY" ? "expense" : "expense"}.
-                            </p>
-                          </div>
-                        </div>
-                        {/* Computed totals — what hits the account, and the implicit fee line. */}
-                        {(priceNum > 0 && qtyNum > 0) && (
-                          <div className="rounded bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder px-3 py-2 flex flex-col gap-0.5 text-xs">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">
-                                {txDraft.type === "BUY" ? "Cash out" : "Cash in"} ({fmtCurrency(priceNum, "USD")} × {qtyNum})
-                              </span>
-                              <span className="tabular-nums font-medium" style={{ color: amountColor(txDraft.type === "BUY" ? -grossAmt : grossAmt) }}>
-                                {fmtCurrency(txDraft.type === "BUY" ? -grossAmt : grossAmt, "USD", true)}
-                              </span>
-                            </div>
-                            {feesNum > 0 && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-400">+ Fees expense</span>
-                                <span className="tabular-nums font-medium" style={{ color: amountColor(-feesNum) }}>
-                                  {fmtCurrency(-feesNum, "USD", true)}
-                                </span>
-                              </div>
-                            )}
-                            {gainPreview != null && (
-                              <div className="flex justify-between pt-1 border-t border-gray-200 dark:border-gray-700">
-                                <span className="text-gray-500 dark:text-gray-400">Realized gain</span>
-                                <span className="tabular-nums font-semibold" style={{ color: amountColor(gainPreview) }}>
-                                  {fmtCurrency(gainPreview, "USD", true)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Multi-lot picker (SELL, new-tx only). Ordered list at
-                            top = consume first; unpicked list below. */}
-                        {txDraft.type === "SELL" && !isEditingTrade && (
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-baseline justify-between">
-                              <label className={labelCls}>Lots to consume *</label>
-                              {orderedPicks.length > 0 && (
-                                <span className="text-[10px] text-gray-400 tabular-nums">
-                                  selected {selectedQty.toLocaleString("en-US", { maximumFractionDigits: 4 })} / need {qtyNum.toLocaleString("en-US", { maximumFractionDigits: 4 })}
-                                </span>
-                              )}
-                            </div>
-                            {orderedPicks.length > 0 && (
-                              <div className="flex flex-col gap-1">
-                                {orderedPicks.map((lot, idx) => (
-                                  <div key={lot.id}
-                                    className="flex items-center gap-2 px-2 py-1.5 rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated">
-                                    <span className="text-xs tabular-nums text-gray-400 w-5">{idx + 1}.</span>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs text-gray-700 dark:text-gray-200 truncate">
-                                        {(lot.quantity ?? 0).toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
-                                        {lot.purchaseDate ? ` · ${lot.purchaseDate}` : ""}
-                                      </p>
-                                      <p className="text-[10px] text-gray-400">
-                                        {lot.costBasis != null ? `cost ${fmtCurrency(lot.costBasis, "USD")}` : "no cost basis"}
-                                      </p>
-                                    </div>
-                                    <button type="button" onClick={() => moveLot(lot.id, "up")}
-                                      disabled={idx === 0}
-                                      title="Consume earlier"
-                                      className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-30 w-5">▲</button>
-                                    <button type="button" onClick={() => moveLot(lot.id, "down")}
-                                      disabled={idx === orderedPicks.length - 1}
-                                      title="Consume later"
-                                      className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-30 w-5">▼</button>
-                                    <button type="button"
-                                      onClick={() => setSellLotPicks((p) => p.filter((id) => id !== lot.id))}
-                                      title="Remove"
-                                      className="text-xs text-gray-400 hover:text-red-500 w-5">×</button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {unpicked.length > 0 ? (
-                              <div className="flex flex-col gap-1">
-                                {orderedPicks.length > 0 && (
-                                  <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Available</p>
-                                )}
-                                {unpicked.map((lot) => (
-                                  <button key={lot.id} type="button"
-                                    onClick={() => setSellLotPicks((p) => [...p, lot.id])}
-                                    className="flex items-center gap-2 px-2 py-1.5 rounded border border-dashed border-gray-200 dark:border-darkBorder hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 text-left transition-colors">
-                                    <span className="text-gray-400 text-xs">+</span>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs text-gray-700 dark:text-gray-200 truncate">
-                                        {(lot.quantity ?? 0).toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
-                                        {lot.purchaseDate ? ` · ${lot.purchaseDate}` : ""}
-                                      </p>
-                                      <p className="text-[10px] text-gray-400">
-                                        {lot.costBasis != null ? `cost ${fmtCurrency(lot.costBasis, "USD")}` : "no cost basis"}
-                                      </p>
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            ) : sellableLots.length === 0 && txDraft.accountId ? (
-                              <p className="text-[10px] text-amber-500">
-                                No matching lots on this account. Add a lot or BUY first.
-                              </p>
-                            ) : null}
-                            {qtyNum > 0 && selectedQty + 1e-6 < qtyNum && orderedPicks.length > 0 && (
-                              <p className="text-[10px] text-amber-500">
-                                Selected lots are short {(qtyNum - selectedQty).toLocaleString("en-US", { maximumFractionDigits: 4 })} sh.
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {isEditingTrade && (() => {
-                          const breakdown = parseLotConsumptions(panel.tx);
-                          return (
-                            <>
-                              {breakdown.length > 0 && (
-                                <div className="flex flex-col gap-1">
-                                  <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Lots consumed</p>
-                                  {breakdown.map((b, idx) => (
-                                    <div key={`${b.lotId}-${idx}`}
-                                      className="flex items-center justify-between px-2 py-1.5 rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs">
-                                      <span className="text-gray-700 dark:text-gray-200">
-                                        {idx + 1}. {b.qty.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
-                                      </span>
-                                      <span className="text-gray-400 tabular-nums">
-                                        cost {fmtCurrency(b.costBasis, "USD")}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              <p className="text-[10px] text-gray-400">
-                                Trade-side fields are locked in edit mode. Delete and recreate to change ticker, qty, price, or lots.
-                              </p>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })()}
-                  <div>
-                    <label className={labelCls}>Date *</label>
-                    <input type="date" className={inputCls} value={txDraft.date ?? ""}
-                      onChange={(e) => {
-                        const newDate = e.target.value;
-                        setTxDraft((d) => ({
-                          ...d,
-                          date: newDate,
-                          // Auto-set PENDING for future dates on new transactions
-                          ...(panel?.kind === "new-tx" && newDate > today
-                            ? { status: "PENDING" }
-                            : panel?.kind === "new-tx" && newDate <= today
-                            ? { status: "POSTED" }
-                            : {}),
-                        }));
-                      }} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Description</label>
-                    <input type="text" className={inputCls} placeholder="e.g. Rent, Salary…"
-                      value={txDraft.description ?? ""}
-                      onChange={(e) => setTxDraft((d) => ({ ...d, description: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Category</label>
-                    <input type="text" className={inputCls} placeholder="e.g. Housing, Food…"
-                      value={txDraft.category ?? ""}
-                      onChange={(e) => setTxDraft((d) => ({ ...d, category: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Notes</label>
-                    <textarea rows={3} className={`${inputCls} resize-none`} placeholder="Free-form context…"
-                      value={txDraft.notes ?? ""}
-                      onChange={(e) => setTxDraft((d) => ({ ...d, notes: e.target.value }))} />
-                    <p className="text-[10px] text-gray-400 mt-0.5">Searchable. Kept separate from the bank-imported description.</p>
-                  </div>
-                  {txDraft.type === "TRANSFER" && (
-                    <div>
-                      <label className={labelCls}>To Account</label>
-                      <select className={inputCls} value={txDraft.toAccountId ?? ""}
-                        onChange={(e) => setTxDraft((d) => ({ ...d, toAccountId: e.target.value }))}>
-                        <option value="">Select destination…</option>
-                        {accounts.filter((a) => a.id !== txDraft.accountId && a.active !== false).map((a) => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  {/* Linked recurring rule block (edit only). Also shows
-                      suggested matches when unlinked or when "Change…" is clicked. */}
-                  {panel.kind === "edit-tx" && (() => {
-                    const candidateTx = {
-                      accountId:   txDraft.accountId,
-                      amount:      txDraft.amount,
-                      type:        txDraft.type,
-                      category:    txDraft.category,
-                      description: txDraft.description,
-                      date:        txDraft.date,
-                    } as TransactionRecord;
-                    const candidates = findRecurringMatches(candidateTx, recurrings);
-                    const linked = txDraft.recurringId ? recurringById.get(txDraft.recurringId) : null;
-                    return (
-                      <>
-                        {linked && (
-                          <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex items-center justify-between gap-2">
-                            <div className="flex flex-col">
-                              <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Linked to recurring</span>
-                              <span className="text-xs text-gray-700 dark:text-gray-200">{linked.description ?? "(deleted rule)"}</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={() => setShowMatchCandidates((v) => !v)}
-                                className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
-                              >
-                                {showMatchCandidates ? "Hide" : "Change…"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setTxDraft((d) => ({ ...d, recurringId: null as any }))}
-                                className="text-[11px] text-gray-400 hover:text-red-500 transition-colors"
-                              >
-                                Unlink
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        {(!linked || showMatchCandidates) && candidates.length > 0 && (
-                          <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex flex-col gap-1.5">
-                            <span className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">
-                              {linked ? "Change to…" : "Suggested matches"}
-                            </span>
-                            {candidates.slice(0, 5).map(({ rule, score, reasons }) => (
-                              <button
-                                key={rule.id}
-                                type="button"
-                                onClick={() => {
-                                  setTxDraft((d) => ({ ...d, recurringId: rule.id }));
-                                  setShowMatchCandidates(false);
-                                }}
-                                className="w-full text-left rounded border border-gray-200 dark:border-darkBorder hover:border-gray-300 dark:hover:border-gray-500 px-2 py-1.5 transition-colors flex items-center justify-between gap-2"
-                                title={reasons.join(" · ")}
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-xs text-gray-700 dark:text-gray-200 truncate">{rule.description}</p>
-                                  <p className="text-[10px] text-gray-400">
-                                    {fmtCurrency(rule.amount, "USD", true)} · next {rule.nextDate ? fmtDate(rule.nextDate) : "—"}
-                                  </p>
-                                </div>
-                                <span
-                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                                  style={{
-                                    backgroundColor: FINANCE_COLOR + "22",
-                                    color: FINANCE_COLOR,
-                                  }}
-                                >
-                                  {Math.round(score)}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {!linked && candidates.length === 0 && (
-                          <p className="text-[11px] text-gray-400 italic">No recurring rules match this transaction.</p>
-                        )}
-                      </>
-                    );
-                  })()}
-                  <div className="border-t border-gray-200 dark:border-darkBorder pt-4">
-                    <AttachmentsSection
-                      parentType="TRANSACTION"
-                      parentId={panel.kind === "edit-tx" ? panel.tx.id : null}
-                      disabled={panel.kind === "new-tx"}
-                    />
-                  </div>
-                  <SaveButton saving={saving} onSave={handleSaveTx}
-                    label={panel.kind === "new-tx" ? "Add Transaction" : "Save"} />
-                  {panel.kind === "edit-tx" && (
-                    <DeleteButton saving={saving} onDelete={() => handleDeleteTx(panel.tx)} />
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ── Import panel ──────────────────────────────────────── */}
-            {panel.kind === "import" && (
-              <>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-                  <h2 className="text-base font-semibold dark:text-rose text-purple">Import CSV</h2>
-                  <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-                </div>
-                <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
-                  <p className="text-xs text-gray-400">
-                    Supports Chase, Bank of America, Amex, and generic CSV exports. Duplicates are detected automatically.
-                  </p>
-
-                  <div>
-                    <label className={labelCls}>Target Account</label>
-                    <select className={inputCls} value={importAccountId}
-                      onChange={(e) => setImportAccountId(e.target.value)}>
-                      <option value="">Select account…</option>
-                      {accounts.filter((a) => a.active !== false).map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className={labelCls}>CSV File</label>
-                    <input ref={fileRef} type="file" accept=".csv,text/csv"
-                      className="text-sm text-gray-600 dark:text-gray-300 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:cursor-pointer"
-                      style={{ ["--file-bg" as any]: FINANCE_COLOR + "22" }}
-                      onChange={handleFileChange} />
-                  </div>
-
-                  <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
-                    <input type="checkbox" checked={importReverse}
-                      onChange={(e) => setImportReverse(e.target.checked)} />
-                    Reverse sign
-                    <span className="text-gray-400">— flip all amounts if this file's convention is inverted</span>
-                  </label>
-
-                  {/* Date range — auto-populated from the parsed CSV's min/max dates. */}
-                  {importRows.length > 0 && (
-                    <div>
-                      <label className={labelCls}>Date range (inclusive)</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={importStartDate}
-                          onChange={(e) => setImportStartDate(e.target.value)}
-                          className={inputCls}
-                        />
-                        <span className="text-xs text-gray-400">to</span>
-                        <input
-                          type="date"
-                          value={importEndDate}
-                          onChange={(e) => setImportEndDate(e.target.value)}
-                          className={inputCls}
-                        />
-                      </div>
-                      <p className="text-[10px] text-gray-400 mt-1">
-                        Rows outside this range are excluded from the import.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Delete-in-range — replaces existing tx for the account in the
-                      chosen window. Use when the bank shifted dates / changed
-                      scheduled→posted and re-importing would otherwise drift. */}
-                  {importRows.length > 0 && importAccountId && importStartDate && importEndDate && (
-                    <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={importDeleteRange}
-                        onChange={(e) => setImportDeleteRange(e.target.checked)}
-                        className="mt-0.5"
-                      />
-                      <span>
-                        <span className="font-medium">Delete existing transactions in range first</span>
-                        <span className="text-gray-400 ml-1">
-                          — {inRangeExistingTx.length} existing transaction{inRangeExistingTx.length === 1 ? "" : "s"} would be deleted, then {inRangeRows.length} replaced.
-                        </span>
-                      </span>
-                    </label>
-                  )}
-
-                  {importFormat && (
-                    <p className="text-xs text-gray-400">
-                      Detected format: <span className="font-medium text-gray-600 dark:text-gray-300">{importFormat}</span>
-                      {" · "}{importRows.length} rows
-                      {inRangeRows.length !== importRows.length && (
-                        <> · <span className="text-gray-500">{inRangeRows.length} in range</span></>
-                      )}
-                      {" · "}<span style={{ color: FINANCE_COLOR }}>{inRangeRows.filter((r) => r.selected).length} selected</span>
-                      {!importDeleteRange && inRangeRows.some((r) => r.duplicate) && (
-                        <span className="text-amber-500"> · {inRangeRows.filter((r) => r.duplicate).length} duplicates</span>
-                      )}
-                    </p>
-                  )}
-
-                  {/* Balance preview — shows current vs predicted balance after selected imports apply */}
-                  {importAccountId && importRows.length > 0 && (() => {
-                    const tgt = accounts.find((a) => a.id === importAccountId);
-                    if (!tgt) return null;
-                    const insertedDelta = (importDeleteRange
-                      ? inRangeRows.filter((r) => r.selected)
-                      : inRangeRows.filter((r) => r.selected && !r.duplicate)
-                    ).reduce((s, r) => s + effectiveAmount(r.amount), 0);
-                    const deletedDelta = importDeleteRange
-                      ? -inRangeExistingTx.reduce((s, t) => s + (t.amount ?? 0), 0)
-                      : 0;
-                    const delta = insertedDelta + deletedDelta;
-                    const currentBal   = tgt.currentBalance ?? 0;
-                    const predictedBal = currentBal + delta;
-                    const cur = tgt.currency ?? "USD";
-                    return (
-                      <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-darkElevated px-3 py-2 flex flex-col gap-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-400">Current balance</span>
-                          <span className="tabular-nums font-medium" style={{ color: amountColor(currentBal) }}>
-                            {fmtCurrency(currentBal, cur)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-400">Net change</span>
-                          <span className="tabular-nums font-medium" style={{ color: amountColor(delta) }}>
-                            {fmtCurrency(delta, cur, true)}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm pt-1 border-t border-gray-200 dark:border-gray-700">
-                          <span className="text-gray-500 dark:text-gray-400 font-medium">Predicted balance</span>
-                          <span className="tabular-nums font-bold" style={{ color: amountColor(predictedBal) }}>
-                            {fmtCurrency(predictedBal, cur)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {importRows.length > 0 && (
-                    <>
-                      <div className="flex gap-2">
-                        <button onClick={() => setImportRows((r) => r.map((row) => ({ ...row, selected: importDeleteRange ? true : !row.duplicate })))}
-                          className="text-xs underline" style={{ color: FINANCE_COLOR }}>
-                          {importDeleteRange ? "Select all in range" : "Select all new"}
-                        </button>
-                        <button onClick={() => setImportRows((r) => r.map((row) => ({ ...row, selected: false })))}
-                          className="text-xs underline text-gray-400">Deselect all</button>
-                      </div>
-
-                      <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden max-h-64 overflow-y-auto">
-                        <table className="w-full text-xs">
-                          <thead className="bg-gray-50 dark:bg-darkElevated sticky top-0">
-                            <tr>
-                              <th className="px-2 py-1.5 w-6" />
-                              <th className="px-2 py-1.5 text-left text-gray-400 font-medium">Date</th>
-                              <th className="px-2 py-1.5 text-left text-gray-400 font-medium">Description</th>
-                              <th className="px-2 py-1.5 text-right text-gray-400 font-medium">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                            {inRangeRows.map((row) => {
-                              // Find the row's index in the original list so the
-                              // toggle still updates the right entry.
-                              const idx = importRows.indexOf(row);
-                              const showAsDuplicate = row.duplicate && !importDeleteRange;
-                              return (
-                                <tr key={idx}
-                                  className={showAsDuplicate ? "opacity-40" : ""}
-                                  onClick={() => !showAsDuplicate && setImportRows((r) =>
-                                    r.map((x, i) => i === idx ? { ...x, selected: !x.selected } : x))}>
-                                  <td className="px-2 py-1">
-                                    <input type="checkbox" checked={row.selected} readOnly
-                                      className="pointer-events-none" />
-                                  </td>
-                                  <td className="px-2 py-1 whitespace-nowrap text-gray-500">{fmtDate(row.date)}</td>
-                                  <td className="px-2 py-1 truncate max-w-[140px] text-gray-700 dark:text-gray-300">
-                                    {row.description}
-                                    {showAsDuplicate && <span className="ml-1 text-amber-500">(dup)</span>}
-                                  </td>
-                                  <td className="px-2 py-1 text-right tabular-nums font-medium"
-                                    style={{ color: amountColor(effectiveAmount(row.amount)) }}>
-                                    {fmtCurrency(effectiveAmount(row.amount), "USD", true)}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <SaveButton saving={saving} onSave={handleImport}
-                        label={
-                          importDeleteRange
-                            ? `Replace ${inRangeExistingTx.length} with ${inRangeRows.filter((r) => r.selected).length}`
-                            : `Import ${inRangeRows.filter((r) => r.selected && !r.duplicate).length} transactions`
-                        } />
-                    </>
-                  )}
-                </div>
-              </>
-            )}
-
-          </div>
+        {/* ── Edit panel (shared) ───────────────────────────────────────── */}
+        {editingTx && (
+          <TransactionPanel
+            mode="edit"
+            editingTx={editingTx}
+            accounts={accounts}
+            lots={lots}
+            recurrings={recurrings}
+            onClose={() => setEditingTx(null)}
+            onSetTransactions={setTransactions}
+            onSetAccounts={setAccounts}
+            onSetLots={setLots}
+          />
         )}
       </div>
     </FinanceLayout>

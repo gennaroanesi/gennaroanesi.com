@@ -175,14 +175,6 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
           </p>
           <div className="px-2 flex flex-col gap-1">
             <NextLink
-              href="/finance/transactions?new=1"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5"
-              style={{ color: FINANCE_COLOR }}
-            >
-              <span className="text-base leading-none">+</span>
-              Transaction
-            </NextLink>
-            <NextLink
               href="/finance/recurring?new=1"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5"
               style={{ color: FINANCE_COLOR }}
