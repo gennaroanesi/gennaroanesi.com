@@ -12,6 +12,7 @@ import {
   listAll,
   FINANCE_COLOR,
   fmtCurrency,
+  fmtDate,
   amountColor,
   todayIso,
   AccountBadge,
@@ -22,17 +23,21 @@ import {
   type TickerQuoteRecord,
   type HoldingSnapshotRecord,
   type GoalSnapshotRecord,
+  type PaycheckRecord,
 } from "@/components/finance/_shared";
 import {
   type Period,
   periodRange,
   ytdRange,
-  summarizeCashflow,
+  summarizeIncome,
+  summarizeExpenses,
+  computeExpenseDistribution,
   computeStockReview,
   computeGoalEvolution,
   computeTrend,
   type CategoryBucket,
   type AccountBucket,
+  type NamedBucket,
 } from "@/components/finance/review";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -46,7 +51,6 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-/** Compact axis money labels: $1.2k / $3.4M. */
 function fmtCompact(n: number): string {
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
@@ -84,7 +88,7 @@ function SparseNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Category/account breakdown as a horizontal recharts bar, with a value list under it. */
+/** Horizontal bar breakdown for {name, amount}[] rows. */
 function BreakdownBars({
   data, color, emptyLabel,
 }: { data: { name: string; amount: number }[]; color: string; emptyLabel: string }) {
@@ -93,26 +97,21 @@ function BreakdownBars({
   }
   const top = data.slice(0, 12);
   return (
-    <div>
-      <ResponsiveContainer width="100%" height={Math.max(120, top.length * 34)}>
-        <BarChart data={top} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
-          <CartesianGrid horizontal={false} strokeOpacity={0.1} />
-          <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11 }} />
-          <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
-          <Tooltip formatter={(v: any) => fmtCurrency(Number(v))} cursor={{ fillOpacity: 0.06 }} />
-          <Bar dataKey="amount" radius={[0, 4, 4, 0]} fill={color} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+    <ResponsiveContainer width="100%" height={Math.max(120, top.length * 34)}>
+      <BarChart data={top} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+        <CartesianGrid horizontal={false} strokeOpacity={0.1} />
+        <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11 }} />
+        <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+        <Tooltip formatter={(v: any) => fmtCurrency(Number(v))} cursor={{ fillOpacity: 0.06 }} />
+        <Bar dataKey="amount" radius={[0, 4, 4, 0]} fill={color} />
+      </BarChart>
+    </ResponsiveContainer>
   );
 }
 
-function bucketsToBars(buckets: CategoryBucket[]): { name: string; amount: number }[] {
-  return buckets.map((b) => ({ name: b.category, amount: b.amount }));
-}
-function acctBucketsToBars(buckets: AccountBucket[]): { name: string; amount: number }[] {
-  return buckets.map((b) => ({ name: b.accountName, amount: b.amount }));
-}
+const catToBars = (b: CategoryBucket[]) => b.map((x) => ({ name: x.category, amount: x.amount }));
+const acctToBars = (b: AccountBucket[]) => b.map((x) => ({ name: x.accountName, amount: x.amount }));
+const namedToBars = (b: NamedBucket[]) => b.map((x) => ({ name: x.name, amount: x.amount }));
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
@@ -121,6 +120,7 @@ export default function ReviewPage() {
 
   const [txs, setTxs] = useState<TransactionRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
+  const [paychecks, setPaychecks] = useState<PaycheckRecord[]>([]);
   const [lots, setLots] = useState<HoldingLotRecord[]>([]);
   const [quotes, setQuotes] = useState<TickerQuoteRecord[]>([]);
   const [holdingSnaps, setHoldingSnaps] = useState<HoldingSnapshotRecord[]>([]);
@@ -128,7 +128,6 @@ export default function ReviewPage() {
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Period selector — default to the current month.
   const today = todayIso();
   const curYear = Number(today.slice(0, 4));
   const curMonth = Number(today.slice(5, 7));
@@ -139,9 +138,10 @@ export default function ReviewPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, a, l, q, hs, gs, g] = await Promise.all([
+      const [t, a, pc, l, q, hs, gs, g] = await Promise.all([
         listAll(client.models.financeTransaction),
         listAll(client.models.financeAccount),
+        listAll(client.models.financePaycheck as any),
         listAll(client.models.financeHoldingLot),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeHoldingSnapshot),
@@ -150,6 +150,7 @@ export default function ReviewPage() {
       ]);
       setTxs(t as TransactionRecord[]);
       setAccounts(a as AccountRecord[]);
+      setPaychecks(pc as PaycheckRecord[]);
       setLots(l as HoldingLotRecord[]);
       setQuotes(q as TickerQuoteRecord[]);
       setHoldingSnaps(hs as HoldingSnapshotRecord[]);
@@ -169,12 +170,12 @@ export default function ReviewPage() {
     [kind, year, month],
   );
 
-  // Years present in the data, for the selector (newest first).
   const availableYears = useMemo(() => {
     const ys = new Set<number>([curYear]);
     for (const t of txs) if (t.date) ys.add(Number(t.date.slice(0, 4)));
+    for (const p of paychecks) if (p.payDate) ys.add(Number(p.payDate.slice(0, 4)));
     return [...ys].sort((a, b) => b - a);
-  }, [txs, curYear]);
+  }, [txs, paychecks, curYear]);
 
   const view = useMemo(() => {
     const range = periodRange(period);
@@ -182,16 +183,19 @@ export default function ReviewPage() {
     const trades = txs.filter((t) => t.type === "BUY" || t.type === "SELL");
     return {
       range,
-      cashflow: summarizeCashflow(txs, accounts, range),
+      income: summarizeIncome(paychecks, range),
+      expenses: summarizeExpenses(txs, accounts, range),
+      dist: computeExpenseDistribution(txs, accounts, range),
       stock: computeStockReview(holdingSnaps, lots, quotes, trades, range, ytd),
       goalEvo: computeGoalEvolution(goalSnaps, goals, range),
-      trend: computeTrend(txs, period),
+      trend: computeTrend(txs, paychecks, accounts, period),
     };
-  }, [period, txs, accounts, lots, quotes, holdingSnaps, goalSnaps, goals]);
+  }, [period, txs, accounts, paychecks, lots, quotes, holdingSnaps, goalSnaps, goals]);
 
   if (authState !== "authenticated") return null;
 
-  const { range, cashflow, stock, goalEvo, trend } = view;
+  const { range, income, expenses, dist, stock, goalEvo, trend } = view;
+  const net = income.total - expenses.total;
 
   return (
     <FinanceLayout>
@@ -210,16 +214,13 @@ export default function ReviewPage() {
             <p className="text-xs text-gray-400 mt-0.5">{range.label} · income, spending, investments &amp; goals</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Month | Year toggle */}
             <div className="inline-flex rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
               {(["month", "year"] as const).map((k) => (
                 <button
                   key={k}
                   onClick={() => setKind(k)}
                   className="px-3 py-2 text-xs font-medium capitalize transition-colors"
-                  style={kind === k
-                    ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }
-                    : undefined}
+                  style={kind === k ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}
                 >
                   {k}
                 </button>
@@ -250,18 +251,30 @@ export default function ReviewPage() {
           <>
             {/* ── Headline ─────────────────────────────────────────── */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <StatCard label="Income" value={fmtCurrency(cashflow.totalIncome)} color={INCOME_COLOR} />
-              <StatCard label="Expenses" value={fmtCurrency(cashflow.totalExpense)} color={EXPENSE_COLOR} />
               <StatCard
-                label="Net"
-                value={fmtCurrency(cashflow.net, "USD", true)}
-                color={amountColor(cashflow.net)}
-                hint={`${cashflow.txCount} transactions`}
+                label="Income"
+                value={fmtCurrency(income.total)}
+                color={INCOME_COLOR}
+                hint={`${income.paycheckCount} paycheck${income.paycheckCount === 1 ? "" : "s"}`}
               />
+              <StatCard
+                label="Expenses"
+                value={fmtCurrency(expenses.total)}
+                color={EXPENSE_COLOR}
+                hint={`${expenses.txCount} charge${expenses.txCount === 1 ? "" : "s"}`}
+              />
+              <StatCard label="Net" value={fmtCurrency(net, "USD", true)} color={amountColor(net)} hint="income − expenses" />
             </div>
 
+            {income.paycheckCount === 0 && (
+              <p className="text-xs text-gray-400 mt-2">
+                No paychecks recorded in this period — income is derived from the paycheck ledger, not bank deposits.{" "}
+                <NextLink href="/finance/paychecks" className="hover:underline" style={{ color: FINANCE_COLOR }}>Add paychecks</NextLink>.
+              </p>
+            )}
+
             {/* ── Trend ────────────────────────────────────────────── */}
-            <SectionTitle hint={kind === "month" ? "by day" : "by month"}>Income vs. expenses</SectionTitle>
+            <SectionTitle hint={kind === "month" ? "by week" : "by month"}>Income vs. expenses</SectionTitle>
             <div className={CARD}>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={trend} margin={{ left: 8, right: 12, top: 8, bottom: 4 }}>
@@ -277,39 +290,39 @@ export default function ReviewPage() {
             </div>
 
             {/* ── Income ───────────────────────────────────────────── */}
-            <SectionTitle hint={fmtCurrency(cashflow.totalIncome)}>Income</SectionTitle>
+            <SectionTitle hint={fmtCurrency(income.total)}>Income</SectionTitle>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className={CARD}>
-                <p className="text-xs text-gray-400 mb-2">By category</p>
-                <BreakdownBars data={bucketsToBars(cashflow.incomeByCategory)} color={INCOME_COLOR} emptyLabel="No income this period." />
+                <p className="text-xs text-gray-400 mb-2">By source</p>
+                <BreakdownBars data={namedToBars(income.bySource)} color={INCOME_COLOR} emptyLabel="No paychecks this period." />
               </div>
               <div className={CARD}>
-                <p className="text-xs text-gray-400 mb-2">By account</p>
-                <BreakdownBars data={acctBucketsToBars(cashflow.incomeByAccount)} color={INCOME_COLOR} emptyLabel="No income this period." />
+                <p className="text-xs text-gray-400 mb-2">By person</p>
+                <BreakdownBars data={namedToBars(income.byPerson)} color={INCOME_COLOR} emptyLabel="No paychecks this period." />
               </div>
             </div>
 
             {/* ── Expenses ─────────────────────────────────────────── */}
-            <SectionTitle hint={fmtCurrency(cashflow.totalExpense)}>Expenses</SectionTitle>
+            <SectionTitle hint={fmtCurrency(expenses.total)}>Expenses</SectionTitle>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className={CARD}>
                 <p className="text-xs text-gray-400 mb-2">By category</p>
-                <BreakdownBars data={bucketsToBars(cashflow.expenseByCategory)} color={EXPENSE_COLOR} emptyLabel="No spending this period." />
+                <BreakdownBars data={catToBars(expenses.byCategory)} color={EXPENSE_COLOR} emptyLabel="No spending this period." />
               </div>
               <div className={CARD}>
                 <p className="text-xs text-gray-400 mb-2">By account</p>
-                <BreakdownBars data={acctBucketsToBars(cashflow.expenseByAccount)} color={EXPENSE_COLOR} emptyLabel="No spending this period." />
+                <BreakdownBars data={acctToBars(expenses.byAccount)} color={EXPENSE_COLOR} emptyLabel="No spending this period." />
               </div>
             </div>
 
             {/* Credit-card breakdown */}
             <div className={`${CARD} mt-3`}>
-              <p className="text-xs text-gray-400 mb-2">Credit-card spend</p>
-              {cashflow.creditCardSpend.length === 0 ? (
+              <p className="text-xs text-gray-400 mb-2">Credit-card spend (charges, excl. payments)</p>
+              {expenses.creditCardSpend.length === 0 ? (
                 <p className="text-sm text-gray-400 py-4 text-center">No credit-card charges this period.</p>
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-darkBorder">
-                  {cashflow.creditCardSpend.map((c) => (
+                  {expenses.creditCardSpend.map((c) => (
                     <div key={c.accountId} className="flex items-center justify-between py-2 gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <AccountBadge type={c.type as any} />
@@ -321,6 +334,55 @@ export default function ReviewPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* ── Expense distribution ─────────────────────────────── */}
+            <SectionTitle hint="big purchases vs. many small ones">Spending shape</SectionTitle>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className={CARD}>
+                <p className="text-xs text-gray-400 mb-2">By ticket size</p>
+                {dist.count === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">No spending this period.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={dist.buckets} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                      <CartesianGrid vertical={false} strokeOpacity={0.1} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
+                      <Tooltip
+                        formatter={(v: any, _n: any, p: any) => [`${fmtCurrency(Number(v))} · ${p?.payload?.count} tx`, "Total"]}
+                        cursor={{ fillOpacity: 0.06 }}
+                      />
+                      <Bar dataKey="amount" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {dist.count > 0 && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    {dist.count} charges · median {fmtCurrency(dist.medianTicket)}
+                    {dist.top5Share != null && <> · top 5 = {(dist.top5Share * 100).toFixed(0)}% of spend</>}
+                    {" "}· {dist.countForHalf} charge{dist.countForHalf === 1 ? "" : "s"} make up half
+                  </p>
+                )}
+              </div>
+              <div className={CARD}>
+                <p className="text-xs text-gray-400 mb-2">Biggest charges</p>
+                {dist.topTransactions.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">No spending this period.</p>
+                ) : (
+                  <div className="divide-y divide-gray-100 dark:divide-darkBorder">
+                    {dist.topTransactions.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between py-1.5 gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm truncate">{t.description}</p>
+                          <p className="text-[11px] text-gray-400 truncate">{fmtDate(t.date)} · {t.accountName} · {t.category}</p>
+                        </div>
+                        <span className="text-sm font-medium whitespace-nowrap" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(t.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* ── Stocks ───────────────────────────────────────────── */}
@@ -423,7 +485,7 @@ function MoversBars({ movers, color }: { movers: { ticker: string; change: numbe
         <YAxis type="category" dataKey="name" width={64} tick={{ fontSize: 11 }} />
         <Tooltip formatter={(_v: any, _n: any, p: any) => fmtCurrency(p?.payload?.change, "USD", true)} cursor={{ fillOpacity: 0.06 }} />
         <Bar dataKey="amount" radius={[0, 4, 4, 0]}>
-          {data.map((d, i) => <Cell key={i} fill={color} />)}
+          {data.map((_d, i) => <Cell key={i} fill={color} />)}
         </Bar>
       </BarChart>
     </ResponsiveContainer>

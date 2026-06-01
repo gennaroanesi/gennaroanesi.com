@@ -4,7 +4,8 @@
   "rules": [
     { "pattern": "/payroll|direct dep|dir dep|\\bsalary\\b|paychk|pay chk|paycheck/i", "category": "Income" },
     { "pattern": "/interest paid|dividend|div pmt/i", "category": "Income" },
-    { "pattern": "/zelle|venmo|cash app|paypal transfer|transfer to|transfer from|online transfer|xfer/i", "category": "Transfers" },
+    { "pattern": "/zelle|venmo|cash app|paypal transfer|transfer to|transfer from|online transfer|\\bxfer\\b|wire transfer|ach transfer|to savings|to checking|to brokerage|internal transfer/i", "category": "Transfers" },
+    { "pattern": "/payment thank you|payment - thank you|cardmember serv|card payment|credit card payment|autopay.*card|card.*autopay|amex.*epayment|amex.*payment|discover.*payment|capital one.*pymt|chase credit crd|online payment to|mobile payment/i", "category": "Credit Card Payment" },
     { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b/i", "category": "Cash/ATM" },
 
     { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|heb|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|giant|meijer/i", "category": "Groceries" },

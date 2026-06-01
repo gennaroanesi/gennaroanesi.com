@@ -28,6 +28,22 @@ export const UNCATEGORIZED = "Uncategorized";
 /** Investment bucket — BUY/SELL aren't P&L, surfaced in the Stocks section instead. */
 export const INVESTMENT_CATEGORY = "Investments";
 
+/**
+ * Categories that are NOT spending or earning — money moving between the user's
+ * own accounts (transfers), paying down a card (the charge was already counted),
+ * or investing. Excluded from the Review's income/expense P&L so totals reflect
+ * real cash in/out, not internal plumbing.
+ */
+export const EXCLUDED_FROM_PNL = new Set<string>([
+  "Transfers",
+  "Credit Card Payment",
+  INVESTMENT_CATEGORY,
+]);
+
+export function isExcludedFromPnl(category: string): boolean {
+  return EXCLUDED_FROM_PNL.has(category);
+}
+
 type InferInput = {
   description?: string | null;
   type?: string | null;
