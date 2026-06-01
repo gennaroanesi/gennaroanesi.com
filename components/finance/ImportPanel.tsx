@@ -12,6 +12,7 @@ import {
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
+import { inferCategory } from "@/components/finance/categories";
 
 type ImportRow = ParsedTransaction & {
   selected:  boolean;
@@ -128,7 +129,9 @@ export function ImportPanel(props: ImportPanelProps) {
           accountId:   importAccountId,
           amount:      amt,
           type:        type as any,
-          category:    row.category || null,
+          // Use the CSV's category if present, else infer from the description
+          // so the Review breakdowns are meaningful. Still user-editable later.
+          category:    row.category || inferCategory({ description: row.description, type, amount: amt }) || null,
           description: row.description,
           date:        row.date,
           status:      "POSTED" as any,

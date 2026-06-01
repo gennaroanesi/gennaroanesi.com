@@ -1,0 +1,40 @@
+{
+  "_comment": "Single source of truth for transaction category inference. Consumed by components/finance/categories.ts (web app + review) AND scripts/infer-categories.mjs. Ordered: first matching rule wins. `pattern` is a case-insensitive substring of the transaction description, or a /regex/flags form. `category` is the bucket assigned. Keep the vocabulary stable — the Review page groups by these strings.",
+  "version": 1,
+  "rules": [
+    { "pattern": "/payroll|direct dep|dir dep|\\bsalary\\b|paychk|pay chk|paycheck/i", "category": "Income" },
+    { "pattern": "/interest paid|dividend|div pmt/i", "category": "Income" },
+    { "pattern": "/zelle|venmo|cash app|paypal transfer|transfer to|transfer from|online transfer|xfer/i", "category": "Transfers" },
+    { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b/i", "category": "Cash/ATM" },
+
+    { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|heb|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|giant|meijer/i", "category": "Groceries" },
+    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|doordash|uber eats|grubhub|postmates|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery/i", "category": "Dining" },
+
+    { "pattern": "/shell|chevron|exxon|mobil|bp |valero|texaco|gas station|fuel|sunoco|circle k|76 /i", "category": "Gas/Transport" },
+    { "pattern": "/uber|lyft|transit|metro|parking|toll|amtrak|tollway|e-zpass|ezpass/i", "category": "Gas/Transport" },
+
+    { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|verizon|at&t|t-mobile|tmobile|spectrum|internet|wireless|coned|pg&e|duke energy|sewer|trash/i", "category": "Utilities" },
+
+    { "pattern": "/mortgage|rent payment|\\brent\\b|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
+
+    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|max\\.|youtube premium|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|dropbox|adobe|notion|chatgpt|openai|github|membership|subscription/i", "category": "Subscriptions" },
+
+    { "pattern": "/amazon|amzn|target|walmart|best buy|ebay|etsy|wayfair|home depot|lowe's|lowes|ikea|macy|nordstrom|nike|apple store/i", "category": "Shopping" },
+
+    { "pattern": "/airline|airlines|delta air|united air|american air|southwest|jetblue|spirit air|hotel|marriott|hilton|hyatt|airbnb|vrbo|expedia|booking\\.com|rental car|hertz|enterprise rent/i", "category": "Travel" },
+
+    { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium/i", "category": "Insurance" },
+
+    { "pattern": "/pharmacy|cvs|walgreens|rite aid|hospital|clinic|medical|dental|dentist|doctor|urgent care|labcorp|quest diag|health/i", "category": "Medical" },
+
+    { "pattern": "/cinema|movie|amc |regal|theater|theatre|concert|ticketmaster|stubhub|steam games|playstation|xbox|nintendo|spotify/i", "category": "Entertainment" },
+
+    { "pattern": "/irs |tax pmt|franchise tax|dept of revenue|treasury/i", "category": "Taxes" },
+
+    { "pattern": "/tuition|university|college|school|coursera|udemy|edx/i", "category": "Education" },
+
+    { "pattern": "/donation|charity|red cross|goodwill|church|nonprofit/i", "category": "Charity" },
+
+    { "pattern": "/overdraft|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|annual fee|foreign transaction fee/i", "category": "Fees" }
+  ]
+}

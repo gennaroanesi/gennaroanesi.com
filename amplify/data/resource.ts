@@ -735,6 +735,53 @@ const schema = a.schema({
     ])
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Holding daily snapshot ────────────────────────────────────────────────
+  // One row per (accountId, ticker, date). Captured daily by the
+  // financeSnapshots Lambda alongside financeAccountSnapshot — it freezes the
+  // market value of each brokerage/retirement position so the Review page can
+  // chart portfolio value over time, per-period gains, and top movers.
+  // `price` is the per-share quote used (so this doubles as price history),
+  // `marketValue = quantity × price`, `costBasis` is the total cost of the
+  // shares held on this date. Derived, never user-edited; upsert by
+  // (accountId, ticker, date). `financeTickerQuote` still holds the *latest*
+  // price for live valuation — this table is the historical record.
+  financeHoldingSnapshot: a
+    .model({
+      accountId:   a.id().required(),          // FK → financeAccount.id
+      ticker:      a.string().required(),      // "VOO", "AAPL", …
+      date:        a.date().required(),        // YYYY-MM-DD (America/Chicago local)
+      quantity:    a.float(),                  // shares/units held on this date
+      price:       a.float(),                  // per-share price used for valuation
+      marketValue: a.float(),                  // quantity × price
+      costBasis:   a.float(),                  // total cost of shares held on this date
+      capturedAt:  a.datetime().required(),    // actual wall-clock capture time
+    })
+    .secondaryIndexes((index) => [
+      index("ticker").sortKeys(["date"]),               // "this ticker's price history"
+      index("accountId").sortKeys(["date"]),            // "this account's positions over time"
+    ])
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Goal daily snapshot ───────────────────────────────────────────────────
+  // One row per (goalId, date). Captured daily by the financeSnapshots Lambda.
+  // `currentAmount` is the *computed effective* funded amount (from
+  // computeGoalAllocations — funding-account balances + invested positions),
+  // NOT the denormalized financeSavingsGoal.currentAmount, so the Review's
+  // goal-evolution chart reflects real progress including market growth.
+  // Derived, never user-edited; upsert by (goalId, date).
+  financeGoalSnapshot: a
+    .model({
+      goalId:        a.id().required(),        // FK → financeSavingsGoal.id
+      date:          a.date().required(),      // YYYY-MM-DD (America/Chicago local)
+      currentAmount: a.float().required(),     // computed effective funded amount
+      targetAmount:  a.float(),                // goal target on this date (for context)
+      capturedAt:    a.datetime().required(),  // actual wall-clock capture time
+    })
+    .secondaryIndexes((index) => [
+      index("goalId").sortKeys(["date"]),               // "this goal's progress over time"
+    ])
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Paycheck ─────────────────────────────────────────────────────────────
   // One row per paystub per person. `lineItems` is intentionally `a.json()`
   // for the long tail of deductions / earnings (parking, ESPP, RSU vest,

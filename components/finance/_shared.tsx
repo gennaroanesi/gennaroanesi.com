@@ -9,6 +9,38 @@ import React from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 
+// Pure finance math lives in finance-core (no React/client) so the
+// financeSnapshots Lambda and the review page can import it too. We import the
+// helpers for internal use here AND re-export them so the rest of the app keeps
+// importing them from "@/components/finance/_shared" as before.
+import {
+  isInvestedAccount,
+  isLotVested,
+  buildQuoteMap,
+  tickerAggregate,
+  uniqueTickers,
+  accountTotalValue,
+  computeGoalAllocations,
+  effectiveGoalAmount,
+  goalHasFundingSource,
+  goalHasVolatileFunding,
+} from "./finance-core";
+export {
+  isInvestedAccount,
+  isLotVested,
+  buildQuoteMap,
+  tickerAggregate,
+  uniqueTickers,
+  accountTotalValue,
+  computeGoalAllocations,
+  effectiveGoalAmount,
+  goalHasFundingSource,
+  goalHasVolatileFunding,
+};
+// import type (binds the names locally for internal use) + re-export.
+import type { QuoteMap, TickerAggregate, GoalAllocationResult } from "./finance-core";
+export type { QuoteMap, TickerAggregate, GoalAllocationResult };
+
 export const client = generateClient<Schema>();
 
 // ── Pagination helper ────────────────────────────────────────────────────
@@ -97,6 +129,8 @@ export type MilestoneRecord   = Schema["financeGoalMilestone"]["type"];
 export type LoanRecord        = Schema["financeLoan"]["type"];
 export type LoanPaymentRecord = Schema["financeLoanPayment"]["type"];
 export type AccountSnapshotRecord = Schema["financeAccountSnapshot"]["type"];
+export type HoldingSnapshotRecord = Schema["financeHoldingSnapshot"]["type"];
+export type GoalSnapshotRecord    = Schema["financeGoalSnapshot"]["type"];
 export type PaycheckRecord       = Schema["financePaycheck"]["type"];
 export type AttachmentRecord     = Schema["attachment"]["type"];
 
@@ -139,11 +173,7 @@ export const RETIREMENT_TYPE_LABELS: Record<RetirementType, string> = {
 
 /** Account types that hold positions (cash + holdings lots). Both brokerage and retirement */
 export const INVESTED_ACCOUNT_TYPES: AccountType[] = ["BROKERAGE", "RETIREMENT"];
-
-/** Does this account type hold holdings lots? (brokerage + retirement) */
-export function isInvestedAccount(type: string | null | undefined): boolean {
-  return type === "BROKERAGE" || type === "RETIREMENT";
-}
+// isInvestedAccount lives in finance-core (re-exported at the top of this file).
 
 export const TX_TYPES    = ["INCOME", "EXPENSE", "TRANSFER", "BUY", "SELL"] as const;
 export type  TxType      = (typeof TX_TYPES)[number];
@@ -405,131 +435,9 @@ export function isRecurrenceLive(rec: RecurringRecord): boolean {
 }
 
 // ── Holdings ───────────────────────────────────────────────────────────────────────────────
-
-/** Quote lookup by (UPPERCASE) ticker. */
-export type QuoteMap = Map<string, TickerQuoteRecord>;
-
-export function buildQuoteMap(quotes: TickerQuoteRecord[]): QuoteMap {
-  const m: QuoteMap = new Map();
-  for (const q of quotes) {
-    if (q.ticker) m.set(q.ticker.toUpperCase(), q);
-  }
-  return m;
-}
-
-/**
- * Aggregated view of one ticker across all its lots in an account.
- * - totalQty:     summed across lots
- * - totalCost:    summed if all lots have a cost basis; null if any lot missing
- * - marketValue:  quote.price * totalQty (null if no quote)
- * - gainLoss / gainLossPct: null unless both totalCost and marketValue are known
- */
-export type TickerAggregate = {
-  ticker:       string;
-  assetType:    AssetType | null;
-  lots:         HoldingLotRecord[];   // all lots (vested + unvested) — used for the expanded sub-rows
-  totalQty:     number;               // vested-only — drives "Qty" column on the holdings table
-  totalCost:    number | null;        // vested-only
-  price:        number | null;
-  fetchedAt:    string | null;
-  marketValue:  number | null;        // vested-only — drives "Value" column
-  gainLoss:     number | null;        // vested-only
-  gainLossPct:  number | null;        // vested-only
-  unvestedQty:  number;               // sum of unvested-lot quantities for this ticker
-  unvestedValue: number | null;       // unvested qty × price (null if no quote)
-  unvestedLotsCount: number;
-};
-
-/** A lot is "vested" by default — only false when the admin explicitly flips it. */
-export function isLotVested(l: HoldingLotRecord): boolean {
-  return l.isVested !== false;
-}
-
-/** Aggregate a set of lots for one ticker, joined with a quote map. */
-export function tickerAggregate(
-  ticker: string,
-  lots: HoldingLotRecord[],
-  quotes: QuoteMap,
-): TickerAggregate {
-  const tickerUpper = ticker.toUpperCase();
-  const myLots       = lots
-    .filter((l) => (l.ticker ?? "").toUpperCase() === tickerUpper)
-    .sort((a, b) => {
-      const ap = a.purchaseDate ?? "9999-12-31";
-      const bp = b.purchaseDate ?? "9999-12-31";
-      if (ap !== bp) return ap.localeCompare(bp);
-      const av = a.vestDate ?? "9999-12-31";
-      const bv = b.vestDate ?? "9999-12-31";
-      return av.localeCompare(bv);
-    });
-  const vestedLots   = myLots.filter(isLotVested);
-  const unvestedLots = myLots.filter((l) => !isLotVested(l));
-  const totalQty = vestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
-  const anyMissingCost = vestedLots.some((l) => l.costBasis == null);
-  const totalCost = anyMissingCost
-    ? null
-    : vestedLots.reduce((s, l) => s + (l.costBasis ?? 0), 0);
-  const quote = quotes.get(tickerUpper) ?? null;
-  const price = quote?.price ?? null;
-  const fetchedAt = quote?.fetchedAt ?? null;
-  const marketValue = price != null ? price * totalQty : null;
-  const gainLoss = marketValue != null && totalCost != null ? marketValue - totalCost : null;
-  const gainLossPct = gainLoss != null && totalCost != null && totalCost !== 0
-    ? gainLoss / totalCost
-    : null;
-  // assetType: take the first lot's value; if lots disagree, first wins (user error)
-  const assetType = (myLots.find((l) => l.assetType)?.assetType ?? null) as AssetType | null;
-  const unvestedQty = unvestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
-  const unvestedValue = price != null ? price * unvestedQty : null;
-
-  return {
-    ticker: tickerUpper,
-    assetType,
-    lots: myLots,
-    totalQty,
-    totalCost,
-    price,
-    fetchedAt,
-    marketValue,
-    gainLoss,
-    gainLossPct,
-    unvestedQty,
-    unvestedValue,
-    unvestedLotsCount: unvestedLots.length,
-  };
-}
-
-/** Distinct tickers across a set of lots (uppercase). */
-export function uniqueTickers(lots: HoldingLotRecord[]): string[] {
-  const s = new Set<string>();
-  for (const l of lots) {
-    if (l.ticker) s.add(l.ticker.toUpperCase());
-  }
-  return Array.from(s).sort();
-}
-
-/**
- * Total value of an account including holdings.
- * For non-invested accounts this is just `currentBalance`.
- * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(vested lot qty * quote price).
- * Unvested RSU lots are excluded — see `unvestedValueByHorizon` for forward-looking projections.
- * Lots with no quote contribute 0 — UI should surface unpriced tickers.
- */
-export function accountTotalValue(
-  acc: AccountRecord,
-  lots: HoldingLotRecord[] = [],
-  quotes: QuoteMap = new Map(),
-): number {
-  const cash = acc.currentBalance ?? 0;
-  if (!isInvestedAccount(acc.type)) return cash;
-  const myLots = lots.filter((l) => l.accountId === acc.id && isLotVested(l));
-  const holdingsValue = myLots.reduce((s, l) => {
-    const q = quotes.get((l.ticker ?? "").toUpperCase());
-    if (!q?.price) return s;
-    return s + (l.quantity ?? 0) * q.price;
-  }, 0);
-  return cash + holdingsValue;
-}
+// QuoteMap, buildQuoteMap, TickerAggregate, isLotVested, tickerAggregate,
+// uniqueTickers, and accountTotalValue live in finance-core (re-exported at the
+// top of this file). unvestedValueByHorizon stays here as it's UI-only.
 
 /**
  * Value of an account's unvested lots scheduled to vest by `horizonIso` (YYYY-MM-DD inclusive).
@@ -781,181 +689,9 @@ export function milestoneStatus(
 }
 
 // ── Goal funding allocation ──────────────────────────────────────
-
-/**
- * Result of running the allocation algorithm across all accounts + mappings.
- *
- * - allocatedByGoal: goalId → total $ allocated from all source accounts (capped at target)
- * - surplusByAccount: accountId → leftover $ on the account not absorbed by any mapped goal
- * - allocatedByMapping: mappingId → $ from this specific mapping. Lets the UI show
- *   "HYSA contributed $3,200 to Honeymoon and $1,800 to Emergency" without re-running math
- */
-export type GoalAllocationResult = {
-  allocatedByGoal:     Map<string, number>;
-  surplusByAccount:    Map<string, number>;
-  allocatedByMapping:  Map<string, number>;
-};
-
-/**
- * Allocate account balances to savings goals given a mapping table.
- *
- * Pure function — no side effects, no I/O. Safe to call on every render; the
- * dashboard already holds all inputs in state. Sub-millisecond for realistic sizes.
- *
- * Algorithm (per account, independent):
- *   remaining = account total value (cash + positions for brokerage/retirement)
- *   for each mapping sorted by priority asc (tiebreak: mapping.id for stable order):
- *     need = max(0, goal.targetAmount - goal.allocatedSoFar)
- *     take = min(remaining, need)
- *     goal.allocatedSoFar += take
- *     remaining -= take
- *   surplus = remaining
- *
- * Design decisions:
- * - **Credit accounts excluded**: negative balances would subtract from goals. Users
- *   shouldn't be able to map a CREDIT account in the UI, but we guard here too.
- * - **LOAN accounts excluded**: debt, not an asset.
- * - **Inactive accounts excluded**: their mappings stay in the DB for reactivation,
- *   but they contribute 0 to allocations while inactive.
- * - **Negative-balance non-credit accounts excluded**: unusual but possible (overdrawn
- *   checking). Treat as zero — a negative balance can't fund anything.
- * - **Goals cap at target**: any excess on the account becomes surplus. Surplus is a
- *   signal to the user ("move this somewhere useful") not a silent absorption.
- * - **Multi-account goals**: the goal's allocated amount accumulates across all
- *   accounts that map to it. Cap still applies globally.
- * - **Holdings ARE included**: for BROKERAGE/RETIREMENT accounts we use
- *   accountTotalValue (cash + Σ lot × quote). Positions are market-volatile so the
- *   allocation will fluctuate with the market — the user opts into this by mapping
- *   a brokerage/retirement account to long-term goals and should manage stability
- *   themselves (e.g. don't map a volatile brokerage to a near-term emergency fund).
- *   If lots/quotes are empty or undefined, this degrades gracefully to cash-only.
- */
-export function computeGoalAllocations(
-  accounts: AccountRecord[],
-  goals:    GoalRecord[],
-  mappings: GoalFundingSourceRecord[],
-  lots:     HoldingLotRecord[] = [],
-  quotes:   TickerQuoteRecord[] = [],
-): GoalAllocationResult {
-  const allocatedByGoal    = new Map<string, number>();
-  const surplusByAccount   = new Map<string, number>();
-  const allocatedByMapping = new Map<string, number>();
-
-  // Build fast lookups
-  const accountById = new Map(accounts.map((a) => [a.id, a]));
-  const goalById    = new Map(goals.map((g) => [g.id, g]));
-  const quoteMap    = buildQuoteMap(quotes);
-
-  // Group mappings by account so each account's fill order is independent
-  const mappingsByAccount = new Map<string, GoalFundingSourceRecord[]>();
-  for (const m of mappings) {
-    if (!m.accountId) continue;
-    const bucket = mappingsByAccount.get(m.accountId) ?? [];
-    bucket.push(m);
-    mappingsByAccount.set(m.accountId, bucket);
-  }
-
-  for (const [accountId, accMappings] of [...mappingsByAccount.entries()]
-    // Process accounts with fewer mapped goals first: a dedicated account (1 mapping)
-    // should fill its goal before a general pool (many mappings) absorbs everything.
-    // Tiebreak by account name for stable render order.
-    .sort((a, b) => {
-      const countDiff = a[1].length - b[1].length;
-      if (countDiff !== 0) return countDiff;
-      const accA = accountById.get(a[0]);
-      const accB = accountById.get(b[0]);
-      return (accA?.name ?? "").localeCompare(accB?.name ?? "");
-    })
-  ) {
-    const acc = accountById.get(accountId);
-    if (!acc) continue;
-
-    // Skip accounts that can't legitimately fund a goal
-    if (acc.active === false) continue;
-    if (acc.type === "CREDIT") continue;      // debt account; negative balance
-    if (acc.type === "LOAN") continue;        // debt account
-
-    // For brokerage/retirement accounts this includes positions at current market
-    // price. For cash-only accounts it's just currentBalance. Clamp to 0 — a
-    // negative total (overdrawn) can't fund anything.
-    let remaining = Math.max(0, accountTotalValue(acc, lots, quoteMap));
-
-    // Sort by priority asc, stable tiebreak by mapping id so re-renders are deterministic
-    const sorted = [...accMappings].sort((a, b) => {
-      const pa = a.priority ?? 100;
-      const pb = b.priority ?? 100;
-      if (pa !== pb) return pa - pb;
-      return (a.id ?? "").localeCompare(b.id ?? "");
-    });
-
-    for (const m of sorted) {
-      const goal = goalById.get(m.goalId ?? "");
-      if (!goal) continue;
-
-      const alreadyAllocated = allocatedByGoal.get(goal.id) ?? 0;
-      const need = Math.max(0, (goal.targetAmount ?? 0) - alreadyAllocated);
-      const take = Math.min(remaining, need);
-
-      if (take > 0) {
-        allocatedByGoal.set(goal.id, alreadyAllocated + take);
-        allocatedByMapping.set(m.id, take);
-        remaining -= take;
-      } else {
-        // Record zero allocations so the UI can still show the mapping exists
-        allocatedByMapping.set(m.id, 0);
-      }
-    }
-
-    surplusByAccount.set(accountId, remaining);
-  }
-
-  return { allocatedByGoal, surplusByAccount, allocatedByMapping };
-}
-
-/**
- * Effective current amount for a goal, preferring computed allocation when the goal
- * has at least one mapping; falling back to the stored (manual) currentAmount otherwise.
- *
- * This is the read path the UI should use everywhere that currently reads goal.currentAmount.
- * Over time, as every goal gets mapped, the stored field becomes vestigial — at which
- * point we can drop it. Until then, this bridge keeps unmapped goals showing sane values.
- */
-export function effectiveGoalAmount(
-  goal: GoalRecord,
-  allocations: GoalAllocationResult,
-  mappings: GoalFundingSourceRecord[],
-): number {
-  const hasMapping = mappings.some((m) => m.goalId === goal.id);
-  if (hasMapping) {
-    return allocations.allocatedByGoal.get(goal.id) ?? 0;
-  }
-  return goal.currentAmount ?? 0;
-}
-
-/** True if any mapping on this goal points at a brokerage or retirement account.
- *  UI uses this to show a "market-volatile funding" hint on the goal card, since
- *  the allocated amount will fluctuate with quotes. */
-export function goalHasVolatileFunding(
-  goal: GoalRecord,
-  mappings: GoalFundingSourceRecord[],
-  accounts: AccountRecord[],
-): boolean {
-  const accountById = new Map(accounts.map((a) => [a.id, a]));
-  return mappings.some((m) => {
-    if (m.goalId !== goal.id) return false;
-    const acc = accountById.get(m.accountId ?? "");
-    return acc ? isInvestedAccount(acc.type) : false;
-  });
-}
-
-/** True if the goal has at least one funding-source mapping — used to decide between
- *  computed allocation and manual currentAmount in the UI. */
-export function goalHasFundingSource(
-  goal: GoalRecord,
-  mappings: GoalFundingSourceRecord[],
-): boolean {
-  return mappings.some((m) => m.goalId === goal.id);
-}
+// GoalAllocationResult, computeGoalAllocations, effectiveGoalAmount,
+// goalHasVolatileFunding, and goalHasFundingSource live in finance-core
+// (re-exported at the top of this file).
 
 // ── Goal projection (growth + contribution) ─────────────────────────
 

@@ -38,6 +38,16 @@ import { generateClient } from "aws-amplify/data";
 import { getAmplifyDataClientConfig } from "@aws-amplify/backend/function/runtime";
 import { env } from "$amplify/env/financeSnapshots";
 import type { Schema } from "../../data/resource";
+// Pure finance math shared with the web app. Type-only Schema import inside it
+// is erased at bundle time, so this adds only the pure functions to the bundle.
+import {
+  buildQuoteMap,
+  tickerAggregate,
+  uniqueTickers,
+  isInvestedAccount,
+  computeGoalAllocations,
+  effectiveGoalAmount,
+} from "../../../components/finance/finance-core";
 
 type DataClient = ReturnType<typeof generateClient<Schema>>;
 let _client: DataClient | null = null;
@@ -222,6 +232,129 @@ async function upsertNaiveForDate(
   return { date, count, skipped };
 }
 
+// ── Holding + goal market snapshots ──────────────────────────────────────────
+// Alongside the per-account balance snapshot, freeze the market value of each
+// position (financeHoldingSnapshot) and the effective funded amount of each
+// goal (financeGoalSnapshot). Both are point-in-time market values, so they're
+// only correct when captured near the date in question — i.e. the daily cron's
+// "yesterday" capture and explicit single-date runs. They are intentionally
+// SKIPPED for range backfills (we only have *current* quotes; historical rows
+// would all carry today's price). Use scripts/backfill-finance-history.mjs,
+// which sources historical closes, to seed the past.
+
+async function upsertHoldingSnapshot(
+  c: DataClient,
+  row: {
+    accountId: string; ticker: string; date: string;
+    quantity: number; price: number; marketValue: number;
+    costBasis: number | null; capturedAt: string;
+  },
+): Promise<boolean> {
+  const existing = await listAll(
+    c.models.financeHoldingSnapshot,
+    { and: [
+      { accountId: { eq: row.accountId } },
+      { ticker:    { eq: row.ticker } },
+      { date:      { eq: row.date } },
+    ] },
+    1,
+  );
+  try {
+    if (existing[0]?.id) {
+      await c.models.financeHoldingSnapshot.update({ id: existing[0].id, ...row });
+    } else {
+      await c.models.financeHoldingSnapshot.create(row);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[financeSnapshots] holding upsert failed acct=${row.accountId} ${row.ticker} ${row.date}:`, err);
+    return false;
+  }
+}
+
+async function upsertGoalSnapshot(
+  c: DataClient,
+  row: { goalId: string; date: string; currentAmount: number; targetAmount: number | null; capturedAt: string },
+): Promise<boolean> {
+  const existing = await listAll(
+    c.models.financeGoalSnapshot,
+    { and: [{ goalId: { eq: row.goalId } }, { date: { eq: row.date } }] },
+    1,
+  );
+  try {
+    if (existing[0]?.id) {
+      await c.models.financeGoalSnapshot.update({ id: existing[0].id, ...row });
+    } else {
+      await c.models.financeGoalSnapshot.create(row);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[financeSnapshots] goal upsert failed goal=${row.goalId} ${row.date}:`, err);
+    return false;
+  }
+}
+
+/**
+ * Capture holding + goal market snapshots for a single date using *current*
+ * quotes. Global (spans all accounts/goals) — only invoked on full single-date
+ * runs, never when scoped to one account or backfilling a range.
+ */
+async function captureMarketSnapshots(
+  date: string,
+): Promise<{ holdings: number; goals: number; skipped: number }> {
+  const c = await getClient();
+  const [accounts, lots, quotes, goals, mappings] = await Promise.all([
+    listAll(c.models.financeAccount),
+    listAll(c.models.financeHoldingLot),
+    listAll(c.models.financeTickerQuote),
+    listAll(c.models.financeSavingsGoal),
+    listAll(c.models.financeGoalFundingSource),
+  ]);
+  const quoteMap = buildQuoteMap(quotes as any);
+  const capturedAt = new Date().toISOString();
+  let holdings = 0;
+  let goalsCount = 0;
+  let skipped = 0;
+
+  // Per invested account, one snapshot row per held ticker.
+  for (const acc of accounts) {
+    if (!acc.id || !isInvestedAccount(acc.type)) continue;
+    const accLots = (lots as any[]).filter((l) => l.accountId === acc.id);
+    for (const ticker of uniqueTickers(accLots)) {
+      const agg = tickerAggregate(ticker, accLots, quoteMap);
+      // No quote → can't value it; skip rather than write a null-priced row.
+      if (agg.price == null) { skipped++; continue; }
+      const ok = await upsertHoldingSnapshot(c, {
+        accountId:   acc.id,
+        ticker:      agg.ticker,
+        date,
+        quantity:    agg.totalQty,
+        price:       agg.price,
+        marketValue: agg.marketValue ?? 0,
+        costBasis:   agg.totalCost,
+        capturedAt,
+      });
+      if (ok) holdings++; else skipped++;
+    }
+  }
+
+  // Per goal, the computed effective funded amount (cash + positions).
+  const alloc = computeGoalAllocations(accounts as any, goals as any, mappings as any, lots as any, quotes as any);
+  for (const g of goals) {
+    if (!g.id) continue;
+    const ok = await upsertGoalSnapshot(c, {
+      goalId:        g.id,
+      date,
+      currentAmount: effectiveGoalAmount(g as any, alloc, mappings as any),
+      targetAmount:  g.targetAmount ?? null,
+      capturedAt,
+    });
+    if (ok) goalsCount++; else skipped++;
+  }
+
+  return { holdings, goals: goalsCount, skipped };
+}
+
 /**
  * Reconstructed range backfill. For each account, fetches all POSTED
  * transactions from fromDate → today once, then walks dates backward while
@@ -323,6 +456,10 @@ export const handler = async (event: Payload = {}) => {
   // Range
   if (event.fromDate && event.toDate) {
     const mode = event.backfillMode ?? "naive";
+    // Holding/goal snapshots are NOT captured for ranges — we only have current
+    // quotes, so every historical row would carry today's price. Seed the past
+    // with scripts/backfill-finance-history.mjs (sources historical closes).
+    console.log("[financeSnapshots] range backfill: skipping holding/goal market snapshots (current-price only); use backfill-finance-history.mjs");
     if (mode === "reconstructed") {
       const result = await upsertReconstructedRange(event.fromDate, event.toDate, {
         accountId: event.accountId,
@@ -350,5 +487,13 @@ export const handler = async (event: Payload = {}) => {
   }
   const result = await upsertNaiveForDate(target, { accountId: event.accountId });
   console.log(`[financeSnapshots] ${result.date}: ${result.count} upserted, ${result.skipped} skipped`);
-  return { ok: true, ...result };
+
+  // Market snapshots are global (goals span accounts), so capture them only on
+  // full single-date runs — not when scoped to a single account.
+  let market: { holdings: number; goals: number; skipped: number } | null = null;
+  if (!event.accountId) {
+    market = await captureMarketSnapshots(target);
+    console.log(`[financeSnapshots] ${target}: market — ${market.holdings} holdings, ${market.goals} goals, ${market.skipped} skipped`);
+  }
+  return { ok: true, ...result, market };
 };
