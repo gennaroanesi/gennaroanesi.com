@@ -795,6 +795,15 @@ const schema = a.schema({
       rsuGross:             a.float(),
       ytdBonusGross:        a.float(),
       ytdRsuGross:          a.float(),
+      // Federal WH actually withheld on the supplemental (RSU + bonus) side.
+      // The IRS Pub 15 flat 22% is a model assumption; when an employer uses
+      // the aggregate method on large vests they may withhold 30-37%. When
+      // populated, projections use this directly instead of imputing 22% ×
+      // supplemental wages, which keeps `ytdSalaryFedWh = ytdFedWh −
+      // supplementalFedWh` honest. Backfill is optional — older stubs fall
+      // back to the 22% imputation.
+      supplementalFedWh:    a.float(),  // this period
+      ytdSupplementalFedWh: a.float(),  // running YTD
 
       // Long-tail deductions / earnings the headline columns don't capture.
       // Shape: [{ name, amount, ytd?, type: PRETAX|POSTTAX|IMPUTED|EMPLOYER_PAID|EARNING|OTHER }]

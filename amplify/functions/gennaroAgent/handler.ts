@@ -20,7 +20,8 @@ import type { Schema } from "../../data/resource";
 // the Lambda bundle.
 import {
   projectFromPaychecks, project401kWithCap, contribPctToReachCap,
-  irs401kElectiveLimit, taxOwedFederal, taxGap, additionalMedicareTaxOwed,
+  irs401kElectiveLimit, taxOwedFederal, taxGap,
+  additionalMedicareTaxOwed, additionalMedicareTaxWithheld,
   project415cTotal, extractEmployerMatchYtd,
   type FilingStatus, type RsuVestCadence,
 } from "../../../components/finance/planning";
@@ -1080,10 +1081,13 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           const proj = projectFromPaychecks({ paychecks: items as any, rsuVestCadence: cadence });
           if (!proj) continue;
           const latest = (items as any[]).sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""))[0];
-          const currentPct = (latest.ytdGross ?? 0) > 0 ? (latest.ytd401k ?? 0) / (latest.ytdGross ?? 1) : 0;
+          // Salary-only YTD — latest.ytdGross is RSU/bonus-inflated; use the
+          // projection's salary-only running total instead. (planning.ts:756)
+          const ytdSalary  = proj.ytdSalaryGross;
+          const currentPct = ytdSalary > 0 ? (latest.ytd401k ?? 0) / ytdSalary : 0;
           const capInfo    = project401kWithCap({
-            ytd401k:         latest.ytd401k  ?? 0,
-            ytdGross:        latest.ytdGross ?? 0,
+            ytd401k:         latest.ytd401k ?? 0,
+            ytdGross:        ytdSalary,
             projectedGross:  proj.projectedGross,
             contributionPct: currentPct,
             year,
@@ -1092,17 +1096,24 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           // mid-year, the linear projection understates taxable income.
           const correctedTaxableWage = proj.projectedTaxableWage + capInfo.excessOverCap;
           const bracketTax  = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing, year });
-          const addlMedicare = additionalMedicareTaxOwed({
+          // Form 8959 net: liability − 0.9% already withheld via paycheck.
+          // For SINGLE this is exactly zero (matching thresholds).
+          const addlMedicareLiability = additionalMedicareTaxOwed({
             combinedMedicareWages: proj.projectedTotalEarnings,
             filingStatus:          filing,
           });
+          const addlMedicareWh = additionalMedicareTaxWithheld({
+            perPersonMedicareWages: [proj.projectedTotalEarnings],
+          });
+          const addlMedicare = addlMedicareLiability - addlMedicareWh;
           const taxOwed = bracketTax + addlMedicare;
           perPerson.push({
             person,
-            projectedTaxableWage: correctedTaxableWage,
-            projectedFedWh:       proj.projectedFedWh,
+            projectedTaxableWage:   correctedTaxableWage,
+            projectedFedWh:         proj.projectedFedWh,
+            projectedTotalEarnings: proj.projectedTotalEarnings,
             taxOwed,
-            gap:                  taxGap(proj.projectedFedWh, taxOwed),
+            gap:                    taxGap(proj.projectedFedWh, taxOwed),
           });
         }
         // MFJ combined view — only valid when both persons present + filing is MFJ.
@@ -1110,12 +1121,19 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         if (filing === "MFJ" && perPerson.length === 2) {
           const taxableWage = perPerson.reduce((s, p) => s + p.projectedTaxableWage, 0);
           const fedWh       = perPerson.reduce((s, p) => s + p.projectedFedWh, 0);
-          // For Additional Medicare on MFJ we need combined Medicare-wages —
-          // re-derive from the projections above. Note: this assumes both
-          // persons used the same rsuVestCadence, which is fine for an
-          // agent-side estimate.
           const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ", year });
-          const taxOwed     = bracketTax;
+          // Form 8959 combined: liability against $250k MFJ threshold minus
+          // each spouse's per-employer 0.9% WH above $200k YTD. Earlier
+          // version skipped this entirely; now matches the Tax Outlook page.
+          const perPersonMedicareWages = perPerson.map((p) => p.projectedTotalEarnings);
+          const combinedMedicareWages  = perPersonMedicareWages.reduce((s, w) => s + w, 0);
+          const addlMedicareLiability  = additionalMedicareTaxOwed({
+            combinedMedicareWages,
+            filingStatus: "MFJ",
+          });
+          const addlMedicareWh = additionalMedicareTaxWithheld({ perPersonMedicareWages });
+          const addlMedicare   = addlMedicareLiability - addlMedicareWh;
+          const taxOwed        = bracketTax + addlMedicare;
           combined = { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
         }
         return stringify({ ok: true, data: { year, filingStatus: filing, rsuVestCadence: cadence, perPerson, combined } });
@@ -1133,17 +1151,19 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         const proj = projectFromPaychecks({ paychecks: items as any, rsuVestCadence: cadence });
         if (!proj) return stringify({ ok: true, data: null });
         const latest = (items as any[]).sort((a, b) => (b.payDate ?? "").localeCompare(a.payDate ?? ""))[0];
-        const currentPct = (latest.ytdGross ?? 0) > 0 ? (latest.ytd401k ?? 0) / (latest.ytdGross ?? 1) : 0;
+        // Salary-only YTD — see project401kWithCap's JSDoc.
+        const ytdSalary  = proj.ytdSalaryGross;
+        const currentPct = ytdSalary > 0 ? (latest.ytd401k ?? 0) / ytdSalary : 0;
         const capInfo = project401kWithCap({
-          ytd401k:         latest.ytd401k  ?? 0,
-          ytdGross:        latest.ytdGross ?? 0,
+          ytd401k:         latest.ytd401k ?? 0,
+          ytdGross:        ytdSalary,
           projectedGross:  proj.projectedGross,
           contributionPct: currentPct,
           year,
         });
         const pctToCap = contribPctToReachCap({
-          ytd401k:        latest.ytd401k  ?? 0,
-          ytdGross:       latest.ytdGross ?? 0,
+          ytd401k:        latest.ytd401k ?? 0,
+          ytdGross:       ytdSalary,
           projectedGross: proj.projectedGross,
           year,
         });
@@ -1157,10 +1177,10 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         const ytdAfterTax      = latest.ytdAfterTax401k ?? 0;
         const mega = (ytdEmployerMatch > 0 || ytdAfterTax > 0)
           ? project415cTotal({
-              ytdEmployee:        latest.ytd401k  ?? 0,
+              ytdEmployee:        latest.ytd401k ?? 0,
               ytdEmployerMatch,
               ytdAfterTax,
-              ytdGross:           latest.ytdGross ?? 0,
+              ytdGross:           ytdSalary,
               projectedGross:     proj.projectedGross,
               projectedEmployee:  capInfo.projected401k,
               year,
@@ -1171,7 +1191,7 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
           year,
           rsuVestCadence:   cadence,
           ytd401k:          latest.ytd401k ?? 0,
-          ytdGross:         latest.ytdGross ?? 0,
+          ytdGross:         ytdSalary,
           currentPct,
           irsLimit:         irs401kElectiveLimit(year),
           projected401k:    capInfo.projected401k,

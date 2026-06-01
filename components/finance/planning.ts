@@ -521,6 +521,10 @@ type PaycheckLike = {
   rsuGross?:             number | null;
   ytdBonusGross?:        number | null;
   ytdRsuGross?:          number | null;
+  // Optional — actual fedWh on supplemental wages. When present we trust
+  // it (employer's real flat 22% / aggregate-method withholding); when
+  // absent we fall back to the SUPPLEMENTAL_FED_RATE imputation.
+  ytdSupplementalFedWh?: number | null;
 };
 
 /**
@@ -599,15 +603,19 @@ export function projectFromPaychecks(args: {
   // Federal WH on supplemental is the IRS flat 22% — back it out of
   // ytdFedWh so the linear-projected salary fedWh isn't inflated by past
   // vests' withholding.
-  const ytdSupplementalFedWh = supplementalYtd * SUPPLEMENTAL_FED_RATE;
+  // Prefer the real per-stub supplemental WH when populated (employers using
+  // the aggregate method on large vests routinely withhold 30-37%, not the
+  // IRS flat 22%). Falls back to the 22% imputation when the stub doesn't
+  // carry the column, which keeps older paychecks working.
+  const ytdSupplementalFedWh = latestStub.ytdSupplementalFedWh != null
+    ? Math.max(0, latestStub.ytdSupplementalFedWh)
+    : supplementalYtd * SUPPLEMENTAL_FED_RATE;
   const ytdSalaryFedWh       = Math.max(0, (latestStub.ytdFedWh ?? 0) - ytdSupplementalFedWh);
 
   // ── Linear projection of salary-side YTD ────────────────────────────
   const projectedGross         = ytdGrossSalary       * scale;
   const projectedSalaryTaxable = ytdTaxableSalary     * scale;
   const projectedSalaryFedWh   = ytdSalaryFedWh       * scale;
-  const projectedOasdi         = (latestStub.ytdOasdi    ?? 0) * scale;
-  const projectedMedicare      = (latestStub.ytdMedicare ?? 0) * scale;
   const projected401k          = (latestStub.ytd401k     ?? 0) * scale;
   const projectedAfterTax401k  = (latestStub.ytdAfterTax401k ?? 0) * scale;
   const projectedNet           = (latestStub.ytdNet      ?? 0) * scale;
@@ -633,6 +641,24 @@ export function projectFromPaychecks(args: {
   const projectedTaxableWage   = projectedSalaryTaxable + projectedRsuGross + projectedBonusGross;
   const projectedFedWh         = projectedSalaryFedWh   + ytdSupplementalFedWh + additionalSupplementalFedWh;
   const projectedTotalEarnings = projectedGross + projectedRsuGross + projectedBonusGross;
+
+  // ── Payroll-tax projection (OASDI + Medicare) ───────────────────────
+  // Compute these from projected year-end FICA wages instead of scaling
+  // YTD linearly. FICA wages don't subtract 401k pre-tax, so
+  // projectedTotalEarnings is a good proxy for both Box 3 (OASDI) and
+  // Box 5 (Medicare). This handles two kinks that linear scaling missed:
+  //   • OASDI: caps at the SSA wage base (2026: $184,500), so projected
+  //     OASDI can't exceed cap × 6.2%.
+  //   • Medicare: 1.45% on all wages PLUS an additional 0.9% above $200k
+  //     YTD per-employer (the Form 8959 per-paycheck trigger). The
+  //     piecewise function can't be approximated by a single scale.
+  // Source of truth so the user can compare against W-2 forecast.
+  const projYear = Number((latestStub.payDate ?? "").slice(0, 4)) || new Date().getUTCFullYear();
+  const yearConstants = taxConstantsForYear(projYear);
+  const oasdiWagesProjected   = Math.min(projectedTotalEarnings, yearConstants.oasdiCap);
+  const projectedOasdi        = oasdiWagesProjected * OASDI_RATE;
+  const projectedMedicare     = projectedTotalEarnings * MEDICARE_RATE
+    + Math.max(0, projectedTotalEarnings - ADDITIONAL_MEDICARE_THRESHOLD) * ADDITIONAL_MEDICARE_RATE;
 
   return {
     paychecksPerYear:        ppy,
@@ -688,13 +714,12 @@ export function projectFromYTD(
 }
 
 /**
- * Additional Medicare Tax (Form 8959) owed at filing on combined Medicare
- * wages above the filing-status threshold. 0.9% on the excess. Note this
- * is *owed at filing*, separate from the per-employer 0.9% withholding
- * trigger at $200k that we already include in regular Medicare. Real W-2
- * Box 6 includes some of this; the reconciliation on Form 8959 settles the
- * difference. For the planner we just add the full owed amount to total
- * tax — the projected fedWh path doesn't double-count it.
+ * Additional Medicare Tax (Form 8959) liability on combined Medicare wages
+ * above the filing-status threshold. 0.9% on the excess. This is the TOTAL
+ * liability — Form 8959 then nets out the per-employer withholding that
+ * already happened (see `additionalMedicareTaxWithheld`). Callers wanting
+ * the actual cash impact at filing should subtract the withheld amount
+ * from this value.
  */
 export function additionalMedicareTaxOwed(args: {
   combinedMedicareWages: number;
@@ -702,6 +727,27 @@ export function additionalMedicareTaxOwed(args: {
 }): number {
   const threshold = ADDITIONAL_MEDICARE_TAX_THRESHOLDS[args.filingStatus];
   return Math.max(0, args.combinedMedicareWages - threshold) * ADDITIONAL_MEDICARE_RATE;
+}
+
+/**
+ * Additional Medicare Tax already withheld by paychecks (per Form 8959,
+ * Part II). Each employer triggers at $200k YTD per IRC §3101(b)(2),
+ * regardless of filing status — so per-person wages above $200k accrue
+ * 0.9% withholding throughout the year. This lives in Box 6 (medicare
+ * withholding), not Box 2 (income tax WH), which is why it needs its
+ * own credit lane on the gap calc.
+ *
+ * Sum each person's wages independently — assumes one employer per person
+ * (good enough for the W-2-style planner; multi-employer cases get a
+ * one-off Form 8959 reconciliation that our model approximates).
+ */
+export function additionalMedicareTaxWithheld(args: {
+  perPersonMedicareWages: number[];
+}): number {
+  return args.perPersonMedicareWages.reduce(
+    (s, w) => s + Math.max(0, w - ADDITIONAL_MEDICARE_THRESHOLD) * ADDITIONAL_MEDICARE_RATE,
+    0,
+  );
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
   project401kWithCap, contribPctToReachCap, irs401kElectiveLimit,
   additionalMedicareTaxOwed,
+  additionalMedicareTaxWithheld,
   RSU_VEST_CADENCES, RSU_VEST_CADENCE_LABELS, type RsuVestCadence,
   PLAN_TAX_YEAR_LABEL,
 } from "@/components/finance/planning";
@@ -154,11 +155,21 @@ export default function TaxOutlookPage() {
       // YTD numbers aren't populated. Uses ytdGross (cash gross / salary
       // only) as the denominator since 401k contributions don't apply to
       // RSU vest income.
+      // Denominator must be salary-only YTD — `latest.ytdGross` is whatever
+      // Workday put in that column, which rolls RSU vests + bonus into the
+      // running total. Using projection.ytdSalaryGross (Σ per-stub
+      // max(0, gross − bonus − rsu)) gives the actual salary against which
+      // 401k % was deducted.
       const current401kPct = (() => {
-        const ytdGross = latest.ytdGross ?? 0;
-        const ytd401k  = latest.ytd401k ?? 0;
-        if (ytdGross > 0) return ytd401k / ytdGross;
-        if ((latest.gross ?? 0) > 0) return (latest.contrib401k ?? 0) / (latest.gross ?? 1);
+        const ytdSalary = projection.ytdSalaryGross;
+        const ytd401k   = latest.ytd401k ?? 0;
+        if (ytdSalary > 0) return ytd401k / ytdSalary;
+        // Fallback: latest regular paycheck's per-stub ratio.
+        const latestReg = mine.find((c) => Math.max(0, (c.gross ?? 0) - (c.bonusGross ?? 0) - (c.rsuGross ?? 0)) > 0);
+        if (latestReg) {
+          const salary = Math.max(0, (latestReg.gross ?? 0) - (latestReg.bonusGross ?? 0) - (latestReg.rsuGross ?? 0));
+          if (salary > 0) return (latestReg.contrib401k ?? 0) / salary;
+        }
         return 0;
       })();
       out.push({
@@ -205,8 +216,11 @@ export default function TaxOutlookPage() {
   };
   function outcomeFor(p: PerPerson, pct: number | null): Outcome {
     const adjustedPct = pct ?? p.current401kPct;
-    const ytd401k   = p.latest.ytd401k  ?? 0;
-    const ytdGross  = p.latest.ytdGross ?? 0;
+    const ytd401k   = p.latest.ytd401k ?? 0;
+    // Salary-only YTD — see project401kWithCap's JSDoc. Using latest.ytdGross
+    // here under-projects remaining 401k contribution whenever RSU/bonus has
+    // inflated the Workday running-total column.
+    const ytdGross  = p.projection.ytdSalaryGross;
     const args      = { ytd401k, ytdGross, projectedGross: p.projection.projectedGross, year: selectedYear };
 
     const currentCap  = project401kWithCap({ ...args, contributionPct: p.current401kPct });
@@ -237,16 +251,21 @@ export default function TaxOutlookPage() {
       filingStatus:         personFiling,
       year:                 selectedYear,
     });
-    // Additional Medicare Tax (Form 8959): 0.9% of medicare wages above
-    // $200k (single) / $250k (MFJ). For per-person single-filer view, use
-    // person's projected total earnings as a proxy for medicare wages —
-    // medicare wages don't subtract 401k so total earnings is closer than
-    // taxable wage. Threshold for SINGLE-filer view is $200k.
-    const addlMedicare = additionalMedicareTaxOwed({
+    // Additional Medicare Tax (Form 8959). Net the liability against the
+    // 0.9% already withheld via paycheck (per-employer trigger at $200k YTD,
+    // independent of filing status). For SINGLE filers the two cancel
+    // exactly (same $200k threshold both sides). The combined-MFJ card
+    // below is where this matters — over-withholding becomes a refund.
+    // Medicare wages approximated via projectedTotalEarnings since they
+    // don't subtract 401k.
+    const addlMedicareLiability = additionalMedicareTaxOwed({
       combinedMedicareWages: p.projection.projectedTotalEarnings,
       filingStatus:          personFiling,
     });
-    const taxOwed = bracketTax + addlMedicare;
+    const addlMedicareWh = additionalMedicareTaxWithheld({
+      perPersonMedicareWages: [p.projection.projectedTotalEarnings],
+    });
+    const taxOwed = bracketTax + (addlMedicareLiability - addlMedicareWh);
     const gap     = taxGap(fedWh, taxOwed);
     return {
       taxableWage, fedWh, taxOwed, gap,
@@ -282,17 +301,22 @@ export default function TaxOutlookPage() {
       filingStatus:         "MFJ",
       year:                 selectedYear,
     });
-    // Additional Medicare Tax: combined medicare wages above $250k MFJ.
-    // Approx medicare wages with sum of projectedTotalEarnings (cash
-    // salary + RSU + bonus, before 401k pretax — the 401k delta is
-    // small relative to the combined-comp picture).
-    const combinedMedicareWages = byPerson.reduce((s, p) => s + p.projection.projectedTotalEarnings, 0);
-    const addlMedicare = additionalMedicareTaxOwed({
+    // Additional Medicare Tax (Form 8959): combined medicare wages above
+    // $250k MFJ vs. per-employer $200k WH trigger. Each spouse's wages
+    // accrue 0.9% WH independently — over-withholding becomes a refund
+    // when combined < $250k (e.g. spouse income drags us under) OR when
+    // both spouses are over $200k separately. Medicare wages approximated
+    // via projectedTotalEarnings (medicare wages don't subtract 401k).
+    const perPersonMedicareWages = byPerson.map((p) => p.projection.projectedTotalEarnings);
+    const combinedMedicareWages  = perPersonMedicareWages.reduce((s, w) => s + w, 0);
+    const addlMedicareLiability  = additionalMedicareTaxOwed({
       combinedMedicareWages,
       filingStatus: "MFJ",
     });
-    const taxOwed     = bracketTax + addlMedicare;
-    const gap         = taxGap(fedWh, taxOwed);
+    const addlMedicareWh = additionalMedicareTaxWithheld({ perPersonMedicareWages });
+    const addlMedicare   = addlMedicareLiability - addlMedicareWh;
+    const taxOwed        = bracketTax + addlMedicare;
+    const gap            = taxGap(fedWh, taxOwed);
     return { taxableWage, fedWh, taxOwed, gap, bracketTax, addlMedicare };
   })() : null;
 
@@ -358,8 +382,8 @@ export default function TaxOutlookPage() {
               <p className="text-[10px] text-gray-400">
                 {byPerson.map((p, i) => {
                   const capPct = contribPctToReachCap({
-                    ytd401k:        p.latest.ytd401k  ?? 0,
-                    ytdGross:       p.latest.ytdGross ?? 0,
+                    ytd401k:        p.latest.ytd401k ?? 0,
+                    ytdGross:       p.projection.ytdSalaryGross,
                     projectedGross: p.projection.projectedGross,
                     year:           selectedYear,
                   });

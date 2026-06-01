@@ -25,7 +25,8 @@ import { Sparkline } from "@/components/common/sparkline";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
-  additionalMedicareTaxOwed, contribPctToReachCap, irs401kElectiveLimit,
+  additionalMedicareTaxOwed, additionalMedicareTaxWithheld,
+  contribPctToReachCap, irs401kElectiveLimit,
   project415cTotal, extractEmployerMatchYtd,
   type RsuVestCadence, type FilingStatus, type Mega401kProjection,
 } from "@/components/finance/planning";
@@ -327,12 +328,14 @@ export default function FinanceDashboard() {
       // cap hits mid-year, late paychecks have $0 401k → real taxable
       // wage is higher. Match the tax-outlook page's math.
       const latest      = mine[0];
-      const currentPct  = (latest.ytdGross ?? 0) > 0
-        ? (latest.ytd401k ?? 0) / (latest.ytdGross ?? 1)
-        : 0;
+      // Salary-only YTD — see project401kWithCap's JSDoc. latest.ytdGross
+      // is RSU/bonus-inflated when those run through the same Workday
+      // running-total column.
+      const ytdSalary   = proj.ytdSalaryGross;
+      const currentPct  = ytdSalary > 0 ? (latest.ytd401k ?? 0) / ytdSalary : 0;
       const capInfo = project401kWithCap({
-        ytd401k:         latest.ytd401k  ?? 0,
-        ytdGross:        latest.ytdGross ?? 0,
+        ytd401k:         latest.ytd401k ?? 0,
+        ytdGross:        ytdSalary,
         projectedGross:  proj.projectedGross,
         contributionPct: currentPct,
         year,
@@ -343,10 +346,16 @@ export default function FinanceDashboard() {
       // toggle filing status — this tile picks the conservative default.
       const filing = "SINGLE";
       const bracketTax  = taxOwedFederal({ projectedTaxableWage: correctedTaxableWage, filingStatus: filing, year });
-      const addlMedicare = additionalMedicareTaxOwed({
+      // Form 8959 Additional Medicare: liability minus 0.9% already withheld
+      // by paycheck above $200k. For SINGLE per-person view these net to 0.
+      const addlMedicareLiability = additionalMedicareTaxOwed({
         combinedMedicareWages: proj.projectedTotalEarnings,
         filingStatus:          filing,
       });
+      const addlMedicareWh = additionalMedicareTaxWithheld({
+        perPersonMedicareWages: [proj.projectedTotalEarnings],
+      });
+      const addlMedicare = addlMedicareLiability - addlMedicareWh;
       const taxOwed     = bracketTax + addlMedicare;
       entries.push({
         person,
@@ -363,11 +372,16 @@ export default function FinanceDashboard() {
       const taxableWage = entries.reduce((s, e) => s + e.projectedTaxableWage, 0);
       const fedWh       = entries.reduce((s, e) => s + e.projectedFedWh, 0);
       const bracketTax  = taxOwedFederal({ projectedTaxableWage: taxableWage, filingStatus: "MFJ", year });
-      const combinedMedicareWages = entries.reduce((s, e) => s + e.projectedTotalEarnings, 0);
-      const addlMedicare = additionalMedicareTaxOwed({
+      // Form 8959 net: liability across combined medicare wages minus the
+      // sum of each spouse's per-employer 0.9% WH above $200k YTD.
+      const perPersonMedicareWages = entries.map((e) => e.projectedTotalEarnings);
+      const combinedMedicareWages  = perPersonMedicareWages.reduce((s, w) => s + w, 0);
+      const addlMedicareLiability  = additionalMedicareTaxOwed({
         combinedMedicareWages,
         filingStatus: "MFJ",
       });
+      const addlMedicareWh = additionalMedicareTaxWithheld({ perPersonMedicareWages });
+      const addlMedicare   = addlMedicareLiability - addlMedicareWh;
       const taxOwed     = bracketTax + addlMedicare;
       return { taxableWage, fedWh, taxOwed, gap: taxGap(fedWh, taxOwed) };
     })() : null;
@@ -407,8 +421,10 @@ export default function FinanceDashboard() {
       const proj = projectFromPaychecks({ paychecks: mine, rsuVestCadence: cadence });
       if (!proj) continue;
       const latest = mine[0];
-      const ytdGross  = latest.ytdGross  ?? 0;
-      const ytd401k   = latest.ytd401k   ?? 0;
+      // Salary-only YTD: 401k cap math and §415(c) projection both want
+      // gross with RSU/bonus excluded. See planning.ts:756 + :863.
+      const ytdGross  = proj.ytdSalaryGross;
+      const ytd401k   = latest.ytd401k ?? 0;
       const currentPct = ytdGross > 0 ? ytd401k / ytdGross : 0;
       const capInfo = project401kWithCap({
         ytd401k, ytdGross, projectedGross: proj.projectedGross, contributionPct: currentPct, year,
