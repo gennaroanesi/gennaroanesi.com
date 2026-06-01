@@ -421,7 +421,6 @@ export default function ReviewPage() {
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Bar yAxisId="left" dataKey="amount" name="Spend" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
                           <Line yAxisId="right" type="monotone" dataKey="cumCountPct" name="Cum. % of charges" stroke={AMBER} strokeWidth={2} dot={{ r: 2 }} />
-                          <Line yAxisId="right" type="monotone" dataKey="cumSpendPct" name="Cum. % of spend" stroke="#60a5fa" strokeWidth={2} dot={{ r: 2 }} strokeDasharray="4 3" />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
