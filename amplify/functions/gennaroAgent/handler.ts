@@ -22,7 +22,7 @@ import {
   projectFromPaychecks, project401kWithCap, contribPctToReachCap,
   irs401kElectiveLimit, taxOwedFederal, taxGap,
   additionalMedicareTaxOwed, additionalMedicareTaxWithheld,
-  project415cTotal, extractEmployerMatchYtd,
+  project415cTotal, extractEmployerMatchYtd, extractEmployerMatchPeriod,
   type FilingStatus, type RsuVestCadence,
 } from "../../../components/finance/planning";
 
@@ -1173,8 +1173,9 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         if (typeof lineItems === "string") {
           try { lineItems = JSON.parse(lineItems); } catch { /* leave as string */ }
         }
-        const ytdEmployerMatch = extractEmployerMatchYtd(lineItems);
-        const ytdAfterTax      = latest.ytdAfterTax401k ?? 0;
+        const ytdEmployerMatch  = extractEmployerMatchYtd(lineItems);
+        const latestPeriodMatch = extractEmployerMatchPeriod(lineItems);
+        const ytdAfterTax       = latest.ytdAfterTax401k ?? 0;
         const mega = (ytdEmployerMatch > 0 || ytdAfterTax > 0)
           ? project415cTotal({
               ytdEmployee:        latest.ytd401k ?? 0,
@@ -1183,6 +1184,7 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
               ytdGross:           ytdSalary,
               projectedGross:     proj.projectedGross,
               projectedEmployee:  capInfo.projected401k,
+              latestPeriodMatch,
               year,
             })
           : null;

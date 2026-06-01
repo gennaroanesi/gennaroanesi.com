@@ -27,7 +27,7 @@ import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
   additionalMedicareTaxOwed, additionalMedicareTaxWithheld,
   contribPctToReachCap, irs401kElectiveLimit,
-  project415cTotal, extractEmployerMatchYtd,
+  project415cTotal, extractEmployerMatchYtd, extractEmployerMatchPeriod,
   type RsuVestCadence, type FilingStatus, type Mega401kProjection,
 } from "@/components/finance/planning";
 
@@ -440,8 +440,9 @@ export default function FinanceDashboard() {
       // Mega-backdoor / §415(c) view — only show when there's actual
       // employer match or after-tax contribution to track. Otherwise the
       // second bar would just duplicate the §402(g) one.
-      const ytdEmployerMatch = extractEmployerMatchYtd(latest.lineItems);
-      const ytdAfterTax      = latest.ytdAfterTax401k ?? 0;
+      const ytdEmployerMatch    = extractEmployerMatchYtd(latest.lineItems);
+      const latestPeriodMatch   = extractEmployerMatchPeriod(latest.lineItems);
+      const ytdAfterTax         = latest.ytdAfterTax401k ?? 0;
       const mega = (ytdEmployerMatch > 0 || ytdAfterTax > 0)
         ? project415cTotal({
             ytdEmployee:        ytd401k,
@@ -450,6 +451,7 @@ export default function FinanceDashboard() {
             ytdGross,
             projectedGross:     proj.projectedGross,
             projectedEmployee:  capInfo.projected401k,
+            latestPeriodMatch,
             year,
           })
         : undefined;

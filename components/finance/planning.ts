@@ -857,23 +857,42 @@ type LineItemLike = {
  * `lineItems` may arrive as a serialized JSON string (AppSync's AWSJSON wire
  * format), a parsed array, or null — handles all three.
  */
-export function extractEmployerMatchYtd(lineItems: unknown): number {
-  let items: LineItemLike[] = [];
+function readLineItems(lineItems: unknown): LineItemLike[] {
   if (typeof lineItems === "string") {
     try {
       const parsed = JSON.parse(lineItems);
-      if (Array.isArray(parsed)) items = parsed as LineItemLike[];
-    } catch { /* leave items empty */ }
-  } else if (Array.isArray(lineItems)) {
-    items = lineItems as LineItemLike[];
+      return Array.isArray(parsed) ? (parsed as LineItemLike[]) : [];
+    } catch { return []; }
   }
+  return Array.isArray(lineItems) ? (lineItems as LineItemLike[]) : [];
+}
+
+export function extractEmployerMatchYtd(lineItems: unknown): number {
   let total = 0;
-  for (const it of items) {
+  for (const it of readLineItems(lineItems)) {
     if (it?.type !== "EMPLOYER_PAID") continue;
     if (!it.name) continue;
     if (!/match/i.test(it.name)) continue;
     const ytd = it.ytd ?? it.amount ?? 0;
     if (Number.isFinite(ytd)) total += ytd;
+  }
+  return total;
+}
+
+/**
+ * Per-period employer match on a single paycheck's lineItems blob — the
+ * sibling to `extractEmployerMatchYtd`. Used to detect when the match has
+ * plateaued (employer cap hit): if the latest stub's per-period match is
+ * $0 while YTD is positive, no more match is coming.
+ */
+export function extractEmployerMatchPeriod(lineItems: unknown): number {
+  let total = 0;
+  for (const it of readLineItems(lineItems)) {
+    if (it?.type !== "EMPLOYER_PAID") continue;
+    if (!it.name) continue;
+    if (!/match/i.test(it.name)) continue;
+    const amount = it.amount ?? 0;
+    if (Number.isFinite(amount)) total += amount;
   }
   return total;
 }
@@ -909,13 +928,35 @@ export function project415cTotal(args: {
   ytdGross:              number;   // salary cash gross YTD (RSU excluded)
   projectedGross:        number;   // salary cash gross projected year-end
   projectedEmployee:     number;   // pretax §402(g)-capped projection (from project401kWithCap)
+  // Per-period employer match on the most recent stub. When 0 alongside
+  // a positive YTD match, the employer's match cap has been hit and
+  // further linear scaling would project phantom contributions. Optional
+  // for back-compat; absence falls back to pure linear projection.
+  latestPeriodMatch?:    number | null;
   year?:                 number;
 }): Mega401kProjection {
   const irsLimit = irs401kTotalLimit(args.year ?? new Date().getUTCFullYear());
   // Scale = total-year / elapsed-year, derived from the gross ratio. Falls
   // back to 1 when ytdGross is 0 (no projection possible).
   const scale = args.ytdGross > 0 ? args.projectedGross / args.ytdGross : 1;
-  const projectedEmployerMatch = args.ytdEmployerMatch * scale;
+  // Plateau detection: latest-stub per-period match is $0 while YTD is
+  // positive ⇒ the employer's match formula has already capped out, so
+  // any forward scaling would project phantom match.
+  const matchPlateaued = args.latestPeriodMatch != null
+    && args.latestPeriodMatch === 0
+    && args.ytdEmployerMatch > 0;
+  // Defensive ceiling: Meta / most tech employers cap employer match at
+  // 50% × IRS §402(g) elective limit ($12,250 for 2026). The plateau
+  // signal only kicks in the paycheck AFTER the cap is hit; this ceiling
+  // catches the in-period case where per-period match is still positive
+  // on the stub that just crossed it. Conservative bias: under-projects
+  // for plans that match more generously (rare; user can override via a
+  // future setting if needed).
+  const electiveLimit = irs401kElectiveLimit(args.year ?? new Date().getUTCFullYear());
+  const defaultMatchCeiling = electiveLimit * 0.5;
+  const projectedEmployerMatch = matchPlateaued
+    ? args.ytdEmployerMatch
+    : Math.min(args.ytdEmployerMatch * scale, defaultMatchCeiling);
   const projectedAfterTax      = args.ytdAfterTax * scale;
   const uncappedTotal          = args.projectedEmployee + projectedEmployerMatch + projectedAfterTax;
   const projectedTotal         = Math.min(irsLimit, uncappedTotal);
