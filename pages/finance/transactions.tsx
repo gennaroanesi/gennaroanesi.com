@@ -18,6 +18,35 @@ import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
 import { TransactionPanel } from "@/components/finance/TransactionPanel";
+import { CATEGORY_RULES } from "@/components/finance/categories";
+
+const CATEGORY_LIST_ID = "tx-category-options";
+
+/** Inline category editor: a datalist-backed typeahead. Stops row-click
+ *  propagation so editing doesn't open the full edit panel. Commits on
+ *  blur / Enter when the value changed. */
+function CategoryCell({
+  tx, onSave,
+}: { tx: TransactionRecord; onSave: (id: string, category: string) => void }) {
+  const [val, setVal] = React.useState(tx.category ?? "");
+  React.useEffect(() => { setVal(tx.category ?? ""); }, [tx.id, tx.category]);
+  const commit = () => { if ((tx.category ?? "") !== val.trim()) onSave(tx.id, val.trim()); };
+  return (
+    <input
+      list={CATEGORY_LIST_ID}
+      value={val}
+      placeholder="—"
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") { setVal(tx.category ?? ""); (e.target as HTMLInputElement).blur(); }
+      }}
+      className="w-28 bg-transparent border border-transparent rounded px-1 py-0.5 text-xs text-gray-500 dark:text-gray-300 hover:border-gray-300 dark:hover:border-darkBorder focus:border-gray-400 dark:focus:border-gray-500 focus:outline-none"
+    />
+  );
+}
 
 // The /finance/transactions surface is now a cross-account ledger viewer.
 // Creating transactions and importing CSVs both live on the account detail
@@ -41,6 +70,27 @@ export default function TransactionsPage() {
   const [spendGroups,  setSpendGroups]  = useState<SpendGroupRecord[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [editingTx,    setEditingTx]    = useState<TransactionRecord | null>(null);
+
+  // Bulk / inline category editing
+  const [selected,     setSelected]     = useState<Set<string>>(new Set());
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [savingCats,   setSavingCats]   = useState(false);
+
+  const saveCategory = useCallback(async (ids: string[], category: string) => {
+    const value = category.trim() || null;
+    setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, category: value } as TransactionRecord) : t)));
+    setSavingCats(true);
+    try {
+      for (const id of ids) {
+        try { await client.models.financeTransaction.update({ id, category: value }); }
+        catch (e) { console.error("category update failed", id, e); }
+      }
+    } finally { setSavingCats(false); }
+  }, []);
+  const saveOne = useCallback((id: string, category: string) => { void saveCategory([id], category); }, [saveCategory]);
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }, []);
 
   // Filters
   const [filterAccount, setFilterAccount] = useState<string>("");
@@ -116,7 +166,30 @@ export default function TransactionsPage() {
     [accounts, goals, mappings, lots, quotes],
   );
 
+  // Typeahead options: categories already in use + the inference vocabulary.
+  const categoryVocab = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of transactions) if (t.category) s.add(t.category);
+    for (const r of CATEGORY_RULES) s.add(r.category);
+    ["Uncategorized", "Transfers", "Credit Card Payment", "Investments", "Income", "Cash/ATM"].forEach((c) => s.add(c));
+    return [...s].sort();
+  }, [transactions]);
+
   const txColumns: ColDef<TransactionRecord>[] = useMemo(() => [
+    {
+      key: "select",
+      label: "",
+      align: "center",
+      render: (t) => (
+        <input
+          type="checkbox"
+          checked={selected.has(t.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleSelect(t.id)}
+          className="cursor-pointer align-middle"
+        />
+      ),
+    },
     {
       key: "date",
       label: "Date",
@@ -170,8 +243,7 @@ export default function TransactionsPage() {
       key: "category",
       label: "Category",
       sortValue: (t) => (t.category ?? "").toLowerCase(),
-      mobileHidden: true,
-      render: (t) => <span className="text-gray-400 text-xs">{t.category || "—"}</span>,
+      render: (t) => <CategoryCell tx={t} onSave={saveOne} />,
     },
     {
       key: "account",
@@ -212,7 +284,7 @@ export default function TransactionsPage() {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [accountById, recurringById]);
+  ], [accountById, recurringById, selected, toggleSelect, saveOne]);
 
   const txCtl = useTableControls(filtered, {
     defaultSortKey: "date",
@@ -313,10 +385,47 @@ export default function TransactionsPage() {
               <option value="BUY">Buy</option>
               <option value="SELL">Sell</option>
             </select>
+            <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 select-none">
+              <input
+                type="checkbox"
+                checked={txCtl.filtered.length > 0 && txCtl.filtered.every((t) => selected.has(t.id))}
+                onChange={(e) => setSelected(e.target.checked ? new Set(txCtl.filtered.map((t) => t.id)) : new Set())}
+                className="cursor-pointer"
+              />
+              Select all{txCtl.filtered.length ? ` (${txCtl.filtered.length})` : ""}
+            </label>
             <div className="ml-auto">
               <SearchInput value={txCtl.search} onChange={txCtl.setSearch} placeholder="Search description, category, account…" />
             </div>
           </div>
+
+          {/* Shared category typeahead options */}
+          <datalist id={CATEGORY_LIST_ID}>
+            {categoryVocab.map((c) => <option key={c} value={c} />)}
+          </datalist>
+
+          {/* Bulk category bar */}
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2 mb-4 p-2 rounded-lg border border-gray-200 dark:border-darkBorder bg-gray-50 dark:bg-white/5 flex-wrap">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-300">{selected.size} selected</span>
+              <input
+                list={CATEGORY_LIST_ID}
+                value={bulkCategory}
+                onChange={(e) => setBulkCategory(e.target.value)}
+                placeholder="Set category…"
+                className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-700 dark:text-gray-200"
+              />
+              <button
+                disabled={!bulkCategory.trim() || savingCats}
+                onClick={async () => { await saveCategory([...selected], bulkCategory); setBulkCategory(""); setSelected(new Set()); }}
+                className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
+                style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+              >
+                {savingCats ? "Applying…" : "Apply to selected"}
+              </button>
+              <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
+            </div>
+          )}
 
           {/* Table */}
           {loading ? (
