@@ -17,6 +17,9 @@ amplifyconfiguration*
 # next
 .next
 
+# typescript incremental build cache
+*.tsbuildinfo
+
 # others
 .local
 
