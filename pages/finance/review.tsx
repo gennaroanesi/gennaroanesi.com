@@ -402,7 +402,7 @@ export default function ReviewPage() {
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
                   <div className={`${CARD} flex flex-col`}>
-                    <p className="text-xs text-gray-400 mb-2">By ticket size · spend (bars) + cumulative % of charges</p>
+                    <p className="text-xs text-gray-400 mb-2">By ticket size · spend (bars) + cumulative % of spend</p>
                     <div className="flex-1 min-h-[260px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={cards.buckets} margin={{ left: 8, right: 8, top: 4, bottom: 4 }}>
@@ -422,7 +422,7 @@ export default function ReviewPage() {
                           />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Bar yAxisId="left" dataKey="amount" name="Spend" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
-                          <Line yAxisId="right" type="monotone" dataKey="cumCountPct" name="Cum. % of charges" stroke={AMBER} strokeWidth={2} dot={{ r: 2 }} />
+                          <Line yAxisId="right" type="monotone" dataKey="cumSpendPct" name="Cum. % of spend" stroke={AMBER} strokeWidth={2} dot={{ r: 2 }} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
