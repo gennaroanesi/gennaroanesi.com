@@ -163,6 +163,21 @@ export function realizedGain(tx: TransactionRecord): number | null {
   return (tx.amount ?? 0) - tx.consumedCostBasis;
 }
 
+/** Snapshot of one lot's contribution to a multi-lot SELL. */
+export type LotConsumption = { lotId: string; qty: number; costBasis: number };
+
+/** Parse the lotConsumptions JSON snapshot on a SELL transaction. Returns [] when absent or malformed. */
+export function parseLotConsumptions(tx: TransactionRecord): LotConsumption[] {
+  const raw = (tx as any).lotConsumptions as string | null | undefined;
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 export const TX_STATUSES = ["POSTED", "PENDING"] as const;
 export type  TxStatus    = (typeof TX_STATUSES)[number];
 

@@ -15,6 +15,7 @@ import {
   parseBankCsv, type ParsedTransaction,
   type TxType,
   isTradeType, realizedGain,
+  parseLotConsumptions, type LotConsumption,
   listAll,
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
@@ -65,6 +66,13 @@ export default function TransactionsPage() {
 
   // Transaction draft
   const [txDraft, setTxDraft] = useState<Partial<TransactionRecord>>({});
+  // Trade-only UI state. Price and fees are entered in the panel but stored
+  // differently: amount = price·qty (signed); fees become a separate EXPENSE
+  // transaction created alongside the trade. sellLotPicks is the ordered list
+  // of lot IDs that a SELL will consume from, top → bottom.
+  const [tradePrice,   setTradePrice]   = useState<string>("");
+  const [tradeFees,    setTradeFees]    = useState<string>("");
+  const [sellLotPicks, setSellLotPicks] = useState<string[]>([]);
 
   // Import state
   const fileRef = useRef<HTMLInputElement>(null);
@@ -155,12 +163,24 @@ export default function TransactionsPage() {
       // used elsewhere in the panel.
       amount:    isIncome ? 0 : -0,
     });
+    setTradePrice("");
+    setTradeFees("");
+    setSellLotPicks([]);
     setPanel({ kind: "new-tx" });
   }
 
   function openEditTx(tx: TransactionRecord) {
     setTxDraft({ ...tx });
     setShowMatchCandidates(false);
+    // Editing trades is locked, but populate price for display from amount/qty.
+    if (isTradeType(tx.type as any) && tx.quantity) {
+      const price = Math.abs(tx.amount ?? 0) / tx.quantity;
+      setTradePrice(price ? price.toFixed(4).replace(/\.?0+$/, "") : "");
+    } else {
+      setTradePrice("");
+    }
+    setTradeFees("");
+    setSellLotPicks([]);
     setPanel({ kind: "edit-tx", tx });
   }
 
@@ -178,21 +198,37 @@ export default function TransactionsPage() {
   // ── Save transaction ──────────────────────────────────────────────────────
 
   async function handleSaveTx() {
-    if (!txDraft.accountId || txDraft.amount == null || !txDraft.date) return;
+    if (!txDraft.accountId || !txDraft.date) return;
     const txType = (txDraft.type ?? "EXPENSE") as TxType;
+    // For trades, derive amount from price·qty (signed by type). For
+    // non-trades, use the amount typed into the Amount input.
+    const priceNum = parseFloat(tradePrice) || 0;
+    const feesNum  = Math.max(0, parseFloat(tradeFees) || 0);
+    const tradeGross = isTradeType(txType) ? priceNum * (txDraft.quantity ?? 0) : 0;
+    const tradeSignedAmount = txType === "BUY" ? -tradeGross : tradeGross;
+
     if (isTradeType(txType)) {
       if (!txDraft.ticker || !txDraft.quantity || txDraft.quantity <= 0) {
         alert("Ticker and quantity are required for BUY/SELL.");
         return;
       }
-      if (txType === "SELL" && !txDraft.lotId) {
-        alert("Pick the lot to sell from.");
+      if (priceNum <= 0) {
+        alert("Price per share is required for BUY/SELL.");
         return;
       }
+      if (txType === "SELL" && sellLotPicks.length === 0) {
+        alert("Pick at least one lot to sell from.");
+        return;
+      }
+    } else if (txDraft.amount == null) {
+      return;
     }
+
     setSaving(true);
     try {
       const isPosted = txDraft.status === "POSTED";
+      // Effective signed amount used for transaction creation + balance math.
+      const effectiveAmount = isTradeType(txType) ? tradeSignedAmount : txDraft.amount!;
 
       if (panel?.kind === "new-tx") {
         // Default a readable description when blank — handy for the tx list.
@@ -202,6 +238,8 @@ export default function TransactionsPage() {
         const description = txDraft.description?.trim() ? txDraft.description.trim() : autoDesc;
 
         // ── BUY: create lot first so we can persist lotId on the transaction.
+        // Cost basis = price·qty (gross). Fees are logged as a separate
+        // EXPENSE further down and intentionally don't roll into the basis.
         let createdLotId: string | null = null;
         let createdLot: HoldingLotRecord | null = null;
         if (txType === "BUY") {
@@ -210,7 +248,7 @@ export default function TransactionsPage() {
             ticker:       (txDraft.ticker ?? "").toUpperCase(),
             assetType:    "STOCK" as any,
             quantity:     txDraft.quantity!,
-            costBasis:    Math.abs(txDraft.amount ?? 0) || null,
+            costBasis:    tradeGross || null,
             purchaseDate: txDraft.date!,
             isVested:     true,
             notes:        null,
@@ -218,40 +256,61 @@ export default function TransactionsPage() {
           if (data) { createdLot = data; createdLotId = data.id; }
         }
 
-        // ── SELL: snapshot the lot before mutation so we can compute consumed
-        // cost basis, then decrement (or delete) the lot.
+        // ── SELL: consume from each picked lot in order until qty satisfied.
+        // Snapshot the breakdown into lotConsumptions for later reporting.
         let consumedCostBasis: number | null = null;
-        if (txType === "SELL" && txDraft.lotId) {
-          const lot = lots.find((l) => l.id === txDraft.lotId);
-          if (!lot || (lot.quantity ?? 0) < (txDraft.quantity ?? 0)) {
-            alert("Selected lot doesn't have enough quantity.");
+        let lotConsumptionsJson: string | null = null;
+        let firstLotId: string | null = null;
+        if (txType === "SELL") {
+          const sellQty = txDraft.quantity!;
+          // Verify total available across picks covers the sell qty.
+          const totalAvail = sellLotPicks.reduce((s, id) => {
+            const l = lots.find((x) => x.id === id);
+            return s + (l?.quantity ?? 0);
+          }, 0);
+          if (totalAvail + 1e-6 < sellQty) {
+            alert(`Selected lots only have ${totalAvail.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh — short ${(sellQty - totalAvail).toLocaleString("en-US", { maximumFractionDigits: 4 })}.`);
             setSaving(false);
             return;
           }
-          const lotQty   = lot.quantity ?? 0;
-          const sellQty  = txDraft.quantity!;
-          const fraction = sellQty / lotQty;
-          consumedCostBasis = lot.costBasis != null ? lot.costBasis * fraction : null;
-          const remaining = lotQty - sellQty;
-          if (remaining < 1e-6) {
-            await client.models.financeHoldingLot.delete({ id: lot.id });
-            setLots((p) => p.filter((l) => l.id !== lot.id));
-          } else {
-            const newCost = lot.costBasis != null && consumedCostBasis != null
-              ? lot.costBasis - consumedCostBasis
-              : lot.costBasis ?? null;
-            await client.models.financeHoldingLot.update({
-              id:        lot.id,
-              quantity:  remaining,
-              costBasis: newCost,
-            });
-            setLots((p) => p.map((l) => l.id === lot.id ? { ...l, quantity: remaining, costBasis: newCost } : l));
+
+          let remaining = sellQty;
+          let runningCost = 0;
+          const breakdown: LotConsumption[] = [];
+          for (const lotId of sellLotPicks) {
+            if (remaining <= 1e-6) break;
+            const lot = lots.find((l) => l.id === lotId);
+            if (!lot) continue;
+            const lotQty = lot.quantity ?? 0;
+            if (lotQty <= 0) continue;
+            const takeQty = Math.min(remaining, lotQty);
+            const fraction = takeQty / lotQty;
+            const consumed = lot.costBasis != null ? lot.costBasis * fraction : 0;
+            breakdown.push({ lotId, qty: takeQty, costBasis: consumed });
+            runningCost += consumed;
+            remaining   -= takeQty;
+            const leftover = lotQty - takeQty;
+            if (leftover < 1e-6) {
+              await client.models.financeHoldingLot.delete({ id: lot.id });
+              setLots((p) => p.filter((l) => l.id !== lot.id));
+            } else {
+              const newCost = lot.costBasis != null ? lot.costBasis - consumed : null;
+              await client.models.financeHoldingLot.update({
+                id:        lot.id,
+                quantity:  leftover,
+                costBasis: newCost,
+              });
+              setLots((p) => p.map((l) => l.id === lot.id ? { ...l, quantity: leftover, costBasis: newCost } : l));
+            }
           }
+          consumedCostBasis = runningCost || null;
+          lotConsumptionsJson = breakdown.length > 0 ? JSON.stringify(breakdown) : null;
+          firstLotId = breakdown[0]?.lotId ?? null;
         }
 
         const { data: newTx } = await client.models.financeTransaction.create({
           accountId:         txDraft.accountId!,
-          amount:            txDraft.amount!,
+          amount:            effectiveAmount,
           type:              txType as any,
           category:          txDraft.category ?? null,
           description:       description,
@@ -262,8 +321,9 @@ export default function TransactionsPage() {
           importHash:        txDraft.importHash ?? null,
           ticker:            isTradeType(txType) ? (txDraft.ticker ?? "").toUpperCase() : null,
           quantity:          isTradeType(txType) ? txDraft.quantity ?? null : null,
-          lotId:             txType === "BUY" ? createdLotId : (txType === "SELL" ? txDraft.lotId ?? null : null),
+          lotId:             txType === "BUY" ? createdLotId : firstLotId,
           consumedCostBasis: consumedCostBasis,
+          lotConsumptions:   lotConsumptionsJson,
           notes:             txDraft.notes ?? null,
         });
         if (newTx) {
@@ -277,7 +337,32 @@ export default function TransactionsPage() {
             linked = { ...newTx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord;
           }
           setTransactions((prev) => [linked, ...prev]);
-          if (isPosted) await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txType);
+          if (isPosted) await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
+
+          // ── Trade fees: spawn a sibling EXPENSE so the cash side reflects
+          // the net the brokerage actually moved. We intentionally don't fold
+          // fees into the trade amount/cost basis — keeping them as their own
+          // line makes them visible in reports and editable independently.
+          if (isTradeType(txType) && feesNum > 0) {
+            const ticker = (txDraft.ticker ?? "").toUpperCase();
+            const feeDesc = `Fees for ${txType} ${txDraft.quantity} ${ticker} on ${txDraft.date}`;
+            const { data: feeTx } = await client.models.financeTransaction.create({
+              accountId:   txDraft.accountId!,
+              amount:      -feesNum,
+              type:        "EXPENSE" as any,
+              category:    "Trading fees",
+              description: feeDesc,
+              date:        txDraft.date!,
+              status:      (txDraft.status ?? "POSTED") as any,
+              goalId:      null,
+              toAccountId: null,
+              notes:       `tradeTxId:${newTx.id}`,
+            });
+            if (feeTx) {
+              setTransactions((prev) => [feeTx, ...prev]);
+              if (isPosted) await adjustBalance(txDraft.accountId!, -feesNum, null, "EXPENSE");
+            }
+          }
         }
 
       } else if (panel?.kind === "edit-tx") {
@@ -858,39 +943,76 @@ export default function TransactionsPage() {
                       </select>
                     </div>
                   </div>
-                  <div>
-                    <label className={labelCls}>
-                      {txDraft.type === "BUY"  ? "Total Cost *"
-                        : txDraft.type === "SELL" ? "Proceeds *"
-                        : "Amount *"}
-                    </label>
-                    <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
-                      disabled={panel.kind === "edit-tx" && isTradeType(panel.tx.type as any)}
-                      value={Math.abs(txDraft.amount ?? 0) || ""}
-                      onChange={(e) => {
-                        const raw = parseFloat(e.target.value) || 0;
-                        // Income + Sell bring cash in; everything else leaves the account.
-                        const positive = txDraft.type === "INCOME" || txDraft.type === "SELL";
-                        const signed = positive ? Math.abs(raw) : -Math.abs(raw);
-                        setTxDraft((d) => ({ ...d, amount: signed }));
-                      }} />
-                    {txDraft.type === "BUY" && (
-                      <p className="text-[10px] text-gray-400 mt-0.5">Becomes the new lot's cost basis.</p>
-                    )}
-                  </div>
-                  {/* Trade fields — render for BUY (qty + ticker) and SELL (qty + ticker + lot picker).
-                      In edit mode for trades, fields render readonly for visibility. */}
+                  {!isTradeType(txDraft.type as any) && (
+                    <div>
+                      <label className={labelCls}>Amount *</label>
+                      <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
+                        value={Math.abs(txDraft.amount ?? 0) || ""}
+                        onChange={(e) => {
+                          const raw = parseFloat(e.target.value) || 0;
+                          // Income brings cash in; everything else leaves the account.
+                          const positive = txDraft.type === "INCOME";
+                          const signed = positive ? Math.abs(raw) : -Math.abs(raw);
+                          setTxDraft((d) => ({ ...d, amount: signed }));
+                        }} />
+                    </div>
+                  )}
+                  {/* Trade fields — BUY (price + qty + ticker + fees) and SELL
+                      (same + ordered multi-lot picker). In edit mode for trades,
+                      everything renders disabled for visibility only. */}
                   {isTradeType(txDraft.type as any) && (() => {
                     const isEditingTrade = panel.kind === "edit-tx" && isTradeType(panel.tx.type as any);
                     // Lots available to sell from, scoped to the selected account + ticker (if entered).
                     const sellableLots = txDraft.type === "SELL"
-                      ? lots.filter((l) =>
-                          l.accountId === txDraft.accountId
-                          && (l.quantity ?? 0) > 0
-                          && (!txDraft.ticker || (l.ticker ?? "").toUpperCase() === (txDraft.ticker ?? "").toUpperCase()),
-                        )
+                      ? lots
+                          .filter((l) =>
+                            l.accountId === txDraft.accountId
+                            && (l.quantity ?? 0) > 0
+                            && (!txDraft.ticker || (l.ticker ?? "").toUpperCase() === (txDraft.ticker ?? "").toUpperCase()),
+                          )
+                          .sort((a, b) => (a.purchaseDate ?? "").localeCompare(b.purchaseDate ?? ""))
                       : [];
-                    const selectedLot = txDraft.lotId ? lots.find((l) => l.id === txDraft.lotId) ?? null : null;
+                    const sellableById = new Map(sellableLots.map((l) => [l.id, l] as const));
+                    // Ordered picks (drives consumption order). Drop stale IDs
+                    // that no longer match the available set (e.g. ticker changed).
+                    const orderedPicks = sellLotPicks
+                      .map((id) => sellableById.get(id))
+                      .filter((l): l is HoldingLotRecord => !!l);
+                    const unpicked = sellableLots.filter((l) => !sellLotPicks.includes(l.id));
+                    const priceNum = parseFloat(tradePrice) || 0;
+                    const qtyNum   = txDraft.quantity ?? 0;
+                    const grossAmt = priceNum * qtyNum;
+                    const feesNum  = Math.max(0, parseFloat(tradeFees) || 0);
+                    const selectedQty = orderedPicks.reduce((s, l) => s + (l.quantity ?? 0), 0);
+                    // Walk picks in order to compute consumed cost basis preview.
+                    let runningCost = 0;
+                    let runningRemaining = qtyNum;
+                    for (const lot of orderedPicks) {
+                      if (runningRemaining <= 1e-6) break;
+                      const lotQty = lot.quantity ?? 0;
+                      const takeQty = Math.min(runningRemaining, lotQty);
+                      if (lot.costBasis != null && lotQty > 0) {
+                        runningCost += lot.costBasis * (takeQty / lotQty);
+                      }
+                      runningRemaining -= takeQty;
+                    }
+                    const consumedPreview = qtyNum > 0 && runningRemaining <= 1e-6 ? runningCost : null;
+                    const gainPreview = consumedPreview != null && txDraft.type === "SELL"
+                      ? grossAmt - consumedPreview
+                      : null;
+
+                    function moveLot(lotId: string, dir: "up" | "down") {
+                      setSellLotPicks((picks) => {
+                        const idx = picks.indexOf(lotId);
+                        if (idx < 0) return picks;
+                        const swap = dir === "up" ? idx - 1 : idx + 1;
+                        if (swap < 0 || swap >= picks.length) return picks;
+                        const next = [...picks];
+                        [next[idx], next[swap]] = [next[swap], next[idx]];
+                        return next;
+                      });
+                    }
+
                     return (
                       <div className="rounded border border-gray-200 dark:border-darkBorder p-3 flex flex-col gap-3 bg-gray-50/50 dark:bg-white/[0.02]">
                         <div className="grid grid-cols-2 gap-2">
@@ -899,12 +1021,12 @@ export default function TransactionsPage() {
                             <input type="text" className={inputCls} placeholder="SWPPX"
                               disabled={isEditingTrade}
                               value={txDraft.ticker ?? ""}
-                              onChange={(e) => setTxDraft((d) => ({
-                                ...d,
-                                ticker: e.target.value.toUpperCase(),
-                                // Clear lot selection if ticker changes — old lot may be wrong.
-                                ...(txDraft.type === "SELL" ? { lotId: null as any } : {}),
-                              }))} />
+                              onChange={(e) => {
+                                const t = e.target.value.toUpperCase();
+                                setTxDraft((d) => ({ ...d, ticker: t }));
+                                // Clear lot picks if ticker changes — old picks may not match.
+                                if (txDraft.type === "SELL") setSellLotPicks([]);
+                              }} />
                           </div>
                           <div>
                             <label className={labelCls}>Quantity *</label>
@@ -914,48 +1036,157 @@ export default function TransactionsPage() {
                               onChange={(e) => setTxDraft((d) => ({ ...d, quantity: parseFloat(e.target.value) || 0 }))} />
                           </div>
                         </div>
-                        {txDraft.type === "SELL" && !isEditingTrade && (
+                        <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className={labelCls}>Lot to consume *</label>
-                            <select className={inputCls} value={txDraft.lotId ?? ""}
-                              onChange={(e) => setTxDraft((d) => ({ ...d, lotId: e.target.value || (null as any) }))}>
-                              <option value="">Pick a lot…</option>
-                              {sellableLots.map((l) => (
-                                <option key={l.id} value={l.id}>
-                                  {l.ticker} · {l.quantity?.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
-                                  {l.purchaseDate ? ` · ${l.purchaseDate}` : ""}
-                                  {l.costBasis != null ? ` · cost ${fmtCurrency(l.costBasis, "USD")}` : ""}
-                                </option>
-                              ))}
-                            </select>
-                            {sellableLots.length === 0 && txDraft.accountId && (
-                              <p className="text-[10px] text-amber-500 mt-0.5">
+                            <label className={labelCls}>Price per share *</label>
+                            <input type="number" step="0.0001" min="0" className={inputCls} placeholder="0.00"
+                              disabled={isEditingTrade}
+                              value={tradePrice}
+                              onChange={(e) => setTradePrice(e.target.value)} />
+                          </div>
+                          <div>
+                            <label className={labelCls}>Fees</label>
+                            <input type="number" step="0.01" min="0" className={inputCls} placeholder="0.00"
+                              disabled={isEditingTrade}
+                              value={tradeFees}
+                              onChange={(e) => setTradeFees(e.target.value)} />
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              Logged as a separate {txDraft.type === "BUY" ? "expense" : "expense"}.
+                            </p>
+                          </div>
+                        </div>
+                        {/* Computed totals — what hits the account, and the implicit fee line. */}
+                        {(priceNum > 0 && qtyNum > 0) && (
+                          <div className="rounded bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder px-3 py-2 flex flex-col gap-0.5 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">
+                                {txDraft.type === "BUY" ? "Cash out" : "Cash in"} ({fmtCurrency(priceNum, "USD")} × {qtyNum})
+                              </span>
+                              <span className="tabular-nums font-medium" style={{ color: amountColor(txDraft.type === "BUY" ? -grossAmt : grossAmt) }}>
+                                {fmtCurrency(txDraft.type === "BUY" ? -grossAmt : grossAmt, "USD", true)}
+                              </span>
+                            </div>
+                            {feesNum > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-400">+ Fees expense</span>
+                                <span className="tabular-nums font-medium" style={{ color: amountColor(-feesNum) }}>
+                                  {fmtCurrency(-feesNum, "USD", true)}
+                                </span>
+                              </div>
+                            )}
+                            {gainPreview != null && (
+                              <div className="flex justify-between pt-1 border-t border-gray-200 dark:border-gray-700">
+                                <span className="text-gray-500 dark:text-gray-400">Realized gain</span>
+                                <span className="tabular-nums font-semibold" style={{ color: amountColor(gainPreview) }}>
+                                  {fmtCurrency(gainPreview, "USD", true)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Multi-lot picker (SELL, new-tx only). Ordered list at
+                            top = consume first; unpicked list below. */}
+                        {txDraft.type === "SELL" && !isEditingTrade && (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-baseline justify-between">
+                              <label className={labelCls}>Lots to consume *</label>
+                              {orderedPicks.length > 0 && (
+                                <span className="text-[10px] text-gray-400 tabular-nums">
+                                  selected {selectedQty.toLocaleString("en-US", { maximumFractionDigits: 4 })} / need {qtyNum.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                                </span>
+                              )}
+                            </div>
+                            {orderedPicks.length > 0 && (
+                              <div className="flex flex-col gap-1">
+                                {orderedPicks.map((lot, idx) => (
+                                  <div key={lot.id}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated">
+                                    <span className="text-xs tabular-nums text-gray-400 w-5">{idx + 1}.</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs text-gray-700 dark:text-gray-200 truncate">
+                                        {(lot.quantity ?? 0).toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
+                                        {lot.purchaseDate ? ` · ${lot.purchaseDate}` : ""}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400">
+                                        {lot.costBasis != null ? `cost ${fmtCurrency(lot.costBasis, "USD")}` : "no cost basis"}
+                                      </p>
+                                    </div>
+                                    <button type="button" onClick={() => moveLot(lot.id, "up")}
+                                      disabled={idx === 0}
+                                      title="Consume earlier"
+                                      className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-30 w-5">▲</button>
+                                    <button type="button" onClick={() => moveLot(lot.id, "down")}
+                                      disabled={idx === orderedPicks.length - 1}
+                                      title="Consume later"
+                                      className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-30 w-5">▼</button>
+                                    <button type="button"
+                                      onClick={() => setSellLotPicks((p) => p.filter((id) => id !== lot.id))}
+                                      title="Remove"
+                                      className="text-xs text-gray-400 hover:text-red-500 w-5">×</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {unpicked.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {orderedPicks.length > 0 && (
+                                  <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Available</p>
+                                )}
+                                {unpicked.map((lot) => (
+                                  <button key={lot.id} type="button"
+                                    onClick={() => setSellLotPicks((p) => [...p, lot.id])}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded border border-dashed border-gray-200 dark:border-darkBorder hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-white/5 text-left transition-colors">
+                                    <span className="text-gray-400 text-xs">+</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs text-gray-700 dark:text-gray-200 truncate">
+                                        {(lot.quantity ?? 0).toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
+                                        {lot.purchaseDate ? ` · ${lot.purchaseDate}` : ""}
+                                      </p>
+                                      <p className="text-[10px] text-gray-400">
+                                        {lot.costBasis != null ? `cost ${fmtCurrency(lot.costBasis, "USD")}` : "no cost basis"}
+                                      </p>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : sellableLots.length === 0 && txDraft.accountId ? (
+                              <p className="text-[10px] text-amber-500">
                                 No matching lots on this account. Add a lot or BUY first.
+                              </p>
+                            ) : null}
+                            {qtyNum > 0 && selectedQty + 1e-6 < qtyNum && orderedPicks.length > 0 && (
+                              <p className="text-[10px] text-amber-500">
+                                Selected lots are short {(qtyNum - selectedQty).toLocaleString("en-US", { maximumFractionDigits: 4 })} sh.
                               </p>
                             )}
                           </div>
                         )}
-                        {/* Live realized-gain preview on SELL when a lot + qty are picked. */}
-                        {txDraft.type === "SELL" && selectedLot && txDraft.quantity && txDraft.amount != null && (() => {
-                          const lotQty   = selectedLot.quantity ?? 0;
-                          const sellQty  = txDraft.quantity;
-                          if (sellQty <= 0 || sellQty > lotQty || selectedLot.costBasis == null) return null;
-                          const consumed = selectedLot.costBasis * (sellQty / lotQty);
-                          const gain     = (txDraft.amount ?? 0) - consumed;
+                        {isEditingTrade && (() => {
+                          const breakdown = parseLotConsumptions(panel.tx);
                           return (
-                            <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                              Cost basis consumed: {fmtCurrency(consumed, "USD")} ·{" "}
-                              <span className="font-semibold tabular-nums" style={{ color: amountColor(gain) }}>
-                                Realized {fmtCurrency(gain, "USD", true)}
-                              </span>
-                            </p>
+                            <>
+                              {breakdown.length > 0 && (
+                                <div className="flex flex-col gap-1">
+                                  <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Lots consumed</p>
+                                  {breakdown.map((b, idx) => (
+                                    <div key={`${b.lotId}-${idx}`}
+                                      className="flex items-center justify-between px-2 py-1.5 rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs">
+                                      <span className="text-gray-700 dark:text-gray-200">
+                                        {idx + 1}. {b.qty.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh
+                                      </span>
+                                      <span className="text-gray-400 tabular-nums">
+                                        cost {fmtCurrency(b.costBasis, "USD")}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <p className="text-[10px] text-gray-400">
+                                Trade-side fields are locked in edit mode. Delete and recreate to change ticker, qty, price, or lots.
+                              </p>
+                            </>
                           );
                         })()}
-                        {isEditingTrade && (
-                          <p className="text-[10px] text-gray-400">
-                            Trade-side fields are locked in edit mode. Delete and recreate to change ticker, qty, or amount.
-                          </p>
-                        )}
                       </div>
                     );
                   })()}

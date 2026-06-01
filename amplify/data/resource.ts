@@ -501,15 +501,20 @@ const schema = a.schema({
       recurringId: a.id(),
       // ── Trade fields (BUY / SELL only) ────────────────────────────
       // ticker + quantity describe what was traded. lotId points at the
-      // financeHoldingLot the trade created (BUY) or consumed (SELL).
-      // consumedCostBasis is set on SELL only — it captures the cost basis
-      // that was extracted from the lot at sale time. Realized gain is
-      // amount − consumedCostBasis (computed at display time). Stored so
+      // financeHoldingLot the trade created (BUY) or — on a single-lot SELL —
+      // the lot consumed (kept for back-compat; multi-lot sells use
+      // lotConsumptions below and may leave lotId null).
+      // consumedCostBasis is set on SELL only — it captures the total cost
+      // basis extracted from the consumed lot(s) at sale time. Realized gain
+      // is amount − consumedCostBasis (computed at display time). Stored so
       // it stays correct even after subsequent partial sells deplete the lot.
+      // lotConsumptions: on multi-lot SELL, a JSON string array of
+      // {lotId, qty, costBasis} snapshots in the order consumed.
       ticker:            a.string(),
       quantity:          a.float(),
       lotId:             a.id(),
       consumedCostBasis: a.float(),
+      lotConsumptions:   a.string(),
       // Free-form user notes — kept distinct from `description` (which often
       // mirrors the bank-imported memo) so post-import context can live
       // somewhere stable without overwriting the original. Included in the
