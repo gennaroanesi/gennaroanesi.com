@@ -859,6 +859,7 @@ export default function AccountDetailPage() {
             accounts={accounts}
             lots={lots}
             recurrings={recurrings}
+            transactions={transactions}
             spendGroups={spendGroups}
             onClose={() => setPanel(null)}
             onSetTransactions={setTransactions}
@@ -873,6 +874,7 @@ export default function AccountDetailPage() {
             accounts={accounts}
             lots={lots}
             recurrings={recurrings}
+            transactions={transactions}
             spendGroups={spendGroups}
             onClose={() => setPanel(null)}
             onSetTransactions={setTransactions}

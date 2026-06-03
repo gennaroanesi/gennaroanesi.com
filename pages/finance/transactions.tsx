@@ -307,8 +307,13 @@ export default function TransactionsPage() {
 
   const hasActiveFilter =
     !!filterAccount || !!filterStatus || !!filterType || !!txCtl.search.trim();
+  // Skip trade cash/fee siblings (linked to a parent trade via
+  // `notes: tradeTxId:...`) so the visible Σ doesn't double-count the
+  // cash impact alongside its parent BUY/SELL row.
   const filteredSum = useMemo(
-    () => txCtl.filtered.reduce((s, t) => s + (t.amount ?? 0), 0),
+    () => txCtl.filtered
+      .filter((t) => !(t.notes ?? "").startsWith("tradeTxId:"))
+      .reduce((s, t) => s + (t.amount ?? 0), 0),
     [txCtl.filtered],
   );
   const filteredCurrency =
@@ -504,6 +509,7 @@ export default function TransactionsPage() {
             accounts={accounts}
             lots={lots}
             recurrings={recurrings}
+            transactions={transactions}
             spendGroups={spendGroups}
             onClose={() => setEditingTx(null)}
             onSetTransactions={setTransactions}

@@ -16,9 +16,12 @@ import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/At
 
 export type TransactionPanelProps = {
   // Data the form reads from
-  accounts:    AccountRecord[];
-  lots:        HoldingLotRecord[];
-  recurrings:  RecurringRecord[];
+  accounts:     AccountRecord[];
+  lots:         HoldingLotRecord[];
+  recurrings:   RecurringRecord[];
+  // Full transactions list — needed to find cash/fee sibling rows that
+  // need to cascade-delete alongside a trade row.
+  transactions: TransactionRecord[];
   spendGroups?: SpendGroupRecord[];   // optional — for tagging a tx to a trip/project/event
 
   // Mode
@@ -41,7 +44,7 @@ export type TransactionPanelProps = {
 
 export function TransactionPanel(props: TransactionPanelProps) {
   const {
-    accounts, lots, recurrings, spendGroups = [],
+    accounts, lots, recurrings, transactions, spendGroups = [],
     mode, defaultType, defaultAccountId, lockAccount, editingTx,
     onClose,
     onSetTransactions, onSetAccounts, onSetLots,
@@ -239,10 +242,42 @@ export function TransactionPanel(props: TransactionPanelProps) {
             linked = { ...newTx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord;
           }
           onSetTransactions((prev) => [linked, ...prev]);
-          if (isPosted) await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
+          // Trade rows no longer move the cash balance themselves — the cash
+          // sibling created below carries the cash impact. Keeps the trade
+          // row as a clean "position change" record while the actual cash
+          // settlement is its own visible line in the ledger.
+          if (isPosted && !isTradeType(txType)) {
+            await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
+          }
 
-          // Trade fees → sibling EXPENSE so the cash side reflects what the
-          // brokerage moved. Linked back via notes for traceability.
+          // Trade cash sibling → mirror EXPENSE/INCOME so the cash flow
+          // shows up as its own row. Account-balance adjustment runs here
+          // (not on the trade row above), so we don't double-count.
+          if (isTradeType(txType)) {
+            const ticker     = (txDraft.ticker ?? "").toUpperCase();
+            const cashType   = txType === "BUY" ? "EXPENSE" : "INCOME";
+            const cashDesc   = `Cash for ${txType === "BUY" ? "Buy" : "Sell"} ${txDraft.quantity} ${ticker} on ${txDraft.date}`;
+            const { data: cashTx } = await client.models.financeTransaction.create({
+              accountId:   txDraft.accountId!,
+              amount:      effectiveAmount,
+              type:        cashType as any,
+              category:    "Investments",
+              description: cashDesc,
+              date:        txDraft.date!,
+              status:      (txDraft.status ?? "POSTED") as any,
+              goalId:      null,
+              toAccountId: null,
+              notes:       `tradeTxId:${newTx.id}`,
+            });
+            if (cashTx) {
+              onSetTransactions((prev) => [cashTx, ...prev]);
+              if (isPosted) await adjustBalance(txDraft.accountId!, effectiveAmount, null, cashType);
+            }
+          }
+
+          // Trade fees → sibling EXPENSE so the brokerage's cut is its own
+          // visible line. Same `tradeTxId:` link pattern as the cash sibling
+          // so deletes can cascade.
           if (isTradeType(txType) && feesNum > 0) {
             const ticker = (txDraft.ticker ?? "").toUpperCase();
             const feeDesc = `Fees for ${txType} ${txDraft.quantity} ${ticker} on ${txDraft.date}`;
@@ -287,13 +322,10 @@ export function TransactionPanel(props: TransactionPanelProps) {
         if (!editingTrade) {
           if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
           if (isPosted)                 await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
-        } else {
-          if (prev.status !== "POSTED" && isPosted) {
-            await adjustBalance(prev.accountId!, prev.amount ?? 0, null, prev.type as TxType);
-          } else if (prev.status === "POSTED" && !isPosted) {
-            await adjustBalance(prev.accountId!, -(prev.amount ?? 0), null, prev.type as TxType);
-          }
         }
+        // Trade rows no longer carry cash impact — their cash sibling owns
+        // the balance side and the user flips its status independently if
+        // they need to mark the cash as pending/posted.
 
         onSetTransactions((p) => p.map((t) => t.id === prev.id ? { ...t, ...txDraft } as TransactionRecord : t));
         // Refetch accounts to defeat any drift between optimistic +/- ops above.
@@ -312,16 +344,34 @@ export function TransactionPanel(props: TransactionPanelProps) {
   async function handleDelete() {
     if (mode !== "edit" || !editingTx) return;
     const tx = editingTx;
-    const msg = isTradeType(tx.type as any)
-      ? "Delete this trade? The cash side will be reversed but the lot side won't be — you may need to fix up the holding lot manually."
+    // Find cash + fee siblings that linked back to this trade via the
+    // `notes: tradeTxId:<id>` convention. They get deleted alongside the
+    // trade row so users don't end up with orphaned cash/fee lines.
+    const siblings = isTradeType(tx.type as any)
+      ? transactions.filter((s) => (s.notes ?? "") === `tradeTxId:${tx.id}`)
+      : [];
+    const isTrade = isTradeType(tx.type as any);
+    const msg = isTrade
+      ? `Delete this trade${siblings.length > 0 ? ` and its ${siblings.length} linked cash/fee row${siblings.length === 1 ? "" : "s"}` : ""}? The lot side isn't reversed automatically — you may need to fix up the holding lot manually.`
       : "Delete this transaction?";
     if (!confirm(msg)) return;
     setSaving(true);
     try {
-      if (tx.status === "POSTED") await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
+      // Reverse balance impact from siblings (trade rows don't carry cash
+      // impact in the two-row model). Non-trades reverse their own amount.
+      if (isTrade) {
+        for (const s of siblings) {
+          if (s.status === "POSTED") await adjustBalance(s.accountId!, -(s.amount ?? 0), s.toAccountId ?? null, s.type as TxType);
+          await deleteAttachmentsFor("TRANSACTION", s.id);
+          await client.models.financeTransaction.delete({ id: s.id });
+        }
+      } else if (tx.status === "POSTED") {
+        await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
+      }
       await deleteAttachmentsFor("TRANSACTION", tx.id);
       await client.models.financeTransaction.delete({ id: tx.id });
-      onSetTransactions((p) => p.filter((t) => t.id !== tx.id));
+      const siblingIds = new Set(siblings.map((s) => s.id));
+      onSetTransactions((p) => p.filter((t) => t.id !== tx.id && !siblingIds.has(t.id)));
       const accs = await listAll(client.models.financeAccount);
       onSetAccounts(accs);
       onClose();
