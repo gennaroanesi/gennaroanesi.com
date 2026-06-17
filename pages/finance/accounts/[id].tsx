@@ -22,7 +22,6 @@ import {
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 import { TransactionPanel } from "@/components/finance/TransactionPanel";
 import { ImportPanel } from "@/components/finance/ImportPanel";
-import { SchwabImportPanel } from "@/components/finance/SchwabImportPanel";
 import type { TxType } from "@/components/finance/_shared";
 import { isTradeType, realizedGain } from "@/components/finance/_shared";
 
@@ -33,7 +32,6 @@ type PanelState =
   | { kind: "new-tx";      defaultType?: TxType }
   | { kind: "edit-tx";     tx: TransactionRecord }
   | { kind: "import" }
-  | { kind: "import-schwab" }
   | null;
 
 export default function AccountDetailPage() {
@@ -836,16 +834,6 @@ export default function AccountDetailPage() {
                 >
                   Import CSV
                 </button>
-                {account && isInvestedAccount(account.type) && (
-                  <button
-                    onClick={() => setPanel({ kind: "import-schwab" })}
-                    className="px-2 py-1 rounded text-xs font-semibold border transition-colors"
-                    style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
-                    title="Import Schwab brokerage activity (trades + dividends + transfers)"
-                  >
-                    Import Schwab
-                  </button>
-                )}
                 <button
                   onClick={() => setPanel({ kind: "new-tx" })}
                   className="px-2 py-1 rounded text-xs font-semibold border transition-colors"
@@ -930,17 +918,6 @@ export default function AccountDetailPage() {
             accounts={accounts}
             transactions={transactions}
             recurrings={recurrings}
-            defaultAccountId={accountId}
-            lockAccount
-            onClose={() => setPanel(null)}
-            onSetTransactions={setTransactions}
-            onSetAccounts={setAccounts}
-          />
-        )}
-        {panel?.kind === "import-schwab" && (
-          <SchwabImportPanel
-            accounts={accounts}
-            transactions={transactions}
             lots={lots}
             defaultAccountId={accountId}
             lockAccount

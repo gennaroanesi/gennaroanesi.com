@@ -4,11 +4,12 @@
  * Input columns (observed):
  *   Date, Action, Symbol, Description, Quantity, Price, Fees & Comm, Amount
  *
- * Each row maps to one of a small set of action types. The importer
- * (SchwabImportPanel) translates these into our domain — trade rows for
- * Buy / Sell / Reinvest Shares, INCOME for dividends + Bank Interest,
- * EXPENSE for outbound transfers, and bare lot creation for Stock Plan
- * Activity (RSU vesting — no cash side).
+ * Each row maps to one of a small set of action types. ImportPanel
+ * (auto-detects this format and dispatches into the Schwab path) translates
+ * these into our domain — trade rows for Buy / Sell / Reinvest Shares,
+ * INCOME for dividends + Bank Interest, EXPENSE for outbound transfers,
+ * and bare lot creation for Stock Plan Activity (RSU vesting — no cash
+ * side).
  */
 
 import {
