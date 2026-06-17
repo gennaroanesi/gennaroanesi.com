@@ -1778,7 +1778,7 @@ type BankFormat = {
   parse:  (row: Record<string, string>) => ParsedTransaction | null;
 };
 
-function toIso(raw: string): string {
+export function toIsoDate(raw: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const parts = raw.split("/");
   if (parts.length === 3) {
@@ -1788,9 +1788,13 @@ function toIso(raw: string): string {
   return raw;
 }
 
-function parseAmt(raw: string): number {
+export function parseCurrencyAmt(raw: string): number {
   return parseFloat(raw.replace(/[$,\s]/g, "")) || 0;
 }
+
+// Local aliases so the existing parsers below don't need rewiring.
+const toIso = toIsoDate;
+const parseAmt = parseCurrencyAmt;
 
 const BANK_FORMATS: BankFormat[] = [
   {
@@ -1850,7 +1854,7 @@ const BANK_FORMATS: BankFormat[] = [
   },
 ];
 
-function splitCsvRow(row: string): string[] {
+export function splitCsvRow(row: string): string[] {
   const fields: string[] = [];
   let cur = "", inQ = false;
   for (let i = 0; i < row.length; i++) {
