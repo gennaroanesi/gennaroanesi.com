@@ -115,7 +115,13 @@ export function TransactionPanel(props: TransactionPanelProps) {
     const priceNum = parseFloat(tradePrice) || 0;
     const feesNum  = Math.max(0, parseFloat(tradeFees) || 0);
     const tradeGross = isTradeType(txType) ? priceNum * (txDraft.quantity ?? 0) : 0;
-    const tradeSignedAmount = txType === "BUY" ? -tradeGross : tradeGross;
+    // Schwab convention: trade `amount` is the NET cash impact in one signed
+    // number. BUY: −(qty·price + fees) — fees increase cash out. SELL:
+    // qty·price − fees — fees reduce cash in. The trade row IS the cash
+    // transaction; no sibling cash/fee rows are written.
+    const tradeSignedAmount =
+      txType === "BUY"  ? -(tradeGross + feesNum) :
+      txType === "SELL" ?  (tradeGross - feesNum) : 0;
 
     if (isTradeType(txType)) {
       if (!txDraft.ticker || !txDraft.quantity || txDraft.quantity <= 0) {
@@ -145,18 +151,19 @@ export function TransactionPanel(props: TransactionPanelProps) {
           : null;
         const description = txDraft.description?.trim() ? txDraft.description.trim() : autoDesc;
 
-        // BUY: create lot up front to get its id onto the transaction. Fees are
-        // logged as their own sibling expense below — they don't roll into the
-        // cost basis here so they stay visible/editable.
+        // BUY: create lot up front to get its id onto the transaction.
+        // Cost basis includes commissions/fees per IRS Pub 550 (purchase
+        // costs are capitalized into the basis, not deducted separately).
         let createdLotId: string | null = null;
         let createdLot: HoldingLotRecord | null = null;
         if (txType === "BUY") {
+          const buyCostBasis = tradeGross + feesNum;
           const { data } = await client.models.financeHoldingLot.create({
             accountId:    txDraft.accountId!,
             ticker:       (txDraft.ticker ?? "").toUpperCase(),
             assetType:    "STOCK" as any,
             quantity:     txDraft.quantity!,
-            costBasis:    tradeGross || null,
+            costBasis:    buyCostBasis || null,
             purchaseDate: txDraft.date!,
             isVested:     true,
             notes:        null,
@@ -227,6 +234,8 @@ export function TransactionPanel(props: TransactionPanelProps) {
           importHash:        txDraft.importHash ?? null,
           ticker:            isTradeType(txType) ? (txDraft.ticker ?? "").toUpperCase() : null,
           quantity:          isTradeType(txType) ? txDraft.quantity ?? null : null,
+          price:             isTradeType(txType) ? (priceNum || null) : null,
+          fees:              isTradeType(txType) && feesNum > 0 ? feesNum : null,
           lotId:             txType === "BUY" ? createdLotId : firstLotId,
           consumedCostBasis: consumedCostBasis,
           lotConsumptions:   lotConsumptionsJson,
@@ -242,61 +251,11 @@ export function TransactionPanel(props: TransactionPanelProps) {
             linked = { ...newTx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord;
           }
           onSetTransactions((prev) => [linked, ...prev]);
-          // Trade rows no longer move the cash balance themselves — the cash
-          // sibling created below carries the cash impact. Keeps the trade
-          // row as a clean "position change" record while the actual cash
-          // settlement is its own visible line in the ledger.
-          if (isPosted && !isTradeType(txType)) {
+          // Schwab-style single row: the trade row's signed amount IS the
+          // net cash impact (qty·price ± fees). Balance moves once via
+          // adjustBalance, no sibling cash/fee transactions needed.
+          if (isPosted) {
             await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
-          }
-
-          // Trade cash sibling → mirror EXPENSE/INCOME so the cash flow
-          // shows up as its own row. Account-balance adjustment runs here
-          // (not on the trade row above), so we don't double-count.
-          if (isTradeType(txType)) {
-            const ticker     = (txDraft.ticker ?? "").toUpperCase();
-            const cashType   = txType === "BUY" ? "EXPENSE" : "INCOME";
-            const cashDesc   = `Cash for ${txType === "BUY" ? "Buy" : "Sell"} ${txDraft.quantity} ${ticker} on ${txDraft.date}`;
-            const { data: cashTx } = await client.models.financeTransaction.create({
-              accountId:   txDraft.accountId!,
-              amount:      effectiveAmount,
-              type:        cashType as any,
-              category:    "Investments",
-              description: cashDesc,
-              date:        txDraft.date!,
-              status:      (txDraft.status ?? "POSTED") as any,
-              goalId:      null,
-              toAccountId: null,
-              notes:       `tradeTxId:${newTx.id}`,
-            });
-            if (cashTx) {
-              onSetTransactions((prev) => [cashTx, ...prev]);
-              if (isPosted) await adjustBalance(txDraft.accountId!, effectiveAmount, null, cashType);
-            }
-          }
-
-          // Trade fees → sibling EXPENSE so the brokerage's cut is its own
-          // visible line. Same `tradeTxId:` link pattern as the cash sibling
-          // so deletes can cascade.
-          if (isTradeType(txType) && feesNum > 0) {
-            const ticker = (txDraft.ticker ?? "").toUpperCase();
-            const feeDesc = `Fees for ${txType} ${txDraft.quantity} ${ticker} on ${txDraft.date}`;
-            const { data: feeTx } = await client.models.financeTransaction.create({
-              accountId:   txDraft.accountId!,
-              amount:      -feesNum,
-              type:        "EXPENSE" as any,
-              category:    "Trading fees",
-              description: feeDesc,
-              date:        txDraft.date!,
-              status:      (txDraft.status ?? "POSTED") as any,
-              goalId:      null,
-              toAccountId: null,
-              notes:       `tradeTxId:${newTx.id}`,
-            });
-            if (feeTx) {
-              onSetTransactions((prev) => [feeTx, ...prev]);
-              if (isPosted) await adjustBalance(txDraft.accountId!, -feesNum, null, "EXPENSE");
-            }
           }
         }
 
@@ -322,10 +281,15 @@ export function TransactionPanel(props: TransactionPanelProps) {
         if (!editingTrade) {
           if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
           if (isPosted)                 await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
+        } else {
+          // Single-row trades carry their own cash impact again — handle
+          // PENDING ↔ POSTED flips so the balance stays in sync.
+          if (prev.status !== "POSTED" && isPosted) {
+            await adjustBalance(prev.accountId!, prev.amount ?? 0, null, prev.type as TxType);
+          } else if (prev.status === "POSTED" && !isPosted) {
+            await adjustBalance(prev.accountId!, -(prev.amount ?? 0), null, prev.type as TxType);
+          }
         }
-        // Trade rows no longer carry cash impact — their cash sibling owns
-        // the balance side and the user flips its status independently if
-        // they need to mark the cash as pending/posted.
 
         onSetTransactions((p) => p.map((t) => t.id === prev.id ? { ...t, ...txDraft } as TransactionRecord : t));
         // Refetch accounts to defeat any drift between optimistic +/- ops above.
@@ -357,9 +321,12 @@ export function TransactionPanel(props: TransactionPanelProps) {
     if (!confirm(msg)) return;
     setSaving(true);
     try {
-      // Reverse balance impact from siblings (trade rows don't carry cash
-      // impact in the two-row model). Non-trades reverse their own amount.
-      if (isTrade) {
+      // Reverse balance impact. For legacy two-row trades the siblings own
+      // the cash impact, so reverse via them. For Schwab-style single-row
+      // trades (no siblings) the trade row carries its own cash impact —
+      // reverse it directly like a regular transaction. Non-trades always
+      // reverse their own amount.
+      if (isTrade && siblings.length > 0) {
         for (const s of siblings) {
           if (s.status === "POSTED") await adjustBalance(s.accountId!, -(s.amount ?? 0), s.toAccountId ?? null, s.type as TxType);
           await deleteAttachmentsFor("TRANSACTION", s.id);
@@ -485,7 +452,15 @@ export function TransactionPanel(props: TransactionPanelProps) {
             runningRemaining -= takeQty;
           }
           const consumedPreview = qtyNum > 0 && runningRemaining <= 1e-6 ? runningCost : null;
-          const gainPreview = consumedPreview != null && txDraft.type === "SELL" ? grossAmt - consumedPreview : null;
+          // Net proceeds = qty·price − fees. Realized gain on the net.
+          const gainPreview = consumedPreview != null && txDraft.type === "SELL"
+            ? (grossAmt - feesNum) - consumedPreview
+            : null;
+          // Net cash impact = qty·price ± fees (Schwab convention). BUY: fees
+          // increase cash out; SELL: fees reduce cash in.
+          const netCashImpact = txDraft.type === "BUY"
+            ? -(grossAmt + feesNum)
+            : (grossAmt - feesNum);
 
           function moveLot(lotId: string, dir: "up" | "down") {
             setSellLotPicks((picks) => {
@@ -535,28 +510,30 @@ export function TransactionPanel(props: TransactionPanelProps) {
                     disabled={isEditingTrade}
                     value={tradeFees}
                     onChange={(e) => setTradeFees(e.target.value)} />
-                  <p className="text-[10px] text-gray-400 mt-0.5">Logged as a separate expense.</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Rolled into the trade row's net amount.</p>
                 </div>
               </div>
 
               {(priceNum > 0 && qtyNum > 0) && (
                 <div className="rounded bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder px-3 py-2 flex flex-col gap-0.5 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">
-                      {txDraft.type === "BUY" ? "Cash out" : "Cash in"} ({fmtCurrency(priceNum, "USD")} × {qtyNum})
-                    </span>
-                    <span className="tabular-nums font-medium" style={{ color: amountColor(txDraft.type === "BUY" ? -grossAmt : grossAmt) }}>
-                      {fmtCurrency(txDraft.type === "BUY" ? -grossAmt : grossAmt, "USD", true)}
-                    </span>
+                  <div className="flex justify-between text-gray-400">
+                    <span>{fmtCurrency(priceNum, "USD")} × {qtyNum}</span>
+                    <span className="tabular-nums">{fmtCurrency(grossAmt, "USD")}</span>
                   </div>
                   {feesNum > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-400">+ Fees expense</span>
-                      <span className="tabular-nums font-medium" style={{ color: amountColor(-feesNum) }}>
-                        {fmtCurrency(-feesNum, "USD", true)}
-                      </span>
+                    <div className="flex justify-between text-gray-400">
+                      <span>{txDraft.type === "BUY" ? "+ Fees" : "− Fees"}</span>
+                      <span className="tabular-nums">{fmtCurrency(feesNum, "USD")}</span>
                     </div>
                   )}
+                  <div className="flex justify-between pt-1 border-t border-gray-200 dark:border-gray-700">
+                    <span className="text-gray-500 dark:text-gray-400 font-medium">
+                      Net {txDraft.type === "BUY" ? "cash out" : "cash in"}
+                    </span>
+                    <span className="tabular-nums font-semibold" style={{ color: amountColor(netCashImpact) }}>
+                      {fmtCurrency(netCashImpact, "USD", true)}
+                    </span>
+                  </div>
                   {gainPreview != null && (
                     <div className="flex justify-between pt-1 border-t border-gray-200 dark:border-gray-700">
                       <span className="text-gray-500 dark:text-gray-400">Realized gain</span>

@@ -189,6 +189,13 @@ export default function AccountDetailPage() {
       render: (t) => {
         const trade = isTradeType(t.type as any);
         const gain  = realizedGain(t);
+        const tradeBits: string[] = [];
+        if (trade && t.quantity != null) tradeBits.push(`${t.quantity} sh`);
+        if (trade && t.ticker)           tradeBits.push(t.ticker);
+        if (trade && (t as any).price != null) tradeBits.push(`@ ${fmtCurrency((t as any).price, cur)}`);
+        if (trade && (t as any).fees != null && (t as any).fees > 0) {
+          tradeBits.push(`fees ${fmtCurrency((t as any).fees, cur)}`);
+        }
         return (
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
@@ -203,6 +210,11 @@ export default function AccountDetailPage() {
               )}
               {t.description || "—"}
             </span>
+            {tradeBits.length > 0 && (
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums">
+                {tradeBits.join(" · ")}
+              </span>
+            )}
             {gain != null && (
               <span className="text-[10px] tabular-nums" style={{ color: amountColor(gain) }}
                 title="Realized gain on this sale (proceeds − consumed cost basis)">

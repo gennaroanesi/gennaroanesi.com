@@ -229,9 +229,19 @@ export default function TransactionsPage() {
         return `${t.description ?? ""} ${t.category ?? ""} ${t.notes ?? ""} ${rule?.description ?? ""}`;
       },
       render: (t) => {
-        const rule = t.recurringId ? recurringById.get(t.recurringId) : null;
+        const rule  = t.recurringId ? recurringById.get(t.recurringId) : null;
         const trade = isTradeType(t.type as any);
         const gain  = realizedGain(t);
+        // Schwab-style trade detail: qty · ticker @ price · fees, shown under
+        // the description so the row reconstructs the trade economics at a
+        // glance. Only renders when at least one trade field is populated.
+        const tradeBits: string[] = [];
+        if (trade && t.quantity != null) tradeBits.push(`${t.quantity} sh`);
+        if (trade && t.ticker)           tradeBits.push(t.ticker);
+        if (trade && (t as any).price != null) tradeBits.push(`@ ${fmtCurrency((t as any).price, "USD")}`);
+        if (trade && (t as any).fees != null && (t as any).fees > 0) {
+          tradeBits.push(`fees ${fmtCurrency((t as any).fees, "USD")}`);
+        }
         return (
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
@@ -246,6 +256,11 @@ export default function TransactionsPage() {
               )}
               {t.description || "—"}
             </span>
+            {tradeBits.length > 0 && (
+              <span className="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums">
+                {tradeBits.join(" · ")}
+              </span>
+            )}
             {gain != null && (
               <span className="text-[10px] tabular-nums" style={{ color: amountColor(gain) }}
                 title="Realized gain on this sale (proceeds − consumed cost basis)">

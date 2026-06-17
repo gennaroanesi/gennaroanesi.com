@@ -513,6 +513,13 @@ const schema = a.schema({
       // {lotId, qty, costBasis} snapshots in the order consumed.
       ticker:            a.string(),
       quantity:          a.float(),
+      // Per-share execution price (Schwab convention). Combined with quantity
+      // and fees it fully reconstructs the trade economics: BUY amount =
+      // −(qty·price + fees); SELL amount = qty·price − fees (net of fees).
+      // The single trade row carries both the position info and the cash
+      // impact — no sibling cash/fee transactions needed.
+      price:             a.float(),
+      fees:              a.float(),
       lotId:             a.id(),
       consumedCostBasis: a.float(),
       lotConsumptions:   a.string(),
