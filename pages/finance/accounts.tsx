@@ -393,14 +393,7 @@ export default function AccountsPage() {
               sortDir={ctl.sortDir}
               onSort={ctl.handleSort}
               onRowClick={(r) => {
-                // Brokerage / retirement still go to the detail page — that's
-                // where holdings, lots, and "Refresh prices" live. Everything
-                // else goes straight to the filtered transactions list, which
-                // is the place you'd actually do something with the account.
-                const target = isInvestedAccount(r.account.type)
-                  ? `/finance/accounts/${r.account.id}`
-                  : `/finance/transactions?account=${r.account.id}`;
-                router.push(target);
+                router.push(`/finance/accounts/${r.account.id}`);
               }}
               emptyMessage={ctl.search ? "No matches" : "No accounts"}
             />
