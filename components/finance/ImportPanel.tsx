@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   client,
   AccountRecord, TransactionRecord, HoldingLotRecord, RecurringRecord,
@@ -8,10 +8,10 @@ import {
   SaveButton,
   parseBankCsv, type ParsedTransaction,
   type TxType,
+  isInvestedAccount,
   listAll,
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
-  splitCsvRow,
 } from "@/components/finance/_shared";
 import { inferCategory } from "@/components/finance/categories";
 import {
@@ -20,9 +20,11 @@ import {
 } from "@/components/finance/schwab";
 
 // Two import shapes, sharing the same outer chrome (account selector,
-// date range, "delete existing in range first"). The panel detects which
-// kind of CSV is loaded and renders the matching preview + commit path.
-type Mode = "bank" | "schwab" | "";
+// date range, "delete existing in range first"). The selected account's
+// type drives the mode — brokerage/retirement accounts use the Schwab
+// activity parser; everything else (checking/savings/credit/loan) uses
+// the bank-CSV parser. The account picker is the single source of truth.
+type Mode = "bank" | "schwab";
 
 type BankPreviewRow = ParsedTransaction & {
   selected:  boolean;
@@ -64,16 +66,6 @@ const SCHWAB_ACTION_COLOR: Record<SchwabAction, string> = {
   UNKNOWN:              "#ef4444",
 };
 
-// Sniffs a CSV's first line and decides which parser to use. We recognize
-// Schwab by its "Action" + "Fees & Comm" pair; everything else falls into
-// the generic bank flow.
-function detectMode(headerLine: string): Mode {
-  const headers = splitCsvRow(headerLine).map((h) => h.replace(/^"|"$/g, "").trim().toLowerCase());
-  if (headers.includes("action") && headers.includes("fees & comm")) return "schwab";
-  if (headers.length > 1) return "bank";
-  return "";
-}
-
 export function ImportPanel(props: ImportPanelProps) {
   const {
     accounts, transactions, recurrings, lots,
@@ -83,7 +75,6 @@ export function ImportPanel(props: ImportPanelProps) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [saving,            setSaving]            = useState(false);
-  const [mode,              setMode]              = useState<Mode>("");
   const [bankFormat,        setBankFormat]        = useState("");
   const [bankRows,          setBankRows]          = useState<BankPreviewRow[]>([]);
   const [schwabRows,        setSchwabRows]        = useState<SchwabPreviewRow[]>([]);
@@ -93,6 +84,25 @@ export function ImportPanel(props: ImportPanelProps) {
   const [importStartDate,   setImportStartDate]   = useState<string>("");
   const [importEndDate,     setImportEndDate]     = useState<string>("");
   const [importDeleteRange, setImportDeleteRange] = useState(false);
+
+  // Mode follows the selected account. Brokerage / retirement = Schwab
+  // activity CSV; everything else = bank-style CSV. Switching accounts
+  // mid-flow drops any preview rows from the previous mode.
+  const selectedAccount = useMemo(
+    () => accounts.find((a) => a.id === importAccountId) ?? null,
+    [accounts, importAccountId],
+  );
+  const mode: Mode = selectedAccount && isInvestedAccount(selectedAccount.type) ? "schwab" : "bank";
+
+  // Account switch resets any previewed rows so the user can't accidentally
+  // commit Schwab rows into a bank account (or vice versa).
+  useEffect(() => {
+    setBankRows([]);
+    setSchwabRows([]);
+    setUnknownActions([]);
+    setBankFormat("");
+    if (fileRef.current) fileRef.current.value = "";
+  }, [importAccountId]);
 
   // Reverse-sign is meaningful only for bank CSVs (some exports invert
   // sign vs our convention). Schwab is consistent, so we never flip there.
@@ -149,16 +159,13 @@ export function ImportPanel(props: ImportPanelProps) {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
-      const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
-      const detected = detectMode(firstLine);
-      setMode(detected);
       // Reset both row sets so the previous file's preview doesn't bleed
-      // into the new mode.
+      // into the new one.
       setBankRows([]);
       setSchwabRows([]);
       setUnknownActions([]);
 
-      if (detected === "schwab") {
+      if (mode === "schwab") {
         const { rows, unknownActions } = parseSchwabActivityCsv(text);
         const existingHashes = new Set(transactions.map((t) => t.importHash).filter(Boolean));
         const previewed: SchwabPreviewRow[] = rows.map((r) => {
@@ -515,8 +522,9 @@ export function ImportPanel(props: ImportPanelProps) {
       </div>
       <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
         <p className="text-xs text-gray-400">
-          Auto-detects Chase, Bank of America, Amex, generic bank CSV, or Schwab brokerage activity.
-          Duplicates are detected by hash.
+          {mode === "schwab"
+            ? "Drop a Schwab activity CSV (Accounts → History → Transactions). Trades create lots and consume FIFO; dividends + interest become INCOME; transfers become EXPENSE; RSU vests create lots with no cost basis."
+            : "Supports Chase, Bank of America, Amex, and generic CSV exports. Duplicates are detected automatically."}
         </p>
 
         <div>
