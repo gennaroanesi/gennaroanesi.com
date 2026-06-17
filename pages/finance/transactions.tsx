@@ -172,6 +172,19 @@ export default function TransactionsPage() {
     return m;
   }, [recurrings]);
 
+  // Trade rows whose cash impact lives on a sibling EXPENSE/INCOME (linked
+  // via `notes: tradeTxId:<id>`). The trade row's stored `amount` is still
+  // the signed cash impact (needed for realizedGain), but rendering it in
+  // the Amount column would visually double-count alongside the sibling.
+  const tradeRowsWithSibling = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of transactions) {
+      const n = t.notes ?? "";
+      if (n.startsWith("tradeTxId:")) s.add(n.slice("tradeTxId:".length));
+    }
+    return s;
+  }, [transactions]);
+
   const allocations = useMemo(
     () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
     [accounts, goals, mappings, lots, quotes],
@@ -286,6 +299,11 @@ export default function TransactionsPage() {
       sortValue: (t) => t.amount ?? 0,
       align: "right",
       render: (t) => {
+        // Trade row with a cash sibling → blank the amount so the user
+        // doesn't read the same dollar value twice (sibling shows it).
+        if (isTradeType(t.type as any) && tradeRowsWithSibling.has(t.id)) {
+          return <span className="text-gray-400 text-xs">—</span>;
+        }
         const acc = accountById.get(t.accountId ?? "");
         return (
           <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(t.amount ?? 0) }}>
@@ -295,7 +313,7 @@ export default function TransactionsPage() {
       },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [accountById, recurringById, selected, toggleSelect, saveOne]);
+  ], [accountById, recurringById, selected, toggleSelect, saveOne, tradeRowsWithSibling]);
 
   const txCtl = useTableControls(filtered, {
     defaultSortKey: "date",

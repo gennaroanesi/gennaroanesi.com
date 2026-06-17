@@ -126,6 +126,18 @@ export default function AccountDetailPage() {
     [transactions, accountId],
   );
 
+  // Trade rows with a cash sibling — used by the Amount column to blank
+  // the row so the dollar value doesn't appear to repeat across two
+  // visible lines. See pages/finance/transactions.tsx for the same logic.
+  const tradeRowsWithSibling = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of accountTransactions) {
+      const n = t.notes ?? "";
+      if (n.startsWith("tradeTxId:")) s.add(n.slice("tradeTxId:".length));
+    }
+    return s;
+  }, [accountTransactions]);
+
   const tickers = useMemo(() => uniqueTickers(accountLots), [accountLots]);
 
   const aggregates = useMemo(
@@ -221,14 +233,21 @@ export default function AccountDetailPage() {
       label: "Amount",
       sortValue: (t) => t.amount ?? 0,
       align: "right",
-      render: (t) => (
-        <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(t.amount ?? 0) }}>
-          {fmtCurrency(t.amount, cur, true)}
-        </span>
-      ),
+      render: (t) => {
+        // Trade row with a cash sibling → blank so the dollar value doesn't
+        // visually double-up across the trade + sibling rows.
+        if (isTradeType(t.type as any) && tradeRowsWithSibling.has(t.id)) {
+          return <span className="text-gray-400 text-xs">—</span>;
+        }
+        return (
+          <span className="tabular-nums font-semibold whitespace-nowrap" style={{ color: amountColor(t.amount ?? 0) }}>
+            {fmtCurrency(t.amount, cur, true)}
+          </span>
+        );
+      },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [cur]);
+  ], [cur, tradeRowsWithSibling]);
 
   const txCtl = useTableControls(accountTransactions, {
     defaultSortKey: "date",
