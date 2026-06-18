@@ -7,7 +7,7 @@ import {
   HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord, LoanPaymentRecord,
   GoalFundingSourceRecord, AccountSnapshotRecord, PaycheckRecord,
   PAYCHECK_PERSON_LABELS, type PaycheckPerson,
-  FINANCE_COLOR, CADENCE_LABELS,
+  FINANCE_COLOR, CADENCE_LABELS, CADENCE_MONTH_STEP,
   PHYSICAL_ASSET_TYPE_LABELS,
   fmtCurrency, fmtDate, todayIso, addMonths, nextOccurrence, advanceByCadence, monthsUntil,
   amountColor, goalPctColor, isRecurrenceLive,
@@ -476,21 +476,41 @@ export default function FinanceDashboard() {
   const upcoming = useMemo(() => {
     const entries: UpcomingEntry[] = [];
 
-    // Recurring occurrences
+    // Recurring occurrences. We also guard against double-emission inside
+    // a single cadence interval — that happens when a rule's `nextDate`
+    // has drifted off its `startDate` anchor day (e.g. nextDate=06/30
+    // with anchor=17 → first emission lands at 06/30, the next at 07/17,
+    // only 17 days later, and both fall in the 30-day window).
     const live = recurrings.filter(isRecurrenceLive);
     for (const r of live) {
       let cur = nextOccurrence(r.nextDate ?? r.startDate ?? today, r.cadence as Cadence, r.startDate ?? undefined);
+      // Minimum gap between consecutive emissions, in days. ~75% of the
+      // cadence's natural interval — generous enough to allow ordinary
+      // month-length variance, tight enough to catch off-anchor drift.
+      const monthStep = CADENCE_MONTH_STEP[r.cadence as Cadence];
+      const minGapDays =
+        monthStep != null ? Math.round(monthStep * 28 * 0.75) :
+        r.cadence === "WEEKLY"   ? 5  :
+        r.cadence === "BIWEEKLY" ? 10 :
+        0;
+      let lastEmitted: string | null = null;
       while (cur <= in30) {
         if (r.endDate && cur > r.endDate) break;
         if (cur >= today) {
-          entries.push({
-            rec: r, tx: null, next: cur,
-            amount: r.amount ?? 0,
-            description: r.description ?? "",
-            category: r.category ?? "",
-            accountId: r.accountId ?? "",
-            cadence: r.cadence ?? null,
-          });
+          const gap = lastEmitted
+            ? Math.round((new Date(cur + "T12:00:00").getTime() - new Date(lastEmitted + "T12:00:00").getTime()) / 86400000)
+            : Infinity;
+          if (gap >= minGapDays) {
+            entries.push({
+              rec: r, tx: null, next: cur,
+              amount: r.amount ?? 0,
+              description: r.description ?? "",
+              category: r.category ?? "",
+              accountId: r.accountId ?? "",
+              cadence: r.cadence ?? null,
+            });
+            lastEmitted = cur;
+          }
         }
         const prev = cur;
         cur = advanceByCadence(cur, r.cadence as Cadence, r.startDate ?? undefined);
