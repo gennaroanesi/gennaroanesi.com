@@ -46,6 +46,11 @@ export default function RecurringPage() {
   const [draft,      setDraft]      = useState<Partial<RecurringRecord>>({});
   // Checked candidates in the match-panel multi-select.
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+  // All transactions linked to the currently-edited rule. Fetched on demand
+  // because we want every historical match (not just the 180-day window
+  // recentTxs covers).
+  const [linkedTxs,        setLinkedTxs]        = useState<TransactionRecord[]>([]);
+  const [linkedTxsLoading, setLinkedTxsLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -95,6 +100,36 @@ export default function RecurringPage() {
   function openMatch(rec: RecurringRecord) {
     setSelectedTxIds(new Set());
     setPanel({ kind: "match", rec });
+  }
+
+  // Pull every transaction linked to the edited rule (full history, not
+  // just the 180-day candidate window) whenever the edit panel opens or
+  // the rule's id changes.
+  useEffect(() => {
+    if (panel?.kind !== "edit") { setLinkedTxs([]); return; }
+    const ruleId = panel.rec.id;
+    setLinkedTxsLoading(true);
+    (async () => {
+      try {
+        const rows = await listAll(client.models.financeTransaction, { recurringId: { eq: ruleId } });
+        setLinkedTxs(rows.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")));
+      } finally {
+        setLinkedTxsLoading(false);
+      }
+    })();
+  }, [panel]);
+
+  async function handleUnlinkTx(tx: TransactionRecord) {
+    setSaving(true);
+    try {
+      await client.models.financeTransaction.update({ id: tx.id, recurringId: null });
+      setLinkedTxs((p) => p.filter((t) => t.id !== tx.id));
+      // Reflect into recentTxs too so the rule's "matched (N)" + "last
+      // matched" chips on the list page stay accurate.
+      setRecentTxs((p) => p.map((t) => t.id === tx.id ? ({ ...t, recurringId: null } as TransactionRecord) : t));
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Batch-link the checked candidates to the rule, then refetch so
@@ -606,6 +641,62 @@ export default function RecurringPage() {
                   onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} />
                 Active
               </label>
+
+              {/* Linked transactions — every tx with recurringId === rule.id.
+                  Lets the user audit history and unlink a wrong match. */}
+              {panel.kind === "edit" && (
+                <div className="border-t border-gray-200 dark:border-darkBorder pt-3">
+                  <div className="flex items-baseline justify-between mb-2">
+                    <label className={labelCls}>
+                      Linked transactions{linkedTxsLoading ? "" : ` · ${linkedTxs.length}`}
+                    </label>
+                    {linkedTxs.length > 0 && (
+                      <span className="text-[10px] text-gray-400 tabular-nums">
+                        Σ {fmtCurrency(
+                          linkedTxs.reduce((s, t) => s + (t.amount ?? 0), 0),
+                          "USD", true,
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  {linkedTxsLoading ? (
+                    <p className="text-[11px] text-gray-400 italic">Loading…</p>
+                  ) : linkedTxs.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 italic">
+                      No transactions linked yet. Use Match (N) on the rule list to bulk-link
+                      candidates, or link individual transactions from /finance/transactions.
+                    </p>
+                  ) : (
+                    <div className="rounded border border-gray-200 dark:border-darkBorder max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                      {linkedTxs.map((t) => {
+                        const acc = accounts.find((a) => a.id === t.accountId);
+                        return (
+                          <div key={t.id} className="flex items-center gap-2 px-2 py-1.5">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-gray-700 dark:text-gray-200 truncate">{t.description || "—"}</p>
+                              <p className="text-[10px] text-gray-400">
+                                {t.date ? fmtDate(t.date) : "—"} · {acc?.name ?? "—"}
+                              </p>
+                            </div>
+                            <span className="text-xs tabular-nums font-medium whitespace-nowrap"
+                              style={{ color: amountColor(t.amount ?? 0) }}>
+                              {fmtCurrency(t.amount, acc?.currency ?? "USD", true)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleUnlinkTx(t)}
+                              disabled={saving}
+                              title="Unlink this transaction from the rule"
+                              className="text-xs text-gray-400 hover:text-red-500 disabled:opacity-30 px-1"
+                            >×</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <SaveButton saving={saving} onSave={handleSave}
                 label={panel.kind === "new" ? "Create Recurring" : "Save"} />
               {panel.kind === "edit" && (

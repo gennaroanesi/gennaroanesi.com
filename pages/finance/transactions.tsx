@@ -72,10 +72,11 @@ export default function TransactionsPage() {
   const [editingTx,    setEditingTx]    = useState<TransactionRecord | null>(null);
 
   // Bulk / inline category editing
-  const [selected,     setSelected]     = useState<Set<string>>(new Set());
-  const [bulkCategory, setBulkCategory] = useState("");
-  const [bulkGroup,    setBulkGroup]    = useState("");
-  const [savingCats,   setSavingCats]   = useState(false);
+  const [selected,        setSelected]        = useState<Set<string>>(new Set());
+  const [bulkCategory,    setBulkCategory]    = useState("");
+  const [bulkGroup,       setBulkGroup]       = useState("");
+  const [bulkRecurringId, setBulkRecurringId] = useState("");
+  const [savingCats,      setSavingCats]      = useState(false);
 
   const saveCategory = useCallback(async (ids: string[], category: string) => {
     const value = category.trim() || null;
@@ -99,14 +100,30 @@ export default function TransactionsPage() {
       }
     } finally { setSavingCats(false); }
   }, []);
+  // Bulk-link to a recurring rule (or unlink when recurringId is null).
+  // Doesn't advance the rule's nextDate — that lives in applyRecurringMatch
+  // and we don't want to drift the schedule from a bulk-correct action.
+  const saveRecurring = useCallback(async (ids: string[], recurringId: string | null) => {
+    setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, recurringId } as TransactionRecord) : t)));
+    setSavingCats(true);
+    try {
+      for (const id of ids) {
+        try { await client.models.financeTransaction.update({ id, recurringId }); }
+        catch (e) { console.error("recurring link update failed", id, e); }
+      }
+    } finally { setSavingCats(false); }
+  }, []);
   const toggleSelect = useCallback((id: string) => {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
 
   // Filters
-  const [filterAccount, setFilterAccount] = useState<string>("");
-  const [filterStatus,  setFilterStatus]  = useState<string>("");
-  const [filterType,    setFilterType]    = useState<string>("");
+  const [filterAccount,   setFilterAccount]   = useState<string>("");
+  const [filterStatus,    setFilterStatus]    = useState<string>("");
+  const [filterType,      setFilterType]      = useState<string>("");
+  // Recurring-link filter: "" = all, "unlinked" = no rule, "linked" = any
+  // rule, or a specific recurring rule id.
+  const [filterRecurring, setFilterRecurring] = useState<string>("");
 
   // ── Data fetching ─────────────────────────────────────────────────────────
 
@@ -156,8 +173,14 @@ export default function TransactionsPage() {
     () => transactions
       .filter((t) => !filterAccount || t.accountId === filterAccount)
       .filter((t) => !filterStatus  || t.status    === filterStatus)
-      .filter((t) => !filterType    || t.type      === filterType),
-    [transactions, filterAccount, filterStatus, filterType],
+      .filter((t) => !filterType    || t.type      === filterType)
+      .filter((t) => {
+        if (!filterRecurring)            return true;
+        if (filterRecurring === "unlinked") return !t.recurringId;
+        if (filterRecurring === "linked")   return !!t.recurringId;
+        return t.recurringId === filterRecurring;
+      }),
+    [transactions, filterAccount, filterStatus, filterType, filterRecurring],
   );
 
   const accountById = useMemo(() => {
@@ -339,7 +362,7 @@ export default function TransactionsPage() {
   });
 
   const hasActiveFilter =
-    !!filterAccount || !!filterStatus || !!filterType || !!txCtl.search.trim();
+    !!filterAccount || !!filterStatus || !!filterType || !!filterRecurring || !!txCtl.search.trim();
   // Skip trade cash/fee siblings (linked to a parent trade via
   // `notes: tradeTxId:...`) so the visible Σ doesn't double-count the
   // cash impact alongside its parent BUY/SELL row.
@@ -434,6 +457,15 @@ export default function TransactionsPage() {
               <option value="BUY">Buy</option>
               <option value="SELL">Sell</option>
             </select>
+            <select className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300"
+              value={filterRecurring} onChange={(e) => setFilterRecurring(e.target.value)}>
+              <option value="">All recurring</option>
+              <option value="unlinked">Unlinked only</option>
+              <option value="linked">Linked (any rule)</option>
+              {recurrings.filter((r) => r.active !== false).map((r) => (
+                <option key={r.id} value={r.id}>↳ {r.description}</option>
+              ))}
+            </select>
             <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 select-none">
               <input
                 type="checkbox"
@@ -492,6 +524,31 @@ export default function TransactionsPage() {
                     style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
                   >
                     {savingCats ? "Applying…" : "Set group"}
+                  </button>
+                </>
+              )}
+
+              {recurrings.filter((r) => r.active !== false).length > 0 && (
+                <>
+                  <span className="text-gray-300 dark:text-darkBorder">|</span>
+                  <select
+                    value={bulkRecurringId}
+                    onChange={(e) => setBulkRecurringId(e.target.value)}
+                    className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-700 dark:text-gray-200"
+                  >
+                    <option value="">Link to recurring…</option>
+                    <option value="__none__">— None (unlink) —</option>
+                    {recurrings.filter((r) => r.active !== false).map((r) => (
+                      <option key={r.id} value={r.id}>{r.description}</option>
+                    ))}
+                  </select>
+                  <button
+                    disabled={!bulkRecurringId || savingCats}
+                    onClick={async () => { await saveRecurring([...selected], bulkRecurringId === "__none__" ? null : bulkRecurringId); setBulkRecurringId(""); setSelected(new Set()); }}
+                    className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
+                    style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                  >
+                    {savingCats ? "Applying…" : "Link"}
                   </button>
                 </>
               )}
