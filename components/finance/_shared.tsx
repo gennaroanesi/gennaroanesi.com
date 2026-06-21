@@ -1276,14 +1276,15 @@ export async function applyRecurringMatch(
 
   const cadence = rule.cadence as Cadence | null;
   const seed    = rule.nextDate ?? rule.startDate ?? tx.date;
-  const anchor  = rule.startDate ?? seed;
-  // Never rewind — only advance if tx.date is on or after the rule's nextDate
+  // Never rewind — only advance if tx.date is on or after the rule's nextDate.
+  // Anchor follows the current value's day-of-month (not startDate), so user
+  // edits to nextDate carry forward through subsequent advances.
   if (cadence && tx.date >= seed) {
     let next = seed;
     let guard = 0;
     // Walk forward until we're strictly after tx.date
     while (next <= tx.date && guard++ < 240) {
-      next = advanceByCadence(next, cadence, anchor);
+      next = advanceByCadence(next, cadence);
     }
     const patch: Partial<RecurringRecord> = { nextDate: next };
     if (rule.endDate && next > rule.endDate) patch.active = false;
@@ -1507,18 +1508,19 @@ export function projectBalance(
   for (const rule of myRules) {
     const cadence = rule.cadence as Cadence;
     const seed = rule.nextDate ?? rule.startDate ?? todayStr;
-    const anchor = rule.startDate ?? seed;
     const amount = rule.amount ?? 0;
 
-    // Roll to first occurrence ≥ today
-    let occ = nextOccurrence(seed, cadence, anchor);
+    // Roll to first occurrence ≥ today. Anchor follows the current value
+    // so manual edits to nextDate carry forward instead of snapping back
+    // to the original startDate anchor day.
+    let occ = nextOccurrence(seed, cadence);
     // Safety cap — cadence-based advance is always finite but defend anyway
     let guard = 0;
     while (occ <= horizonEnd && guard++ < 1000) {
       if (rule.endDate && occ > rule.endDate) break;
       deterministic += amount;
       recurringDates.add(occ);
-      const next = advanceByCadence(occ, cadence, anchor);
+      const next = advanceByCadence(occ, cadence);
       if (next <= occ) break;   // guard against stalls
       occ = next;
     }

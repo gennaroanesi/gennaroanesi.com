@@ -197,12 +197,14 @@ export default function RecurringPage() {
         await client.models.financeAccount.update({ id: acc.id, currentBalance: newBal });
         setAccounts((p) => p.map((a) => a.id === acc.id ? { ...a, currentBalance: newBal } : a));
       }
-      // Advance nextDate past today, preserving the startDate's day-of-month anchor
+      // Advance nextDate past today using the current value's own day-of-
+      // month as the anchor. Respects manual edits to nextDate (e.g. a
+      // user-shifted late payment date carries forward) rather than
+      // snapping back to startDate's original anchor.
       const cadence = rec.cadence as Cadence;
-      const anchor  = rec.startDate ?? rec.nextDate ?? today;
       let advancedNext = rec.nextDate ?? rec.startDate ?? today;
       while (advancedNext <= today) {
-        advancedNext = advanceByCadence(advancedNext, cadence, anchor);
+        advancedNext = advanceByCadence(advancedNext, cadence);
       }
 
       // If the new next occurrence passes the recurrence's end date, deactivate it.
@@ -233,7 +235,7 @@ export default function RecurringPage() {
     [accounts],
   );
   const nextDate = useCallback(
-    (r: RecurringRecord) => nextOccurrence(r.nextDate ?? r.startDate ?? todayIso(), r.cadence as Cadence, r.startDate ?? undefined),
+    (r: RecurringRecord) => nextOccurrence(r.nextDate ?? r.startDate ?? todayIso(), r.cadence as Cadence),
     [],
   );
 
