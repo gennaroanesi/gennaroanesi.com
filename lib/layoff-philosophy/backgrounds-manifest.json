@@ -1,0 +1,41 @@
+{
+  "bucket": "gennaroanesi.com",
+  "region": "us-east-1",
+  "urlBase": "https://s3.amazonaws.com/gennaroanesi.com/",
+  "prefix": "public/layoff-philosophy/backgrounds/",
+  "generatedAt": "2026-05-16T22:20:32.550Z",
+  "categories": {
+    "emptiness": [
+      "abandoned-office-building-29791857.mp4",
+      "abandoned-office-building-30157892.mp4",
+      "empty-office-dark-8347238.mp4",
+      "empty-office-dark-8347239.mp4",
+      "vacant-desk-10567194.mp4",
+      "vacant-desk-9655673.mp4"
+    ],
+    "machine": [
+      "corporate-hallway-6429455.mp4",
+      "corporate-hallway-7652205.mp4",
+      "elevator-doors-corporate-36320055.mp4",
+      "elevator-doors-corporate-8453060.mp4",
+      "glass-office-building-night-19816673.mp4",
+      "glass-office-building-night-5827623.mp4"
+    ],
+    "exit": [
+      "exit-door-office-33997150.mp4",
+      "exit-door-office-8561462.mp4",
+      "person-leaving-building-29539136.mp4",
+      "person-leaving-building-9616871.mp4",
+      "walking-away-hallway-16252758.mp4",
+      "walking-away-hallway-8983989.mp4"
+    ],
+    "contemplation": [
+      "coffee-alone-moody-35027280.mp4",
+      "coffee-alone-moody-35027281.mp4",
+      "person-looking-out-window-6845889.mp4",
+      "person-looking-out-window-8395239.mp4",
+      "rain-on-window-office-18075634.mp4",
+      "rain-on-window-office-32285455.mp4"
+    ]
+  }
+}

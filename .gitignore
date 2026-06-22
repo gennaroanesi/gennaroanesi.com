@@ -31,6 +31,7 @@ temp/
 .xls
 .xlsx
 
-# remotion
+# remotion / layoff-philosophy backgrounds
 out/
+public/backgrounds/
 

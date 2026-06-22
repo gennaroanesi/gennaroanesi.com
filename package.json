@@ -17,7 +17,10 @@
     "seed-para-household": "node scripts/seed-para-household.mjs",
     "seed-para": "node scripts/seed-para.mjs",
     "remotion:preview": "remotion studio remotion/index.ts --port=3001",
-    "remotion:render": "remotion render remotion/index.ts LayoffQuote"
+    "remotion:render": "remotion render remotion/index.ts LayoffQuote",
+    "lp:fetch-bg": "node --env-file=.env.local scripts/fetch_pexels_backgrounds.mjs",
+    "lp:sync-bg-s3": "node scripts/sync_backgrounds_s3.mjs",
+    "lp:render": "tsx scripts/render_reels.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
