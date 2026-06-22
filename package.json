@@ -15,7 +15,9 @@
     "parse-cifp": "node scripts/parse-cifp.mjs",
     "seed-cifp": "node scripts/seed-cifp.mjs",
     "seed-para-household": "node scripts/seed-para-household.mjs",
-    "seed-para": "node scripts/seed-para.mjs"
+    "seed-para": "node scripts/seed-para.mjs",
+    "remotion:preview": "remotion studio remotion/index.ts --port=3001",
+    "remotion:render": "remotion render remotion/index.ts LayoffQuote"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -45,6 +47,9 @@
     "@heroui/system": "2.4.13",
     "@heroui/theme": "2.4.13",
     "@react-aria/visually-hidden": "3.8.12",
+    "@remotion/bundler": "^4.0.482",
+    "@remotion/cli": "^4.0.482",
+    "@remotion/renderer": "^4.0.482",
     "@types/marked": "^5.0.2",
     "@types/uuid": "^10.0.0",
     "@vis.gl/react-google-maps": "^1.7.1",
@@ -79,12 +84,14 @@
     "react-markdown": "^9.1.0",
     "react-svg": "^16.3.0",
     "recharts": "^3.8.1",
+    "remotion": "^4.0.482",
     "sharp": "^0.34.0",
     "slugify": "^1.6.6",
     "uuid": "^10.0.0",
     "xlsx": "^0.18.5",
     "xml2js": "^0.6.2",
-    "yahoo-finance2": "^3.14.0"
+    "yahoo-finance2": "^3.14.0",
+    "zod": "^3.25.17"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.14.3",

@@ -30,3 +30,7 @@ temp/
 
 .xls
 .xlsx
+
+# remotion
+out/
+
