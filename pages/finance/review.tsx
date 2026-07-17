@@ -371,7 +371,19 @@ export default function ReviewPage() {
                       <div className="flex items-center gap-3 whitespace-nowrap">
                         <span className="text-sm font-medium" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(s.medianAmount)}</span>
                         <NextLink
-                          href="/finance/recurring?new=1"
+                          href={{
+                            pathname: "/finance/recurring",
+                            query: {
+                              new: "1",
+                              description:  s.label,
+                              amount:       s.medianAmount.toFixed(2),
+                              accountId:    s.accountId,
+                              cadence:      s.cadenceEnum,
+                              startDate:    s.firstDate,
+                              lastDate:     s.lastDate,
+                              matchPattern: s.key,
+                            },
+                          }}
                           className="text-xs hover:underline"
                           style={{ color: FINANCE_COLOR }}
                         >

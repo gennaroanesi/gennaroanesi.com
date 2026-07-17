@@ -82,13 +82,42 @@ export default function RecurringPage() {
   useEffect(() => {
     if (!router.isReady) return;
     if (router.query.new === "1") {
-      openNew();
+      const q = router.query;
+      const s = (v: unknown) => (typeof v === "string" ? v : undefined);
+      const cadence = (s(q.cadence) as Cadence | undefined) ?? "MONTHLY";
+      const startDate = s(q.startDate) ?? todayIso();
+      const lastDate = s(q.lastDate);
+      // If we have a lastDate, project the next occurrence forward from
+      // there so nextDate lands on a real future cycle (not today).
+      let nextDate = todayIso();
+      if (lastDate) {
+        try {
+          nextDate = nextOccurrence(advanceByCadence(lastDate, cadence, startDate), cadence, startDate);
+        } catch { /* fall back to today */ }
+      }
+      const amtNum = q.amount != null ? parseFloat(String(q.amount)) : NaN;
+      openNew({
+        description:  s(q.description),
+        amount:       Number.isFinite(amtNum) ? amtNum : undefined,
+        accountId:    s(q.accountId),
+        cadence,
+        startDate,
+        nextDate,
+        matchPattern: s(q.matchPattern),
+      });
       router.replace("/finance/recurring", undefined, { shallow: true });
     }
   }, [router.isReady, router.query.new]);
 
-  function openNew() {
-    setDraft({ active: true, type: "EXPENSE" as any, cadence: "MONTHLY" as any, startDate: todayIso(), nextDate: todayIso() });
+  function openNew(prefill?: Partial<RecurringRecord>) {
+    setDraft({
+      active:    true,
+      type:      "EXPENSE" as any,
+      cadence:   "MONTHLY" as any,
+      startDate: todayIso(),
+      nextDate:  todayIso(),
+      ...prefill,
+    });
     setPanel({ kind: "new" });
   }
 
@@ -459,7 +488,7 @@ export default function RecurringPage() {
                 </p>
               )}
             </div>
-            <button onClick={openNew} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
+            <button onClick={() => openNew()} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
               + Add Recurring
             </button>
           </div>

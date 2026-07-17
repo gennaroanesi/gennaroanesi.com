@@ -277,6 +277,15 @@ function cadenceLabelFromGap(medianGapDays: number): string {
   return "~annually";
 }
 
+function cadenceEnumFromGap(medianGapDays: number): Cadence {
+  if (medianGapDays <= 10) return "WEEKLY";
+  if (medianGapDays <= 20) return "BIWEEKLY";
+  if (medianGapDays <= 45) return "MONTHLY";
+  if (medianGapDays <= 135) return "QUARTERLY";
+  if (medianGapDays <= 270) return "SEMIANNUALLY";
+  return "ANNUALLY";
+}
+
 function median(nums: number[]): number {
   if (!nums.length) return 0;
   const s = [...nums].sort((a, b) => a - b);
@@ -287,11 +296,14 @@ function median(nums: number[]): number {
 export type RecurringSuggestion = {
   key: string;
   label: string;
+  accountId: string;         // most-frequent account across matched charges
   accountName: string;
   occurrences: number;
   months: number;
   medianAmount: number;
-  cadence: string;
+  cadence: string;           // display label (~monthly)
+  cadenceEnum: Cadence;      // enum form for pre-filling the recurring form
+  firstDate: string;
   lastDate: string;
 };
 
@@ -313,7 +325,7 @@ export function detectRecurringSuggestions(
   const fromIso = fromDate.toISOString().slice(0, 10);
   const window: DateRange = { fromIso, toIso: asOfIso, label: "" };
 
-  type Group = { label: string; accountName: string; dates: string[]; amounts: number[] };
+  type Group = { label: string; dates: string[]; amounts: number[]; accountIds: string[] };
   const groups = new Map<string, Group>();
 
   for (const tx of txs) {
@@ -324,13 +336,10 @@ export function detectRecurringSuggestions(
     const desc = (tx.description ?? "").trim();
     const key = normalizeMerchant(desc);
     if (!key) continue;
-    const g = groups.get(key) ?? {
-      label: desc || key,
-      accountName: acctById.get(tx.accountId)?.name ?? "Unknown",
-      dates: [], amounts: [],
-    };
+    const g = groups.get(key) ?? { label: desc || key, dates: [], amounts: [], accountIds: [] };
     g.dates.push(tx.date as string);
     g.amounts.push(v);
+    g.accountIds.push(tx.accountId as string);
     groups.set(key, g);
   }
 
@@ -355,14 +364,23 @@ export function detectRecurringSuggestions(
     for (let i = 1; i < sortedDates.length; i++) {
       gaps.push(Math.round((Date.parse(`${sortedDates[i]}T00:00:00Z`) - Date.parse(`${sortedDates[i - 1]}T00:00:00Z`)) / 86400000));
     }
+    const medianGap = median(gaps);
+    // Mode of accountIds: most-frequent account across the group's charges,
+    // ties broken by whichever appeared first.
+    const acctCounts = new Map<string, number>();
+    for (const id of g.accountIds) acctCounts.set(id, (acctCounts.get(id) ?? 0) + 1);
+    const modeAcctId = [...acctCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? g.accountIds[0];
     out.push({
       key,
       label: g.label,
-      accountName: g.accountName,
+      accountId: modeAcctId,
+      accountName: acctById.get(modeAcctId)?.name ?? "Unknown",
       occurrences: g.amounts.length,
       months: months.size,
       medianAmount: med,
-      cadence: cadenceLabelFromGap(median(gaps)),
+      cadence: cadenceLabelFromGap(medianGap),
+      cadenceEnum: cadenceEnumFromGap(medianGap),
+      firstDate: sortedDates[0],
       lastDate: sortedDates[sortedDates.length - 1],
     });
   }
