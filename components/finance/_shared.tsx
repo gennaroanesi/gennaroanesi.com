@@ -1130,13 +1130,21 @@ export function scoreTransactionAgainstRecurring(
   }
 
   // ── Amount ───────────────────────────────────────────────────────────
+  // For rules WITHOUT a match pattern, amount is the primary "same bill"
+  // signal — enforce strictly (±5%) or the rule matches half the ledger.
+  // For rules WITH a pattern, the pattern already scoped which txs we're
+  // considering, so tolerate variable amounts (utilities / gas / water bills
+  // routinely swing 20-50% cycle-to-cycle). Reject only wild outliers.
   const absTx   = Math.abs(txAmt);
   const absRule = Math.abs(ruleAmt);
   const amtDelta = Math.abs(absTx - absRule);
   const amtPct   = absRule > 0 ? amtDelta / absRule : 1;
+  const hasPattern = !!(rule.matchPattern && rule.matchPattern.trim());
   if (amtPct < 0.01) { score += 35; reasons.push("amount exact (≤1%)"); }
   else if (amtPct < 0.05) { score += 20; reasons.push("amount close (≤5%)"); }
-  else { return { score: 0, reasons: [] }; } // amount mismatch ends it
+  else if (hasPattern && amtPct < 0.25) { score += 15; reasons.push("amount within ±25% (variable bill)"); }
+  else if (hasPattern && amtPct < 0.75) { score += 5;  reasons.push("amount within ±75% (variable bill)"); }
+  else { return { score: 0, reasons: [] }; } // amount too far off to be the same bill
 
   // ── Date proximity ───────────────────────────────────────────────────
   const ruleNext = rule.nextDate ?? rule.startDate ?? "";
