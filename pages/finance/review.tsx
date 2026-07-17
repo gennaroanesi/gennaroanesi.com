@@ -357,7 +357,7 @@ export default function ReviewPage() {
               <div className={`${CARD} mt-3 border-dashed`}>
                 <p className="text-xs text-gray-400 mb-2">
                   Looks recurring — no rule yet{" "}
-                  <span className="text-gray-400/70">(repeats monthly with a steady amount; last 12 months)</span>
+                  <span className="text-gray-400/70">(repeats monthly at a near-identical amount; last 12 months)</span>
                 </p>
                 <div className="divide-y divide-gray-100 dark:divide-darkBorder">
                   {recurringSuggestions.map((s) => (

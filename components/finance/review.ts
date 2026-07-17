@@ -340,9 +340,16 @@ export function detectRecurringSuggestions(
     if (g.amounts.length < 3 || months.size < 3) continue;     // needs real repetition
     const med = median(g.amounts);
     if (med < 15) continue;                                    // ignore trivial amounts
-    // Stability: ≥60% of charges within ±20% of the median (filters variable spend like groceries).
-    const stable = g.amounts.filter((a) => Math.abs(a - med) <= 0.2 * med).length;
-    if (stable / g.amounts.length < 0.6) continue;
+    // Stability: ≥85% of charges within ±10% of the median. Real subscriptions
+    // (Netflix, gym, insurance) hit near-identical amounts every cycle;
+    // variable spend (groceries, restaurants, utilities with heavy usage swings)
+    // fails this and gets filtered out. Also guard against a big outlier by
+    // capping the max/min ratio at 2×.
+    const stable = g.amounts.filter((a) => Math.abs(a - med) <= 0.1 * med).length;
+    if (stable / g.amounts.length < 0.85) continue;
+    const minA = Math.min(...g.amounts);
+    const maxA = Math.max(...g.amounts);
+    if (minA > 0 && maxA / minA > 2) continue;
     const sortedDates = [...g.dates].sort();
     const gaps: number[] = [];
     for (let i = 1; i < sortedDates.length; i++) {
