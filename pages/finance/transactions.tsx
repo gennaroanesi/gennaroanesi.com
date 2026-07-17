@@ -118,12 +118,20 @@ export default function TransactionsPage() {
   }, []);
 
   // Filters
-  const [filterAccount,   setFilterAccount]   = useState<string>("");
-  const [filterStatus,    setFilterStatus]    = useState<string>("");
-  const [filterType,      setFilterType]      = useState<string>("");
+  const [filterAccount,     setFilterAccount]     = useState<string>("");
+  const [filterAccountType, setFilterAccountType] = useState<string>("");
+  const [filterStatus,      setFilterStatus]      = useState<string>("");
+  const [filterType,        setFilterType]        = useState<string>("");
   // Recurring-link filter: "" = all, "unlinked" = no rule, "linked" = any
   // rule, or a specific recurring rule id.
   const [filterRecurring, setFilterRecurring] = useState<string>("");
+  // Date-range filter (inclusive). Empty string = unbounded on that side.
+  // Transaction.date is stored as YYYY-MM-DD, so string compare works.
+  const [filterFromDate,  setFilterFromDate]  = useState<string>("");
+  const [filterToDate,    setFilterToDate]    = useState<string>("");
+
+  // Bulk-delete progress state
+  const [deletingBulk, setDeletingBulk] = useState(false);
 
   // ── Data fetching ─────────────────────────────────────────────────────────
 
@@ -169,18 +177,27 @@ export default function TransactionsPage() {
 
   // ── Derived data ──────────────────────────────────────────────────────────
 
+  const accountTypeById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accounts) m.set(a.id, a.type ?? "");
+    return m;
+  }, [accounts]);
+
   const filtered = useMemo(
     () => transactions
-      .filter((t) => !filterAccount || t.accountId === filterAccount)
-      .filter((t) => !filterStatus  || t.status    === filterStatus)
-      .filter((t) => !filterType    || t.type      === filterType)
+      .filter((t) => !filterAccount     || t.accountId === filterAccount)
+      .filter((t) => !filterAccountType || accountTypeById.get(t.accountId ?? "") === filterAccountType)
+      .filter((t) => !filterStatus      || t.status    === filterStatus)
+      .filter((t) => !filterType        || t.type      === filterType)
+      .filter((t) => !filterFromDate    || (t.date ?? "") >= filterFromDate)
+      .filter((t) => !filterToDate      || (t.date ?? "") <= filterToDate)
       .filter((t) => {
         if (!filterRecurring)            return true;
         if (filterRecurring === "unlinked") return !t.recurringId;
         if (filterRecurring === "linked")   return !!t.recurringId;
         return t.recurringId === filterRecurring;
       }),
-    [transactions, filterAccount, filterStatus, filterType, filterRecurring],
+    [transactions, filterAccount, filterAccountType, filterStatus, filterType, filterFromDate, filterToDate, filterRecurring, accountTypeById],
   );
 
   const accountById = useMemo(() => {
@@ -362,7 +379,41 @@ export default function TransactionsPage() {
   });
 
   const hasActiveFilter =
-    !!filterAccount || !!filterStatus || !!filterType || !!filterRecurring || !!txCtl.search.trim();
+    !!filterAccount || !!filterAccountType || !!filterStatus || !!filterType ||
+    !!filterRecurring || !!filterFromDate || !!filterToDate || !!txCtl.search.trim();
+
+  const deleteSelected = useCallback(async () => {
+    if (selected.size === 0 || deletingBulk) return;
+    const count = selected.size;
+    const ok = confirm(
+      `Delete ${count} transaction${count === 1 ? "" : "s"}?\n\n` +
+      `⚠️  Account balances will NOT be recomputed. You may need to adjust ` +
+      `each affected account's currentBalance manually.\n\n` +
+      `This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeletingBulk(true);
+    const ids = [...selected];
+    const failed: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          await client.models.financeTransaction.delete({ id });
+        } catch (e) {
+          console.error("delete failed", id, e);
+          failed.push(id);
+        }
+      }
+      const failedSet = new Set(failed);
+      setTransactions((prev) => prev.filter((t) => !ids.includes(t.id) || failedSet.has(t.id)));
+      setSelected(failedSet);
+      if (failed.length > 0) {
+        alert(`Deleted ${ids.length - failed.length}. ${failed.length} failed — see console.`);
+      }
+    } finally {
+      setDeletingBulk(false);
+    }
+  }, [selected, deletingBulk]);
   // Skip trade cash/fee siblings (linked to a parent trade via
   // `notes: tradeTxId:...`) so the visible Σ doesn't double-count the
   // cash impact alongside its parent BUY/SELL row.
@@ -443,6 +494,18 @@ export default function TransactionsPage() {
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
             <select className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300"
+              value={filterAccountType} onChange={(e) => setFilterAccountType(e.target.value)}>
+              <option value="">All account types</option>
+              <option value="CHECKING">Checking</option>
+              <option value="SAVINGS">Savings</option>
+              <option value="CREDIT">Credit</option>
+              <option value="BROKERAGE">Brokerage</option>
+              <option value="RETIREMENT">Retirement</option>
+              <option value="LOAN">Loan</option>
+              <option value="CASH">Cash</option>
+              <option value="OTHER">Other</option>
+            </select>
+            <select className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300"
               value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="">All statuses</option>
               <option value="POSTED">Posted</option>
@@ -466,6 +529,31 @@ export default function TransactionsPage() {
                 <option key={r.id} value={r.id}>↳ {r.description}</option>
               ))}
             </select>
+            <div className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+              <span>From</span>
+              <input
+                type="date"
+                value={filterFromDate}
+                onChange={(e) => setFilterFromDate(e.target.value)}
+                className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated px-2 py-1 text-gray-600 dark:text-gray-300"
+              />
+              <span>to</span>
+              <input
+                type="date"
+                value={filterToDate}
+                onChange={(e) => setFilterToDate(e.target.value)}
+                className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated px-2 py-1 text-gray-600 dark:text-gray-300"
+              />
+              {(filterFromDate || filterToDate) && (
+                <button
+                  onClick={() => { setFilterFromDate(""); setFilterToDate(""); }}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 px-1"
+                  title="Clear date range"
+                >
+                  ×
+                </button>
+              )}
+            </div>
             <label className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 select-none">
               <input
                 type="checkbox"
@@ -552,6 +640,16 @@ export default function TransactionsPage() {
                   </button>
                 </>
               )}
+
+              <span className="text-gray-300 dark:text-darkBorder">|</span>
+              <button
+                onClick={deleteSelected}
+                disabled={deletingBulk}
+                className="rounded px-3 py-1 text-xs font-medium border border-red-500/40 text-red-500 hover:bg-red-500/10 disabled:opacity-50"
+                title="Delete selected transactions. Account balances will NOT be recomputed."
+              >
+                {deletingBulk ? "Deleting…" : `Delete ${selected.size}`}
+              </button>
 
               <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:underline">Clear</button>
             </div>
