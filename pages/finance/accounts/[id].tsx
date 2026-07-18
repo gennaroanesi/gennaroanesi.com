@@ -361,6 +361,7 @@ export default function AccountDetailPage() {
         statementClosingDay: isCredit  ? accDraft.statementClosingDay ?? null : null,
         apr:                 isCredit  ? accDraft.apr                 ?? null : null,
         apy:                 isSavings ? accDraft.apy                 ?? null : null,
+        simplefinAccountId:  accDraft.simplefinAccountId ?? null,
       };
       await client.models.financeAccount.update(payload);
       setAccount((a) => a ? { ...a, ...accDraft } as AccountRecord : a);
@@ -1143,6 +1144,15 @@ export default function AccountDetailPage() {
                       <input type="text" className={inputCls} placeholder="Last 4 digits, bank name…"
                         value={accDraft.notes ?? ""}
                         onChange={(e) => setAccDraft((d) => ({ ...d, notes: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>SimpleFIN account id</label>
+                      <input type="text" className={inputCls} placeholder="ACT-… (leave blank to skip auto-pull)"
+                        value={accDraft.simplefinAccountId ?? ""}
+                        onChange={(e) => setAccDraft((d) => ({ ...d, simplefinAccountId: e.target.value.trim() || null as any }))} />
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Set from <code>npm run sf:probe</code> output. Only accounts with a value here get pulled.
+                      </p>
                     </div>
                     <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
                       <input type="checkbox" checked={accDraft.active ?? true}

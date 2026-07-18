@@ -475,6 +475,11 @@ const schema = a.schema({
       statementClosingDay: a.integer(), // CREDIT only: day-of-month (1-31) the statement closes
       apr: a.float(), // CREDIT only: annual percentage rate as decimal (0.2499 for 24.99%)
       apy: a.float(), // SAVINGS only: annual percentage yield as decimal (0.04 for 4%)
+      // SimpleFIN Bridge account id (e.g. "ACT-abc123-..."). When set, the
+      // daily simplefin pull inserts transactions for this account. Leave
+      // blank to skip an account (e.g. investment accounts you'd rather
+      // keep on the CSV import flow).
+      simplefinAccountId: a.string(),
     })
     .authorization((allow) => [allow.group("admins")]),
 
