@@ -45,7 +45,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
 
   return (
     <DefaultLayout>
-      <div className="flex flex-col md:flex-row h-[calc(100vh-4rem)]">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0">
 
         {/* ── Mobile top tab bar ──────────────────────────────────────────── */}
         <nav className="md:hidden flex items-center overflow-x-auto border-b border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface flex-shrink-0 px-1">

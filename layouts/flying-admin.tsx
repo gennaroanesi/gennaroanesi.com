@@ -23,7 +23,7 @@ export default function FlyingAdminLayout({ children }: { children: React.ReactN
 
   return (
     <DefaultLayout>
-      <div className="flex flex-col md:flex-row h-[calc(100vh-4rem)]">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0">
 
         {/* ── Mobile top tab bar ──────────────────────────────────────── */}
         <nav className="md:hidden flex items-center border-b border-darkBorder bg-darkSurface flex-shrink-0 px-1">
