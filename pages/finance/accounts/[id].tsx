@@ -25,6 +25,37 @@ import { ImportPanel } from "@/components/finance/ImportPanel";
 import type { TxType } from "@/components/finance/_shared";
 import { isTradeType, realizedGain } from "@/components/finance/_shared";
 
+/** Compact relative time — "just now" / "5m ago" / "3h ago" / "2d ago" /
+ *  falls back to YYYY-MM-DD for anything older than a week. */
+function fmtTimeAgo(iso?: string | null): string {
+  if (!iso) return "never";
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return "never";
+  const s = Math.floor((Date.now() - then) / 1000);
+  if (s < 45) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+  return iso.slice(0, 10);
+}
+
+/** Format lastSimplefinSyncDetails (JSON string) as a tooltip line summarizing
+ *  the last run: window + tx counts + whether balance was written. */
+function parseSyncDetailsHint(raw?: string | null): string {
+  if (!raw) return "No sync details recorded.";
+  try {
+    const d = JSON.parse(raw);
+    const bits = [];
+    if (d.fromIso && d.toIso) bits.push(`window ${d.fromIso} → ${d.toIso}`);
+    if (d.txTotal != null) bits.push(`${d.txTotal} tx from SF (${d.txNew ?? 0} new, ${d.duplicates ?? 0} dup)`);
+    if (d.balanceUpdated) bits.push("balance updated");
+    else if (d.balanceSkipped) bits.push("balance skipped (investment)");
+    return bits.join(" · ") || "Last sync details empty.";
+  } catch {
+    return "Last sync details unparseable.";
+  }
+}
+
 type PanelState =
   | { kind: "new-lot" }
   | { kind: "edit-lot";    lot: HoldingLotRecord }
@@ -347,12 +378,17 @@ export default function AccountDetailPage() {
     try {
       const isCredit  = accDraft.type === "CREDIT";
       const isSavings = accDraft.type === "SAVINGS";
+      const nextBalance = accDraft.currentBalance ?? 0;
+      // Stamp balanceUpdatedAt only when the balance actually changes so
+      // routine metadata edits (e.g. renaming the account) don't reset it.
+      const balanceChanged = Math.abs(nextBalance - (account.currentBalance ?? 0)) > 0.005;
+      const nowIso = new Date().toISOString();
       const payload = {
         id:                  account.id,
         name:                accDraft.name!,
         type:                (accDraft.type ?? "CHECKING") as any,
         retirementType:      (accDraft.type === "RETIREMENT" ? accDraft.retirementType ?? null : null) as any,
-        currentBalance:      accDraft.currentBalance ?? 0,
+        currentBalance:      nextBalance,
         currency:            accDraft.currency ?? "USD",
         notes:               accDraft.notes ?? null,
         active:              accDraft.active ?? true,
@@ -362,9 +398,14 @@ export default function AccountDetailPage() {
         apr:                 isCredit  ? accDraft.apr                 ?? null : null,
         apy:                 isSavings ? accDraft.apy                 ?? null : null,
         simplefinAccountId:  accDraft.simplefinAccountId ?? null,
+        ...(balanceChanged ? { balanceUpdatedAt: nowIso } : {}),
       };
       await client.models.financeAccount.update(payload);
-      setAccount((a) => a ? { ...a, ...accDraft } as AccountRecord : a);
+      setAccount((a) => a ? {
+        ...a,
+        ...accDraft,
+        ...(balanceChanged ? { balanceUpdatedAt: nowIso } : {}),
+      } as AccountRecord : a);
       setPanel(null);
     } finally {
       setSaving(false);
@@ -602,6 +643,16 @@ export default function AccountDetailPage() {
                     <p className="text-[11px] text-amber-500">Prices may be stale — refresh to update</p>
                   )}
                 </>
+              )}
+            </div>
+            {/* Freshness caption: when the balance we're staring at was last
+                written, and when we last hit SimpleFIN for this account. */}
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-400">
+              <span>Balance updated {fmtTimeAgo(account.balanceUpdatedAt)}</span>
+              {account.simplefinAccountId && (
+                <span title={parseSyncDetailsHint(account.lastSimplefinSyncDetails)}>
+                  SF sync {fmtTimeAgo(account.lastSimplefinSyncAt)}
+                </span>
               )}
             </div>
           </div>

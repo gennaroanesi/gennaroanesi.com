@@ -480,6 +480,17 @@ const schema = a.schema({
       // blank to skip an account (e.g. investment accounts you'd rather
       // keep on the CSV import flow).
       simplefinAccountId: a.string(),
+      // Timestamp of the last currentBalance write, from any source (manual
+      // edit on the account form, SimpleFIN sync, etc). Answers "how fresh
+      // is the number I'm looking at?".
+      balanceUpdatedAt: a.datetime(),
+      // SimpleFIN pull bookkeeping — stamped for every mapped account on
+      // each successful sf:pull run, regardless of whether new txs landed.
+      lastSimplefinSyncAt: a.datetime(),
+      // JSON-stringified run summary: { fromIso, toIso, txCount, newTxCount,
+      // duplicates, balanceUpdated }. Same "AWSJSON via string" pattern as
+      // financeTransaction.lotConsumptions.
+      lastSimplefinSyncDetails: a.string(),
     })
     .authorization((allow) => [allow.group("admins")]),
 

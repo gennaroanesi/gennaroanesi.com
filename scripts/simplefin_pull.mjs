@@ -211,11 +211,13 @@ const CREATE_TX = `
     }
   }`;
 
-const UPDATE_ACCOUNT_BALANCE = `
-  mutation UpdateAccountBalance($input: UpdateFinanceAccountInput!) {
+const UPDATE_ACCOUNT = `
+  mutation UpdateAccount($input: UpdateFinanceAccountInput!) {
     updateFinanceAccount(input: $input) {
       id
       currentBalance
+      balanceUpdatedAt
+      lastSimplefinSyncAt
     }
   }`;
 
@@ -359,6 +361,25 @@ async function main() {
   console.log(`  ${dupCount} already-imported (skipped — hash or date+amount match)`);
   console.log(`  ${fresh.length} new`);
 
+  // Per-account counters for the sync-details stamp on each mapped account.
+  // Every mapped account gets an entry — even ones with zero SF activity —
+  // so the lastSimplefinSyncAt timestamp reflects "we checked".
+  const perAccountSummary = new Map();
+  for (const a of wanted) {
+    perAccountSummary.set(a.id, { txTotal: 0, txNew: 0, duplicates: 0 });
+  }
+  for (const d of drafts) {
+    const s = perAccountSummary.get(d.accountId);
+    if (s) s.txTotal++;
+  }
+  for (const d of fresh) {
+    const s = perAccountSummary.get(d.accountId);
+    if (s) s.txNew++;
+  }
+  for (const [id, s] of perAccountSummary) {
+    s.duplicates = s.txTotal - s.txNew;
+  }
+
   if (fresh.length > 0) {
     console.log("\nSample of first 10 new drafts:");
     for (const d of fresh.slice(0, 10)) {
@@ -445,22 +466,46 @@ async function main() {
     }
   }
 
+  // ── Per-account update: balance (when applicable) + sync timestamps ──
+  // One update() call per mapped account combines any balance change with
+  // the stamp fields, so we don't triple-mutate the same record.
+  const nowIso = new Date().toISOString();
+  const balanceUpdateById = new Map(balanceUpdates.map((u) => [u.finAcc.id, u]));
+  let acctOk = 0;
+  let acctFail = 0;
   let balOk = 0;
-  let balFail = 0;
-  if (balanceUpdates.length > 0) {
-    console.log("\nUpdating account balances…");
-    for (const u of balanceUpdates) {
-      try {
-        await gql(UPDATE_ACCOUNT_BALANCE, { input: { id: u.finAcc.id, currentBalance: u.target } });
-        balOk++;
-      } catch (e) {
-        console.error(`  ✗ ${u.finAcc.name}: ${e.message}`);
-        balFail++;
-      }
+  console.log("\nStamping accounts…");
+  for (const a of wanted) {
+    const summary = perAccountSummary.get(a.id);
+    const balUpd = balanceUpdateById.get(a.id);
+    const details = {
+      fromIso:         START,
+      toIso:           END,
+      txTotal:         summary?.txTotal ?? 0,
+      txNew:           summary?.txNew ?? 0,
+      duplicates:      summary?.duplicates ?? 0,
+      balanceUpdated:  !!balUpd,
+      balanceSkipped:  SKIP_BALANCE_TYPES.has(a.type),
+    };
+    const input = {
+      id:                        a.id,
+      lastSimplefinSyncAt:       nowIso,
+      lastSimplefinSyncDetails:  JSON.stringify(details),
+      ...(balUpd
+        ? { currentBalance: balUpd.target, balanceUpdatedAt: nowIso }
+        : {}),
+    };
+    try {
+      await gql(UPDATE_ACCOUNT, { input });
+      acctOk++;
+      if (balUpd) balOk++;
+    } catch (e) {
+      console.error(`  ✗ ${a.name}: ${e.message}`);
+      acctFail++;
     }
   }
 
-  console.log(`\nDone. Transactions: ${txOk} written, ${txFail} failed. Balances: ${balOk} updated, ${balFail} failed.`);
+  console.log(`\nDone. Transactions: ${txOk} written, ${txFail} failed. Accounts stamped: ${acctOk} ok (${balOk} with balance write), ${acctFail} failed.`);
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
