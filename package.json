@@ -22,7 +22,8 @@
     "lp:sync-bg-s3": "node scripts/sync_backgrounds_s3.mjs",
     "lp:render": "tsx scripts/render_reels.mts",
     "sf:probe": "node --env-file=.env.local scripts/simplefin_probe.mjs",
-    "sf:pull": "node --env-file=.env.local scripts/simplefin_pull.mjs"
+    "sf:pull": "node --env-file=.env.local scripts/simplefin_pull.mjs",
+    "sf:dedupe": "node --env-file=.env.local scripts/simplefin_dedupe.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

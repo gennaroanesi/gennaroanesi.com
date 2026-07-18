@@ -11,11 +11,16 @@
  *   npm run sf:pull -- --days=7
  *   npm run sf:pull -- --start=2026-07-01 --end=2026-07-18
  *   npm run sf:pull -- --account=<financeAccountId>      # limit to one account
- *   npm run sf:pull -- --apply --user=you@x --pass=...   # actually write
+ *   npm run sf:pull -- --apply                           # actually write
+ *
+ * Auth:
+ *   - COGNITO_USER + COGNITO_PASSWORD in .env.local (both modes need JWT
+ *     because finance* models are admin-only). Or override per-call:
+ *     --user=... --pass=...
+ *   - Uses client-side InitiateAuth; no AWS credentials required.
  *
  * Requires:
  *   - SIMPLEFIN_ACCESS_URL in .env.local
- *   - --user + --pass Cognito credentials for --apply mode
  *
  * Behavior:
  *   - Only accounts with financeAccount.simplefinAccountId set are pulled.
@@ -52,11 +57,14 @@ const DAYS = args.days ? parseInt(args.days, 10) : 14;
 const START = args.start ?? isoDaysAgo(DAYS);
 const END = args.end ?? isoToday();
 const ACCOUNT_FILTER = args.account ?? null;
-const USER = args.user;
-const PASS = args.pass;
+// Cognito user + password (your website login). Read from .env.local
+// (COGNITO_USER / COGNITO_PASSWORD) by default; --user / --pass override.
+// Client-side InitiateAuth — no AWS creds required.
+const USER = args.user ?? process.env.COGNITO_USER;
+const PASS = args.pass ?? process.env.COGNITO_PASSWORD;
 
-if (APPLY && (!USER || !PASS)) {
-  console.error("--apply requires --user=you@example.com --pass=yourpass");
+if (!USER || !PASS) {
+  console.error("Missing Cognito credentials. Set COGNITO_USER + COGNITO_PASSWORD in .env.local, or pass --user + --pass.");
   process.exit(1);
 }
 
@@ -140,7 +148,7 @@ async function gql(query, variables = {}, { auth = "jwt" } = {}) {
 const LIST_ACCOUNTS = `
   query ListAccounts($next: String) {
     listFinanceAccounts(limit: 500, nextToken: $next) {
-      items { id name type simplefinAccountId }
+      items { id name type simplefinAccountId currentBalance }
       nextToken
     }
   }`;
@@ -157,7 +165,7 @@ async function fetchMappedAccounts() {
 }
 
 const LIST_TX_HASHES = `
-  query ListTxHashes($accountId: ID!, $fromIso: AWSDate!, $next: String) {
+  query ListTxHashes($accountId: ID!, $fromIso: String!, $next: String) {
     listFinanceTransactions(
       filter: {
         accountId: { eq: $accountId },
@@ -166,28 +174,48 @@ const LIST_TX_HASHES = `
       limit: 1000,
       nextToken: $next
     ) {
-      items { id importHash date }
+      items { id importHash date amount }
       nextToken
     }
   }`;
 
-async function fetchExistingHashes(accountId, fromIso) {
+/**
+ * For each mapped account in the window, build two dedup indexes:
+ *   - hashes: existing importHash values (catches same-source re-runs)
+ *   - dateAmt: existing "date|amount" keys (catches cross-source dupes where
+ *     SF's payee-style description differs from a prior CSV's bank-statement
+ *     description → different importHash but same real transaction)
+ * The dateAmt index is per-account; keys stay `date|amount.toFixed(2)`.
+ */
+async function fetchExistingDedupIndex(accountId, fromIso) {
   const hashes = new Set();
+  const dateAmt = new Set();
   let next = null;
   do {
     const data = await gql(LIST_TX_HASHES, { accountId, fromIso, next });
     for (const it of data.listFinanceTransactions.items ?? []) {
       if (it.importHash) hashes.add(it.importHash);
+      if (it.date != null && it.amount != null) {
+        dateAmt.add(`${it.date}|${Number(it.amount).toFixed(2)}`);
+      }
     }
     next = data.listFinanceTransactions.nextToken;
   } while (next);
-  return hashes;
+  return { hashes, dateAmt };
 }
 
 const CREATE_TX = `
   mutation CreateTx($input: CreateFinanceTransactionInput!) {
     createFinanceTransaction(input: $input) {
       id
+    }
+  }`;
+
+const UPDATE_ACCOUNT_BALANCE = `
+  mutation UpdateAccountBalance($input: UpdateFinanceAccountInput!) {
+    updateFinanceAccount(input: $input) {
+      id
+      currentBalance
     }
   }`;
 
@@ -261,14 +289,14 @@ function markSelfTransfers(drafts) {
 async function main() {
   console.log(`Access URL:  ${maskAccessUrl(accessUrl)}`);
   console.log(`Window:      ${START} → ${END}`);
+  console.log(`Cognito user: ${USER}`);
   console.log(`Mode:        ${APPLY ? "APPLY (writes)" : "DRY-RUN (no writes)"}`);
   console.log();
 
+  console.log("Authenticating…");
+  JWT = await getJwt();
+
   console.log("Fetching mapped accounts from AppSync…");
-  if (APPLY) JWT = await getJwt();
-  else JWT = null; // reads via API key work for finance* models? Depends on model auth.
-  // finance* models are admins-only, so we need JWT even for reads. Auth upfront:
-  if (!JWT) JWT = await getJwt();
   const mapped = await fetchMappedAccounts();
   if (mapped.length === 0) {
     console.error("No accounts have simplefinAccountId set. Fill it in on /finance/accounts/[id].");
@@ -313,53 +341,126 @@ async function main() {
   const pairs = markSelfTransfers(drafts);
   if (pairs > 0) console.log(`Marked ${pairs} self-transfer pair(s) (${pairs * 2} rows → TRANSFER).`);
 
-  console.log("\nChecking existing importHashes for dedup…");
-  const dupHashes = new Set();
+  console.log("\nChecking existing transactions for dedup…");
+  // Per-account indexes so a same date+amount hit on account A doesn't
+  // accidentally suppress a real tx on account B.
+  const indexByAccount = new Map();
   for (const a of wanted) {
-    const hashes = await fetchExistingHashes(a.id, START);
-    for (const h of hashes) dupHashes.add(h);
+    indexByAccount.set(a.id, await fetchExistingDedupIndex(a.id, START));
   }
-  const fresh = drafts.filter((d) => !dupHashes.has(d.importHash));
+  const fresh = drafts.filter((d) => {
+    const idx = indexByAccount.get(d.accountId);
+    if (!idx) return true;
+    if (idx.hashes.has(d.importHash)) return false;
+    if (idx.dateAmt.has(`${d.date}|${d.amount.toFixed(2)}`)) return false;
+    return true;
+  });
   const dupCount = drafts.length - fresh.length;
-  console.log(`  ${dupCount} already-imported (skipped)`);
+  console.log(`  ${dupCount} already-imported (skipped — hash or date+amount match)`);
   console.log(`  ${fresh.length} new`);
 
-  if (fresh.length === 0) {
-    console.log("\nNothing to insert. Done.");
-    return;
+  if (fresh.length > 0) {
+    console.log("\nSample of first 10 new drafts:");
+    for (const d of fresh.slice(0, 10)) {
+      console.log(
+        `  ${d.date}  ${d.status.padEnd(7)}  ${d.type.padEnd(8)}  ` +
+        `${String(d.amount.toFixed(2)).padStart(9)}  ` +
+        `${(d.category ?? "-").padEnd(22)}  ` +
+        `${d.description.slice(0, 40).padEnd(40)}  ` +
+        `${d.toAccountId ? `→${d.toAccountId.slice(0, 8)}` : ""}`
+      );
+    }
+    if (fresh.length > 10) console.log(`  … and ${fresh.length - 10} more`);
   }
 
-  console.log("\nSample of first 10 new drafts:");
-  for (const d of fresh.slice(0, 10)) {
-    console.log(
-      `  ${d.date}  ${d.status.padEnd(7)}  ${d.type.padEnd(8)}  ` +
-      `${String(d.amount.toFixed(2)).padStart(9)}  ` +
-      `${(d.category ?? "-").padEnd(22)}  ` +
-      `${d.description.slice(0, 40).padEnd(40)}  ` +
-      `${d.toAccountId ? `→${d.toAccountId.slice(0, 8)}` : ""}`
-    );
+  // ── Balance diffs ────────────────────────────────────────────────────
+  // SimpleFIN's `balance` is authoritative for standard cash/debt accounts.
+  // Skipped for BROKERAGE + RETIREMENT because SF reports CASH balance there
+  // (holdings live separately), and:
+  //   - BROKERAGE.currentBalance per the schema comment is meant to be cash
+  //     alone with holdings layered via financeHoldingLot — but users often
+  //     store total value; without knowing which semantic each account uses,
+  //     safer to leave alone.
+  //   - RETIREMENT.currentBalance is typically total value (no per-lot
+  //     tracking), so overwriting with SF's cash-only figure would wipe out
+  //     the invested portion.
+  // Runs on every pull, not just when new txs land. Skip < $0.01 drift.
+  const SKIP_BALANCE_TYPES = new Set(["BROKERAGE", "RETIREMENT"]);
+  const balanceUpdates = [];
+  const skippedBalance = [];
+  for (const sfAcc of accounts) {
+    const finAcc = byId.get(sfAcc.id);
+    if (!finAcc) continue;
+    if (SKIP_BALANCE_TYPES.has(finAcc.type)) {
+      skippedBalance.push({ finAcc, sfBalance: sfAcc.balance });
+      continue;
+    }
+    const current = finAcc.currentBalance ?? 0;
+    const target = sfAcc.balance;
+    if (Math.abs(current - target) < 0.005) continue;
+    balanceUpdates.push({ finAcc, current, target });
   }
-  if (fresh.length > 10) console.log(`  … and ${fresh.length - 10} more`);
 
-  if (!APPLY) {
-    console.log("\nDry-run complete. Re-run with --apply --user --pass to write.");
-    return;
+  if (balanceUpdates.length > 0) {
+    console.log(`\nBalance updates (${balanceUpdates.length}):`);
+    for (const u of balanceUpdates) {
+      const delta = u.target - u.current;
+      const sign = delta >= 0 ? "+" : "";
+      console.log(
+        `  ${u.finAcc.name.padEnd(50)}  ` +
+        `${u.current.toFixed(2).padStart(12)}  →  ${u.target.toFixed(2).padStart(12)}  ` +
+        `(${sign}${delta.toFixed(2)})`
+      );
+    }
+  } else {
+    console.log("\nAll (non-investment) account balances already in sync with SimpleFIN.");
   }
 
-  console.log("\nInserting…");
-  let ok = 0;
-  let fail = 0;
-  for (const d of fresh) {
-    try {
-      await gql(CREATE_TX, { input: d });
-      ok++;
-      if (ok % 25 === 0) console.log(`  wrote ${ok}/${fresh.length}`);
-    } catch (e) {
-      console.error(`  ✗ ${d.date} ${d.description.slice(0, 40)}: ${e.message}`);
-      fail++;
+  if (skippedBalance.length > 0) {
+    console.log(`\nSkipped balance update for ${skippedBalance.length} investment account(s) (SF reports cash-only):`);
+    for (const s of skippedBalance) {
+      console.log(`  ${s.finAcc.name.padEnd(50)}  SF cash: ${s.sfBalance.toFixed(2).padStart(12)}  (kept local currentBalance)`);
     }
   }
-  console.log(`\nDone. Wrote ${ok}, failed ${fail}.`);
+
+  if (!APPLY) {
+    console.log("\nDry-run complete. Re-run with --apply to write.");
+    return;
+  }
+
+  // ── Writes ───────────────────────────────────────────────────────────
+  let txOk = 0;
+  let txFail = 0;
+  if (fresh.length > 0) {
+    console.log("\nInserting transactions…");
+    for (const d of fresh) {
+      try {
+        await gql(CREATE_TX, { input: d });
+        txOk++;
+        if (txOk % 25 === 0) console.log(`  wrote ${txOk}/${fresh.length}`);
+      } catch (e) {
+        console.error(`  ✗ ${d.date} ${d.description.slice(0, 40)}: ${e.message}`);
+        txFail++;
+      }
+    }
+  }
+
+  let balOk = 0;
+  let balFail = 0;
+  if (balanceUpdates.length > 0) {
+    console.log("\nUpdating account balances…");
+    for (const u of balanceUpdates) {
+      try {
+        await gql(UPDATE_ACCOUNT_BALANCE, { input: { id: u.finAcc.id, currentBalance: u.target } });
+        balOk++;
+      } catch (e) {
+        console.error(`  ✗ ${u.finAcc.name}: ${e.message}`);
+        balFail++;
+      }
+    }
+  }
+
+  console.log(`\nDone. Transactions: ${txOk} written, ${txFail} failed. Balances: ${balOk} updated, ${balFail} failed.`);
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────

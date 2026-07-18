@@ -132,6 +132,22 @@ function normalizeAccount(a) {
     pending:      !!t.pending,
   }));
   txs.sort((x, y) => (y.posted ?? "").localeCompare(x.posted ?? ""));
+
+  // Holdings — brokerage/retirement accounts sometimes carry a per-position
+  // array. Fields vary by institution; keep the shape close to what SF sends
+  // so downstream code can decide what to do with each.
+  const holdings = (a.holdings ?? []).map((h) => ({
+    id:            h.id ?? "",
+    symbol:        (h.symbol ?? "").trim(),
+    description:   (h.description ?? "").trim(),
+    shares:        h.shares != null ? parseFloat(h.shares) : null,
+    marketValue:   h["market-value"] != null ? parseFloat(h["market-value"]) : null,
+    purchasePrice: h["purchase-price"] != null ? parseFloat(h["purchase-price"]) : null,
+    costBasis:     h["cost-basis"] != null ? parseFloat(h["cost-basis"]) : null,
+    currency:      h.currency ?? a.currency ?? "USD",
+    createdAt:     h.created ? unixToIsoDate(h.created) : null,
+  }));
+
   return {
     id:               a.id,
     orgName:          a["org"]?.name ?? a.org_name ?? "",
@@ -141,6 +157,7 @@ function normalizeAccount(a) {
     availableBalance: a["available-balance"] != null ? parseFloat(a["available-balance"]) : null,
     balanceDate:      a["balance-date"] ? unixToIsoDate(a["balance-date"]) : "",
     transactions:     txs,
+    holdings,
   };
 }
 

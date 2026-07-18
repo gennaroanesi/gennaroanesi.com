@@ -104,6 +104,18 @@ async function main() {
         console.log(`      ${t.posted}  ${sign}${t.amount.toFixed(2).padStart(9)}  ${(t.payee || t.description).slice(0, 50).padEnd(50)}${pend}${memo}`);
       }
     }
+    if (a.holdings.length > 0) {
+      const total = a.holdings.reduce((s, h) => s + (h.marketValue ?? 0), 0);
+      console.log(`    holdings: ${a.holdings.length} position(s), total market value ${total.toFixed(2)} ${a.currency}`);
+      for (const h of a.holdings.slice(0, sampleN)) {
+        const label = h.symbol || h.description.slice(0, 20);
+        const sh = h.shares != null ? `${h.shares.toString().padStart(10)} sh` : " ".repeat(13);
+        const mv = h.marketValue != null ? h.marketValue.toFixed(2).padStart(12) : " ".repeat(12);
+        const cb = h.costBasis != null ? `  cost ${h.costBasis.toFixed(2)}` : "";
+        console.log(`      ${label.padEnd(18)}  ${sh}  ${mv}${cb}`);
+      }
+      if (a.holdings.length > sampleN) console.log(`      … and ${a.holdings.length - sampleN} more`);
+    }
     console.log();
   }
 
