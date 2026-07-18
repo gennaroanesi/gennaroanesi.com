@@ -20,7 +20,9 @@
     "remotion:render": "remotion render remotion/index.ts LayoffQuote",
     "lp:fetch-bg": "node --env-file=.env.local scripts/fetch_pexels_backgrounds.mjs",
     "lp:sync-bg-s3": "node scripts/sync_backgrounds_s3.mjs",
-    "lp:render": "tsx scripts/render_reels.mts"
+    "lp:render": "tsx scripts/render_reels.mts",
+    "sf:probe": "node --env-file=.env.local scripts/simplefin_probe.mjs",
+    "sf:pull": "node --env-file=.env.local scripts/simplefin_pull.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
