@@ -200,7 +200,15 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 overflow-hidden bg-white dark:bg-darkBg">
+        {/* overflow-y-auto here is the default scroll region for every page —
+            pages that need to keep a fixed header + a scrollable inner region
+            (e.g. transactions with sticky filters) still wrap their content
+            in `flex h-full` + `overflow-auto` on the inner column; that inner
+            container matches this parent's height exactly so no double
+            scrollbar shows up. Pages that don't set up an internal scroll
+            (tax-outlook, most single-column pages) just work because this
+            wrapper scrolls when their content is tall. */}
+        <div className="flex-1 min-w-0 overflow-y-auto bg-white dark:bg-darkBg">
           {children}
         </div>
 

@@ -179,7 +179,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
         </aside>
 
         {/* ── Page content ────────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 overflow-hidden bg-white dark:bg-darkBg">
+        <div className="flex-1 min-w-0 overflow-y-auto bg-white dark:bg-darkBg">
           {children}
         </div>
 
