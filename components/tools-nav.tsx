@@ -6,10 +6,10 @@ import { Divider } from "@heroui/divider";
 export type ToolKey = "admin" | "inventory" | "finance" | "flights";
 
 const TOOLS: { key: ToolKey; label: string; href: string }[] = [
-  { key: "admin",     label: "Admin Home", href: "/admin" },
-  { key: "inventory", label: "Inventory",  href: "/inventory" },
-  { key: "finance",   label: "Finance",    href: "/finance" },
-  { key: "flights",   label: "Flights",    href: "/admin/flights" },
+  { key: "admin",     label: "Agent",     href: "/admin" },
+  { key: "inventory", label: "Inventory", href: "/inventory" },
+  { key: "finance",   label: "Finance",   href: "/finance" },
+  { key: "flights",   label: "Flights",   href: "/admin/flights" },
 ];
 
 export function ToolsNav({ current }: { current: ToolKey }) {

@@ -7,6 +7,7 @@ import DefaultLayout from "@/layouts/default";
 import {
   client, listAll, fmtDate,
 } from "@/components/finance/_shared";
+import { ToolsNav } from "@/components/tools-nav";
 import type { Schema } from "@/amplify/data/resource";
 
 // Admin home doubles as the assistant chat. We use amber to match the admin
@@ -301,15 +302,23 @@ export default function AdminHomePage() {
           </button>
         </div>
 
-        {/* ── Conversation sidebar ──────────────────────────────────────── */}
+        {/* ── Agent sidebar ─────────────────────────────────────────────────
+             Layout mirrors the finance/inventory tool sidebars: a tool
+             label at the top, a scrollable middle region, and ToolsNav
+             pinned at the bottom. The scrollable middle here holds the
+             conversation list instead of static nav routes. */}
         <aside
           className={[
-            "flex-shrink-0 flex flex-col border-r border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface",
-            "md:w-64 md:static",
+            "flex-shrink-0 flex flex-col border-r border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface min-h-0",
+            "md:w-64 md:static py-4",
             sidebarOpen ? "flex" : "hidden md:flex",
           ].join(" ")}
         >
-          <div className="hidden md:flex items-center justify-between px-3 py-3 border-b border-gray-200 dark:border-darkBorder">
+          <p className="hidden md:block px-4 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-3 font-medium">
+            Agent
+          </p>
+
+          <div className="hidden md:flex items-center justify-between px-3 pb-2">
             <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Conversations</p>
             <button
               onClick={startNewConversation}
@@ -320,7 +329,7 @@ export default function AdminHomePage() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {loadingConvos ? (
               <p className="text-xs text-gray-400 animate-pulse p-4">Loading…</p>
             ) : conversations.length === 0 ? (
@@ -373,13 +382,15 @@ export default function AdminHomePage() {
               </ul>
             )}
           </div>
+
+          <ToolsNav current="admin" />
         </aside>
 
         {/* ── Chat main ─────────────────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-darkBg">
 
           <div className="flex items-center gap-2 px-4 md:px-6 py-3 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-            <span className="text-xs uppercase tracking-widest font-medium" style={{ color: AGENT_ACCENT }}>Assistant</span>
+            <span className="text-xs uppercase tracking-widest font-medium" style={{ color: AGENT_ACCENT }}>Agent</span>
             <span className="text-xs text-gray-400">/</span>
             <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
               {activeConv?.title ?? "New conversation"}
@@ -513,7 +524,7 @@ function EmptyChat({ accent }: { accent: string }) {
   ];
   return (
     <div className="max-w-lg mx-auto text-center py-12">
-      <p className="text-sm font-semibold mb-1" style={{ color: accent }}>Assistant</p>
+      <p className="text-sm font-semibold mb-1" style={{ color: accent }}>Agent</p>
       <p className="text-xs text-gray-400 mb-6">
         Read-only agent. Tools cover finance (accounts, transactions, recurrences, goals, holdings, loans)
         and inventory (firearms, ammo, instruments, filaments, photography).
