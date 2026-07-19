@@ -47,7 +47,7 @@ export default function FlyingAdminLayout({ children }: { children: React.ReactN
         </nav>
 
         {/* ── Desktop sidebar ─────────────────────────────────────────── */}
-        <aside className="hidden md:flex w-48 flex-shrink-0 border-r border-darkBorder flex-col py-4 bg-darkSurface">
+        <aside className="hidden md:flex w-48 flex-shrink-0 border-r border-darkBorder flex-col py-4 bg-darkSurface min-h-0 overflow-y-auto">
           <p className="px-4 text-[10px] uppercase tracking-widest text-gray-500 mb-2 font-mono">
             Flying
           </p>
