@@ -450,6 +450,345 @@ export function summarizeExpenses(
   };
 }
 
+// ── Salary-coverage model ─────────────────────────────────────────────────────
+//
+// The working model this encodes: SALARY should cover essentials (housing, debt
+// service, utilities, groceries, insurance, medical, transport, pets), while
+// BONUS + RSU cover discretionary/lifestyle. Reviewing against total income
+// hides the real dynamic — income arrives in lumps (quarterly vests, an annual
+// bonus) while spending is smooth, so a card gets used as the bridge between
+// vests and the interest on that bridge is the actual cost.
+
+/** Categories treated as non-discretionary. Everything else is lifestyle. */
+export const ESSENTIAL_CATEGORIES = new Set<string>([
+  "Rent/Mortgage", "Utilities", "Bills & Utilities", "Groceries", "Insurance",
+  "Medical", "Health", "Gas/Transport", "Dolce",
+]);
+
+/**
+ * Reported separately rather than folded into essentials or lifestyle. Tax bills
+ * are non-discretionary but arrive as lumpy one-offs, so counting them as
+ * "essentials" makes an otherwise-affordable month look unaffordable.
+ */
+export const TAX_CATEGORIES = new Set<string>(["Taxes"]);
+
+/**
+ * Positive amounts that aren't income. `Loan principal` is the principal portion
+ * of a loan payment recorded on the loan account — a balance-sheet artifact, not
+ * money earned.
+ */
+export const NON_INCOME_CATEGORIES = new Set<string>(["Loan principal"]);
+
+/** Debt-service categories — real cash out, but they build equity. */
+export const DEBT_SERVICE_CATEGORIES = new Set<string>(["Loan Payment"]);
+
+/**
+ * Tickers whose share sales are employer equity (RSU) rather than personal
+ * investing. Sales of these fund lifestyle; sales of anything else are just
+ * portfolio rebalancing and are NOT counted as income.
+ */
+export const EMPLOYER_TICKERS = ["META"];
+
+export type IncomeSources = {
+  salary: number;      // regular payroll
+  bonus: number;       // outsized off-cycle payroll deposits
+  rsu: number;         // employer-ticker share sales
+  other: number;
+  total: number;
+  months: number;
+  salaryPerMonth: number;
+  /** Share of income that is variable (bonus + RSU) rather than salary. */
+  variablePct: number;
+};
+
+/** Fractional months spanned by a range — used to normalise lumpy periods. */
+function monthsInRange(r: DateRange): number {
+  const ms = new Date(`${r.toIso}T00:00:00Z`).getTime() - new Date(`${r.fromIso}T00:00:00Z`).getTime();
+  return Math.max(1 / 30.44, ms / 86_400_000 / 30.44);
+}
+
+/**
+ * Split income into salary / bonus / RSU / other.
+ *
+ * Bonus detection is relative, not a fixed threshold: a payroll deposit at
+ * >= 2x the median payroll deposit for the window is treated as a bonus. That
+ * survives raises and varying pay cadences, where a hardcoded number wouldn't.
+ */
+export function summarizeIncomeSources(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  range: DateRange,
+): IncomeSources {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const months = monthsInRange(range);
+
+  const payroll: TransactionRecord[] = [];
+  let rsu = 0;
+  let other = 0;
+
+  for (const tx of txs) {
+    if (!inRange(tx.date, range)) continue;
+    if (!isPosted(tx)) continue;
+    const amt = tx.amount ?? 0;
+    if (amt <= 0) continue;
+    const desc = tx.description ?? "";
+
+    // Employer share sales = RSU proceeds. Other tickers are rebalancing.
+    if (/^sell\s+[\d.]+/i.test(desc)) {
+      if (EMPLOYER_TICKERS.some((t) => new RegExp(`\\b${t}\\b`, "i").test(desc))) rsu += amt;
+      continue;
+    }
+    // Structural inflows (card payments, transfers, trade cash legs) aren't income.
+    const inCat = effectiveCategory(tx);
+    if (isExcludedFromPnl(inCat) || NON_INCOME_CATEGORIES.has(inCat)) continue;
+    if ((tx.notes ?? "").startsWith("tradeTxId:")) continue;
+    if (tx.type === "BUY" || tx.type === "SELL") continue;
+
+    if (SALARY_DESCRIPTION_PATTERNS.some((p) => matchesUserPattern(p, desc))) {
+      payroll.push(tx);
+      continue;
+    }
+    other += amt;
+  }
+
+  const amounts = payroll.map((t) => t.amount ?? 0);
+  const med = median(amounts);
+  let salary = 0;
+  let bonus = 0;
+  for (const a of amounts) {
+    if (med > 0 && a >= med * 2) bonus += a;
+    else salary += a;
+  }
+
+  const total = salary + bonus + rsu + other;
+  return {
+    salary, bonus, rsu, other, total, months,
+    salaryPerMonth: salary / months,
+    variablePct: total > 0 ? ((bonus + rsu) / total) * 100 : 0,
+  };
+}
+
+export type Coverage = {
+  months: number;
+  salary: number;
+  salaryPerMonth: number;
+  equity: number;              // bonus + RSU
+  essentials: number;          // excl. debt service and taxes
+  debtService: number;
+  taxes: number;               // lumpy, reported separately
+  lifestyle: number;
+  essentialsPerMonth: number;
+  lifestylePerMonth: number;
+  /** Essentials + debt service as a % of salary. <= 100 means salary covers them. */
+  essentialsPctOfSalary: number;
+  salaryCoversEssentials: boolean;
+  /** Salary left after essentials + debt service — the real discretionary budget. */
+  salarySurplus: number;
+  salarySurplusPerMonth: number;
+  /** Lifestyle spend as a % of bonus + RSU. <= 100 means equity covers it. */
+  lifestylePctOfEquity: number;
+  equityCoversLifestyle: boolean;
+  /** Monthly gap when living on salary alone — what a card bridges between vests. */
+  betweenVestGapPerMonth: number;
+};
+
+/**
+ * Test the model: does salary cover essentials, and does equity cover lifestyle?
+ * Item-aware, so an itemized Amazon order counts toward whichever categories its
+ * line items belong to rather than landing wholly in one bucket.
+ */
+export function summarizeCoverage(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  range: DateRange,
+  income: IncomeSources,
+): Coverage {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const months = income.months;
+
+  let essentials = 0;
+  let debtService = 0;
+  let taxes = 0;
+  let lifestyle = 0;
+
+  for (const tx of txs) {
+    if (!inRange(tx.date, range)) continue;
+    if (!isPosted(tx)) continue;
+    if ((tx.amount ?? 0) >= 0) continue;
+    if (tx.toAccountId) continue;
+    if (tx.type === "TRANSFER" || tx.type === "BUY" || tx.type === "SELL") continue;
+
+    const top = effectiveCategory(tx);
+    if (DEBT_SERVICE_CATEGORIES.has(top)) { debtService += Math.abs(tx.amount ?? 0); continue; }
+    if (isExcludedFromPnl(top)) continue;
+
+    for (const { category, amount } of categoryContributions(tx, Math.abs(tx.amount ?? 0))) {
+      if (TAX_CATEGORIES.has(category)) taxes += amount;
+      else if (ESSENTIAL_CATEGORIES.has(category)) essentials += amount;
+      else lifestyle += amount;
+    }
+  }
+
+  const equity = income.bonus + income.rsu;
+  const fixed = essentials + debtService;
+  const surplus = income.salary - fixed;
+
+  return {
+    months,
+    salary: income.salary,
+    salaryPerMonth: income.salaryPerMonth,
+    equity,
+    essentials, debtService, taxes, lifestyle,
+    essentialsPerMonth: essentials / months,
+    lifestylePerMonth: lifestyle / months,
+    essentialsPctOfSalary: income.salary > 0 ? (fixed / income.salary) * 100 : 0,
+    salaryCoversEssentials: fixed <= income.salary,
+    salarySurplus: surplus,
+    salarySurplusPerMonth: surplus / months,
+    lifestylePctOfEquity: equity > 0 ? (lifestyle / equity) * 100 : 0,
+    equityCoversLifestyle: equity > 0 && lifestyle <= equity,
+    betweenVestGapPerMonth: surplus / months - lifestyle / months,
+  };
+}
+
+// ── One-off detection ─────────────────────────────────────────────────────────
+
+export type OneOff = {
+  id: string; date: string; description: string;
+  category: string; accountName: string; amount: number;
+};
+export type OneOffSummary = {
+  items: OneOff[];
+  total: number;
+  /** Spend per month with these excluded — the underlying run-rate. */
+  adjustedPerMonth: number;
+  rawPerMonth: number;
+};
+
+/**
+ * Large purchases that appear once and shouldn't be read as run-rate — a
+ * flooring job, a World Cup ticket block, a telescope. Averaging a period that
+ * contains them badly overstates ongoing spending, which is the single easiest
+ * way to misread a review.
+ *
+ * A row qualifies when it is >= `minAmount`, matches no recurring rule, and its
+ * merchant appears at most `maxOccurrences` times in the window.
+ */
+export function detectOneOffs(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  recurrings: RecurringRecord[],
+  range: DateRange,
+  opts: { minAmount?: number; maxOccurrences?: number } = {},
+): OneOffSummary {
+  const minAmount = opts.minAmount ?? 750;
+  const maxOccurrences = opts.maxOccurrences ?? 2;
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+
+  const norm = (d: string | null | undefined) =>
+    (d ?? "").toLowerCase().replace(/\d{3,}/g, "").replace(/[^a-z ]/g, " ")
+      .replace(/\s+/g, " ").trim().slice(0, 24);
+
+  const inWindow = txs.filter(
+    (t) => inRange(t.date, range) && isPosted(t) && (t.amount ?? 0) < 0
+      && !t.toAccountId && t.type !== "TRANSFER" && t.type !== "BUY" && t.type !== "SELL"
+      && !isExcludedFromPnl(effectiveCategory(t)),
+  );
+
+  const freq = new Map<string, number>();
+  for (const t of inWindow) {
+    const k = norm(t.description);
+    if (k) freq.set(k, (freq.get(k) ?? 0) + 1);
+  }
+
+  const items: OneOff[] = [];
+  let rawTotal = 0;
+  for (const t of inWindow) {
+    const v = Math.abs(t.amount ?? 0);
+    rawTotal += v;
+    if (v < minAmount) continue;
+    if ((freq.get(norm(t.description)) ?? 0) > maxOccurrences) continue;
+    if (matchTxToRecurring(t, recurrings)) continue;
+    items.push({
+      id: t.id,
+      date: t.date as string,
+      description: t.description ?? "—",
+      category: effectiveCategory(t),
+      accountName: acctById.get(t.accountId)?.name ?? "—",
+      amount: v,
+    });
+  }
+  items.sort((a, b) => b.amount - a.amount);
+
+  const months = monthsInRange(range);
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  return {
+    items, total,
+    rawPerMonth: rawTotal / months,
+    adjustedPerMonth: (rawTotal - total) / months,
+  };
+}
+
+// ── Cost of carry ─────────────────────────────────────────────────────────────
+
+export type CarryLine = { accountId: string; accountName: string; interest: number; balance: number; impliedApr: number | null };
+export type CostOfCarry = {
+  lines: CarryLine[];
+  totalInterest: number;
+  annualisedInterest: number;
+  totalCardDebt: number;
+};
+
+/**
+ * Interest actually paid, by account, plus an implied APR from the most recent
+ * charge against the current balance. Revolving a balance also forfeits the
+ * grace period, so new purchases start accruing immediately — which makes this
+ * the highest-signal number on the page when it's non-zero.
+ */
+export function summarizeCostOfCarry(
+  txs: TransactionRecord[],
+  accounts: AccountRecord[],
+  range: DateRange,
+): CostOfCarry {
+  const acctById = new Map(accounts.map((a) => [a.id, a]));
+  const byAcct = new Map<string, { interest: number; last: number; lastDate: string }>();
+
+  for (const tx of txs) {
+    if (!inRange(tx.date, range) || (tx.amount ?? 0) >= 0) continue;
+    if (!/interest charge|finance charge|purchase interest|cash advance interest/i.test(tx.description ?? "")) continue;
+    const v = Math.abs(tx.amount ?? 0);
+    const e = byAcct.get(tx.accountId) ?? { interest: 0, last: 0, lastDate: "" };
+    e.interest += v;
+    if ((tx.date ?? "") >= e.lastDate) { e.last = v; e.lastDate = tx.date as string; }
+    byAcct.set(tx.accountId, e);
+  }
+
+  const lines: CarryLine[] = [];
+  for (const [accountId, e] of byAcct) {
+    const acc = acctById.get(accountId);
+    const balance = Math.abs(Math.min(0, acc?.currentBalance ?? 0));
+    lines.push({
+      accountId,
+      accountName: acc?.name ?? "—",
+      interest: e.interest,
+      balance,
+      impliedApr: balance > 0 && e.last > 0 ? (e.last / balance) * 12 * 100 : null,
+    });
+  }
+  lines.sort((a, b) => b.interest - a.interest);
+
+  const totalInterest = lines.reduce((s, l) => s + l.interest, 0);
+  const months = monthsInRange(range);
+  return {
+    lines,
+    totalInterest,
+    annualisedInterest: (totalInterest / months) * 12,
+    totalCardDebt: accounts
+      .filter((a) => a.type === "CREDIT")
+      .reduce((s, a) => s + Math.abs(Math.min(0, a.currentBalance ?? 0)), 0),
+  };
+}
+
 // ── Credit-card spending + ticket-size distribution ────────────────────────────
 
 export type ExpenseLine = { id: string; date: string; description: string; accountName: string; category: string; amount: number };

@@ -31,6 +31,10 @@ import {
   periodRange,
   ytdRange,
   summarizeIncome,
+  summarizeIncomeSources,
+  summarizeCoverage,
+  detectOneOffs,
+  summarizeCostOfCarry,
   summarizeExpenses,
   summarizeRecurring,
   detectRecurringSuggestions,
@@ -182,8 +186,13 @@ export default function ReviewPage() {
     const range = periodRange(period);
     const ytd = ytdRange(period);
     const trades = txs.filter((t) => t.type === "BUY" || t.type === "SELL");
+    const sources = summarizeIncomeSources(txs, accounts, range);
     return {
       range,
+      sources,
+      coverage: summarizeCoverage(txs, accounts, range, sources),
+      oneOffs: detectOneOffs(txs, accounts, recurrings, range),
+      carry: summarizeCostOfCarry(txs, accounts, range),
       income: summarizeIncome(txs, accounts, range),
       expenses: summarizeExpenses(txs, accounts, recurrings, range),
       recurring: summarizeRecurring(txs, recurrings, accounts, range),
@@ -198,7 +207,8 @@ export default function ReviewPage() {
 
   if (authState !== "authenticated") return null;
 
-  const { range, income, expenses, recurring, recurringSuggestions, cards, groups, stock, goalEvo, trend } = view;
+  const { range, income, expenses, recurring, recurringSuggestions, cards, groups, stock, goalEvo, trend,
+          sources, coverage, oneOffs, carry } = view;
   const net = income.total - expenses.total;
 
   return (
@@ -299,6 +309,157 @@ export default function ReviewPage() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+
+            {/* ── Salary coverage ──────────────────────────────────── */}
+            {/* Tests the working model: salary should cover essentials, and
+                bonus + RSU should cover lifestyle. Reviewing against total
+                income hides the real dynamic — income lands in lumps while
+                spending is smooth, so a card bridges the gap between vests. */}
+            <SectionTitle hint={`${sources.variablePct.toFixed(0)}% of income is bonus + RSU`}>
+              Salary coverage
+            </SectionTitle>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard
+                label="Salary"
+                value={fmtCurrency(sources.salary)}
+                hint={`${fmtCurrency(sources.salaryPerMonth)}/mo`}
+              />
+              <StatCard
+                label="Bonus + RSU"
+                value={fmtCurrency(coverage.equity)}
+                color={AMBER}
+                hint={sources.bonus > 0 ? `incl. ${fmtCurrency(sources.bonus)} bonus` : "share sales"}
+              />
+              <StatCard
+                label="Essentials + debt"
+                value={`${coverage.essentialsPctOfSalary.toFixed(0)}%`}
+                color={coverage.salaryCoversEssentials ? INCOME_COLOR : EXPENSE_COLOR}
+                hint={`of salary · ${fmtCurrency(coverage.essentialsPerMonth + coverage.debtService / coverage.months)}/mo`}
+              />
+              <StatCard
+                label="Lifestyle vs equity"
+                value={coverage.equity > 0 ? `${coverage.lifestylePctOfEquity.toFixed(0)}%` : "—"}
+                color={coverage.equityCoversLifestyle ? INCOME_COLOR : EXPENSE_COLOR}
+                hint={`${fmtCurrency(coverage.lifestylePerMonth)}/mo lifestyle`}
+              />
+            </div>
+            <div className={`${CARD} mt-3`}>
+              <div className="flex flex-col gap-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Salary − essentials − debt service
+                  </span>
+                  <span className="tabular-nums font-semibold" style={{ color: amountColor(coverage.salarySurplus) }}>
+                    {fmtCurrency(coverage.salarySurplus)} ({fmtCurrency(coverage.salarySurplusPerMonth)}/mo)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    Monthly gap on salary alone <span className="text-gray-400">(what a card bridges between vests)</span>
+                  </span>
+                  <span className="tabular-nums font-semibold" style={{ color: amountColor(coverage.betweenVestGapPerMonth) }}>
+                    {fmtCurrency(coverage.betweenVestGapPerMonth)}/mo
+                  </span>
+                </div>
+                {coverage.taxes > 0 && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-gray-500 dark:text-gray-400">
+                      Taxes <span className="text-gray-400">(lumpy — excluded from both buckets)</span>
+                    </span>
+                    <span className="tabular-nums">{fmtCurrency(coverage.taxes)}</span>
+                  </div>
+                )}
+                <p className="text-xs text-gray-400 pt-1 border-t border-gray-200 dark:border-darkBorder">
+                  {coverage.salaryCoversEssentials
+                    ? "✅ Salary covers essentials and debt service."
+                    : "⚠️ Essentials and debt service exceed salary."}
+                  {" "}
+                  {coverage.equity > 0 && (coverage.equityCoversLifestyle
+                    ? "Bonus + RSU cover lifestyle spending."
+                    : "Lifestyle spending exceeds bonus + RSU.")}
+                </p>
+              </div>
+            </div>
+
+            {/* ── Cost of carry ────────────────────────────────────── */}
+            {carry.totalInterest > 0 && (
+              <>
+                <SectionTitle hint={`${fmtCurrency(carry.totalCardDebt)} card debt`}>Cost of carry</SectionTitle>
+                <div className={CARD}>
+                  <div className="flex items-baseline justify-between mb-3">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Interest paid this period</span>
+                    <span className="text-xl font-bold" style={{ color: EXPENSE_COLOR }}>
+                      {fmtCurrency(carry.totalInterest)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {carry.lines.map((l) => (
+                      <div key={l.accountId} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-gray-700 dark:text-gray-200 truncate">{l.accountName}</span>
+                        <span className="flex items-center gap-3 flex-shrink-0">
+                          {l.impliedApr != null && (
+                            <span className="text-[11px] text-gray-400 tabular-nums">
+                              ~{l.impliedApr.toFixed(0)}% APR
+                            </span>
+                          )}
+                          <span className="tabular-nums" style={{ color: EXPENSE_COLOR }}>
+                            {fmtCurrency(l.interest)}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-200 dark:border-darkBorder">
+                    Annualising to <strong>{fmtCurrency(carry.annualisedInterest)}/yr</strong>. Revolving a
+                    balance also forfeits the grace period, so new purchases accrue interest from day one.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* ── One-offs ─────────────────────────────────────────── */}
+            {oneOffs.items.length > 0 && (
+              <>
+                <SectionTitle hint={`${fmtCurrency(oneOffs.total)} · excluded from run-rate`}>
+                  One-off purchases
+                </SectionTitle>
+                <div className={CARD}>
+                  <div className="flex flex-wrap gap-6 mb-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Spend as billed</p>
+                      <p className="text-lg font-bold tabular-nums">{fmtCurrency(oneOffs.rawPerMonth)}/mo</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Underlying run-rate</p>
+                      <p className="text-lg font-bold tabular-nums" style={{ color: INCOME_COLOR }}>
+                        {fmtCurrency(oneOffs.adjustedPerMonth)}/mo
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {oneOffs.items.slice(0, 8).map((o) => (
+                      <div key={o.id} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
+                          <span className="text-gray-400 text-xs mr-2 tabular-nums">{fmtDate(o.date)}</span>
+                          {o.description}
+                        </span>
+                        <span className="flex items-center gap-3 flex-shrink-0">
+                          <span className="text-[11px] text-gray-400">{o.category}</span>
+                          <span className="tabular-nums">{fmtCurrency(o.amount)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {oneOffs.items.length > 8 && (
+                    <p className="text-xs text-gray-400 mt-2">…and {oneOffs.items.length - 8} more</p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-200 dark:border-darkBorder">
+                    Large, non-recurring purchases. Averaging a period that contains these overstates
+                    ongoing spending — the run-rate above excludes them.
+                  </p>
+                </div>
+              </>
+            )}
 
             {/* ── Expenses (discretionary) ─────────────────────────── */}
             <SectionTitle hint={`${fmtCurrency(expenses.discretionaryTotal)} · excludes recurring & transfers`}>Spending</SectionTitle>
