@@ -35,6 +35,7 @@ import {
   summarizeCoverage,
   detectOneOffs,
   summarizeCostOfCarry,
+  EMPLOYER_TICKERS,
   summarizeExpenses,
   summarizeRecurring,
   detectRecurringSuggestions,
@@ -78,6 +79,71 @@ function StatCard({ label, value, color, hint }: { label: string; value: string;
   );
 }
 
+/**
+ * A StatCard whose number can be opened up to show the rows that produced it.
+ * Grouped figures ("essentials + debt") are only trustworthy if you can check
+ * what landed in them — categorisation rules change, and a number you can't
+ * decompose is a number you end up not believing.
+ */
+function DrillCard({
+  label, value, color, hint, rows, footer,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+  hint?: string;
+  rows: { name: string; amount: number; meta?: string }[];
+  footer?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const has = rows.length > 0;
+  return (
+    <div className={CARD}>
+      <button
+        type="button"
+        onClick={() => has && setOpen((v) => !v)}
+        className={`w-full text-left flex items-start justify-between gap-2 ${has ? "cursor-pointer" : "cursor-default"}`}
+        aria-expanded={open}
+        title={has ? "Show what makes up this number" : undefined}
+      >
+        <span className="min-w-0">
+          <span className="block text-[10px] uppercase tracking-widest text-gray-400 font-medium">{label}</span>
+          <span className="block text-2xl font-bold mt-1" style={color ? { color } : undefined}>{value}</span>
+          {hint && <span className="block text-xs text-gray-400 mt-0.5">{hint}</span>}
+        </span>
+        {has && (
+          <span
+            className={`text-gray-400 text-lg leading-none mt-0.5 flex-shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+            aria-hidden
+          >
+            ›
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-3 pt-2 border-t border-gray-200 dark:border-darkBorder flex flex-col gap-1 max-h-72 overflow-y-auto">
+          {rows.map((r, i) => (
+            <div key={`${r.name}-${i}`} className="flex items-baseline justify-between gap-2 text-xs">
+              <span className="min-w-0 truncate text-gray-600 dark:text-gray-300">
+                {r.name}
+                {r.meta && <span className="text-gray-400 ml-1.5">{r.meta}</span>}
+              </span>
+              <span className="tabular-nums flex-shrink-0 text-gray-700 dark:text-gray-200">
+                {fmtCurrency(r.amount)}
+              </span>
+            </div>
+          ))}
+          {footer && (
+            <p className="text-[10px] text-gray-400 mt-1 pt-1 border-t border-gray-200 dark:border-darkBorder">
+              {footer}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
   return (
     <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap mt-8">
@@ -95,18 +161,39 @@ function SparseNote({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Recharts' default tooltip renders a near-white label on a white surface,
+ *  which is unreadable. Shared so every chart on the page matches. */
+const TOOLTIP_LABEL_STYLE = { color: "#111827", fontWeight: 600 } as const;
+const TOOLTIP_CONTENT_STYLE = {
+  borderRadius: 8,
+  border: "1px solid #e5e7eb",
+  fontSize: 12,
+  color: "#111827",
+} as const;
+
 function BreakdownBars({
-  data, color, emptyLabel,
-}: { data: { name: string; amount: number }[]; color: string; emptyLabel: string }) {
+  data, color, emptyLabel, height,
+}: {
+  data: { name: string; amount: number }[];
+  color: string;
+  emptyLabel: string;
+  /** Pass "100%" to fill a parent that has its own definite height. */
+  height?: number | `${number}%`;
+}) {
   if (data.length === 0) return <p className="text-sm text-gray-400 py-6 text-center">{emptyLabel}</p>;
   const top = data.slice(0, 12);
   return (
-    <ResponsiveContainer width="100%" height={Math.max(120, top.length * 34)}>
+    <ResponsiveContainer width="100%" height={height ?? Math.max(120, top.length * 34)}>
       <BarChart data={top} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
         <CartesianGrid horizontal={false} strokeOpacity={0.1} />
         <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11 }} />
         <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
-        <Tooltip formatter={(v: any) => fmtCurrency(Number(v))} cursor={{ fillOpacity: 0.06 }} />
+        <Tooltip
+          formatter={(v: any) => [fmtCurrency(Number(v)), "Spend"]}
+          cursor={{ fillOpacity: 0.06 }}
+          labelStyle={TOOLTIP_LABEL_STYLE}
+          contentStyle={TOOLTIP_CONTENT_STYLE}
+        />
         <Bar dataKey="amount" radius={[0, 4, 4, 0]} fill={color} />
       </BarChart>
     </ResponsiveContainer>
@@ -268,7 +355,14 @@ export default function ReviewPage() {
               label="Income"
               value={fmtCurrency(income.total)}
               color={INCOME_COLOR}
-              hint={`salary · ${income.count} deposit${income.count === 1 ? "" : "s"}`}
+              // Payroll deposits, bonus included — Salary coverage splits the
+              // bonus out separately, so label this honestly or the two
+              // sections read as contradicting each other.
+              hint={
+                sources.bonus > 0
+                  ? `payroll · ${income.count} deposits · incl. ${fmtCurrency(sources.bonus)} bonus`
+                  : `payroll · ${income.count} deposit${income.count === 1 ? "" : "s"}`
+              }
             />
             <StatCard
               label="Expenses"
@@ -302,7 +396,11 @@ export default function ReviewPage() {
                   <CartesianGrid strokeOpacity={0.1} />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
-                  <Tooltip formatter={(v: any) => fmtCurrency(Number(v))} />
+                  <Tooltip
+                    formatter={(v: any) => fmtCurrency(Number(v))}
+                    labelStyle={TOOLTIP_LABEL_STYLE}
+                    contentStyle={TOOLTIP_CONTENT_STYLE}
+                  />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Line type="monotone" dataKey="income" name="Income" stroke={INCOME_COLOR} dot={false} strokeWidth={2} />
                   <Line type="monotone" dataKey="expense" name="Expenses" stroke={EXPENSE_COLOR} dot={false} strokeWidth={2} />
@@ -318,29 +416,66 @@ export default function ReviewPage() {
             <SectionTitle hint={`${sources.variablePct.toFixed(0)}% of income is bonus + RSU`}>
               Salary coverage
             </SectionTitle>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard
+            {/* RSU is measured from share SALES, so a vest that was held (or one
+                that never landed in a tracked account) contributes nothing.
+                Say so explicitly — otherwise the equity figure silently
+                under-reports and the coverage verdict reads as worse than it is. */}
+            <SparseNote>
+              RSU counts <strong>shares sold</strong>, not vested. A vest you held — or one in an
+              untracked account — shows as $0 here, so equity income is a floor, not a total.
+            </SparseNote>
+            {/* auto-fit + a 300px floor: these cards carry a big number, a hint
+                line and an expandable breakdown, so two-up on a phone clips the
+                value. Sizing on card width rather than viewport breakpoints
+                means it also behaves inside the narrower desktop content column. */}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-3 items-start">
+              <DrillCard
                 label="Salary"
                 value={fmtCurrency(sources.salary)}
-                hint={`${fmtCurrency(sources.salaryPerMonth)}/mo`}
+                hint={`${fmtCurrency(sources.salaryPerMonth)}/mo · ${sources.salaryLines.length} deposits`}
+                rows={sources.salaryLines.map((l) => ({
+                  name: l.description, amount: l.amount, meta: fmtDate(l.date),
+                }))}
+                footer="Recurring payroll deposits. Anything ≥2× the median lands in Bonus instead."
               />
-              <StatCard
+              <DrillCard
                 label="Bonus + RSU"
                 value={fmtCurrency(coverage.equity)}
                 color={AMBER}
-                hint={sources.bonus > 0 ? `incl. ${fmtCurrency(sources.bonus)} bonus` : "share sales"}
+                hint={
+                  sources.bonus > 0
+                    ? `${fmtCurrency(sources.bonus)} bonus + ${fmtCurrency(sources.rsu)} shares sold`
+                    : `${fmtCurrency(sources.rsu)} shares sold`
+                }
+                rows={[...sources.bonusLines, ...sources.rsuLines].map((l) => ({
+                  name: l.description, amount: l.amount, meta: fmtDate(l.date),
+                }))}
+                footer={`RSU counts ${EMPLOYER_TICKERS.join("/")} share sales only — a vest you held shows as $0.`}
               />
-              <StatCard
+              <DrillCard
                 label="Essentials + debt"
                 value={`${coverage.essentialsPctOfSalary.toFixed(0)}%`}
                 color={coverage.salaryCoversEssentials ? INCOME_COLOR : EXPENSE_COLOR}
                 hint={`of salary · ${fmtCurrency(coverage.essentialsPerMonth + coverage.debtService / coverage.months)}/mo`}
+                rows={[
+                  ...coverage.debtByPayee.map((d) => ({
+                    name: d.category, amount: d.amount, meta: `debt service · ${d.count}×`,
+                  })),
+                  ...coverage.essentialsByCategory.map((c) => ({
+                    name: c.category, amount: c.amount, meta: `${c.count}×`,
+                  })),
+                ]}
+                footer={`Essentials ${fmtCurrency(coverage.essentials)} + debt service ${fmtCurrency(coverage.debtService)} vs salary ${fmtCurrency(coverage.salary)}. Taxes excluded — see below.`}
               />
-              <StatCard
+              <DrillCard
                 label="Lifestyle vs equity"
                 value={coverage.equity > 0 ? `${coverage.lifestylePctOfEquity.toFixed(0)}%` : "—"}
                 color={coverage.equityCoversLifestyle ? INCOME_COLOR : EXPENSE_COLOR}
                 hint={`${fmtCurrency(coverage.lifestylePerMonth)}/mo lifestyle`}
+                rows={coverage.lifestyleByCategory.map((c) => ({
+                  name: c.category, amount: c.amount, meta: `${c.count}×`,
+                }))}
+                footer={`Everything not essential, debt service or tax: ${fmtCurrency(coverage.lifestyle)} vs bonus + RSU ${fmtCurrency(coverage.equity)}.`}
               />
             </div>
             <div className={`${CARD} mt-3`}>
@@ -436,23 +571,41 @@ export default function ReviewPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    {oneOffs.items.slice(0, 8).map((o) => (
-                      <div key={o.id} className="flex items-center justify-between gap-3 text-sm">
-                        <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
-                          <span className="text-gray-400 text-xs mr-2 tabular-nums">{fmtDate(o.date)}</span>
-                          {o.description}
-                        </span>
-                        <span className="flex items-center gap-3 flex-shrink-0">
-                          <span className="text-[11px] text-gray-400">{o.category}</span>
-                          <span className="tabular-nums">{fmtCurrency(o.amount)}</span>
-                        </span>
+                  {/* List and category chart side by side: the list answers
+                      "which purchases", the chart answers "what kind" — a
+                      lopsided period (one huge tax bill, a renovation) is
+                      obvious from the chart without reading every row. */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-stretch">
+                    <div className="min-w-0 flex flex-col md:h-[420px]">
+                      <p className="text-xs text-gray-400 mb-2">{oneOffs.items.length} purchases</p>
+                      {/* All rows rendered; the fixed-height column scrolls. */}
+                      <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto pr-1">
+                        {oneOffs.items.map((o) => (
+                          <div key={o.id} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
+                              <span className="text-gray-400 text-xs mr-2 tabular-nums">{fmtDate(o.date)}</span>
+                              {o.description}
+                            </span>
+                            <span className="flex items-center gap-3 flex-shrink-0">
+                              <span className="text-[11px] text-gray-400">{o.category}</span>
+                              <span className="tabular-nums">{fmtCurrency(o.amount)}</span>
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+                    <div className="min-w-0 flex flex-col md:h-[420px]">
+                      <p className="text-xs text-gray-400 mb-2">By category</p>
+                      <div className="flex-1 min-h-0 min-w-0">
+                        <BreakdownBars
+                          data={catToBars(oneOffs.byCategory)}
+                          color={AMBER}
+                          emptyLabel="No one-off purchases this period."
+                          height="100%"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  {oneOffs.items.length > 8 && (
-                    <p className="text-xs text-gray-400 mt-2">…and {oneOffs.items.length - 8} more</p>
-                  )}
                   <p className="text-xs text-gray-400 mt-3 pt-2 border-t border-gray-200 dark:border-darkBorder">
                     Large, non-recurring purchases. Averaging a period that contains these overstates
                     ongoing spending — the run-rate above excludes them.
@@ -598,6 +751,8 @@ export default function ReviewPage() {
                                 ? `${Number(v).toFixed(0)}%`
                                 : `${fmtCurrency(Number(v))} · ${p?.payload?.count ?? 0} tx`}
                             cursor={{ fillOpacity: 0.06 }}
+                            labelStyle={TOOLTIP_LABEL_STYLE}
+                            contentStyle={TOOLTIP_CONTENT_STYLE}
                           />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Bar yAxisId="left" dataKey="amount" name="Spend" radius={[4, 4, 0, 0]} fill={EXPENSE_COLOR} />
@@ -680,7 +835,7 @@ export default function ReviewPage() {
                 backfill script). Realized gains and current values below are exact.
               </SparseNote>
             )}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-3">
               <StatCard label="Market value" value={fmtCurrency(stock.currentMarketValue)} />
               <StatCard
                 label="Unrealized gain"
@@ -741,7 +896,12 @@ export default function ReviewPage() {
                         <LineChart data={g.series} margin={{ left: 4, right: 8, top: 4, bottom: 0 }}>
                           <YAxis hide domain={["dataMin", "dataMax"]} />
                           <XAxis dataKey="date" hide />
-                          <Tooltip formatter={(v: any) => fmtCurrency(Number(v))} labelFormatter={(l) => String(l)} />
+                          <Tooltip
+                            formatter={(v: any) => fmtCurrency(Number(v))}
+                            labelFormatter={(l) => String(l)}
+                            labelStyle={TOOLTIP_LABEL_STYLE}
+                            contentStyle={TOOLTIP_CONTENT_STYLE}
+                          />
                           <Line type="monotone" dataKey="amount" stroke={AMBER} dot={false} strokeWidth={2} />
                         </LineChart>
                       </ResponsiveContainer>
@@ -771,7 +931,12 @@ function MoversBars({ movers, color }: { movers: { ticker: string; change: numbe
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
         <XAxis type="number" tickFormatter={fmtCompact} tick={{ fontSize: 11 }} />
         <YAxis type="category" dataKey="name" width={64} tick={{ fontSize: 11 }} />
-        <Tooltip formatter={(_v: any, _n: any, p: any) => fmtCurrency(p?.payload?.change, "USD", true)} cursor={{ fillOpacity: 0.06 }} />
+        <Tooltip
+          formatter={(_v: any, _n: any, p: any) => fmtCurrency(p?.payload?.change, "USD", true)}
+          cursor={{ fillOpacity: 0.06 }}
+          labelStyle={TOOLTIP_LABEL_STYLE}
+          contentStyle={TOOLTIP_CONTENT_STYLE}
+        />
         <Bar dataKey="amount" radius={[0, 4, 4, 0]}>
           {data.map((_d, i) => <Cell key={i} fill={color} />)}
         </Bar>

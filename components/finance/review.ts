@@ -499,6 +499,12 @@ export type IncomeSources = {
   salaryPerMonth: number;
   /** Share of income that is variable (bonus + RSU) rather than salary. */
   variablePct: number;
+  // Composition — so an aggregate on the page can always be opened up and
+  // checked against the rows that produced it.
+  salaryLines: IncomeLine[];
+  bonusLines: IncomeLine[];
+  rsuLines: IncomeLine[];
+  otherLines: IncomeLine[];
 };
 
 /** Fractional months spanned by a range — used to normalise lumpy periods. */
@@ -523,8 +529,18 @@ export function summarizeIncomeSources(
   const months = monthsInRange(range);
 
   const payroll: TransactionRecord[] = [];
+  const rsuLines: IncomeLine[] = [];
+  const otherLines: IncomeLine[] = [];
   let rsu = 0;
   let other = 0;
+
+  const line = (tx: TransactionRecord): IncomeLine => ({
+    id: tx.id,
+    date: tx.date as string,
+    description: tx.description ?? "—",
+    accountName: acctById.get(tx.accountId)?.name ?? "—",
+    amount: tx.amount ?? 0,
+  });
 
   for (const tx of txs) {
     if (!inRange(tx.date, range)) continue;
@@ -535,7 +551,10 @@ export function summarizeIncomeSources(
 
     // Employer share sales = RSU proceeds. Other tickers are rebalancing.
     if (/^sell\s+[\d.]+/i.test(desc)) {
-      if (EMPLOYER_TICKERS.some((t) => new RegExp(`\\b${t}\\b`, "i").test(desc))) rsu += amt;
+      if (EMPLOYER_TICKERS.some((t) => new RegExp(`\\b${t}\\b`, "i").test(desc))) {
+        rsu += amt;
+        rsuLines.push(line(tx));
+      }
       continue;
     }
     // Structural inflows (card payments, transfers, trade cash legs) aren't income.
@@ -549,22 +568,29 @@ export function summarizeIncomeSources(
       continue;
     }
     other += amt;
+    otherLines.push(line(tx));
   }
 
-  const amounts = payroll.map((t) => t.amount ?? 0);
-  const med = median(amounts);
+  const med = median(payroll.map((t) => t.amount ?? 0));
+  const salaryLines: IncomeLine[] = [];
+  const bonusLines: IncomeLine[] = [];
   let salary = 0;
   let bonus = 0;
-  for (const a of amounts) {
-    if (med > 0 && a >= med * 2) bonus += a;
-    else salary += a;
+  for (const tx of payroll) {
+    const a = tx.amount ?? 0;
+    if (med > 0 && a >= med * 2) { bonus += a; bonusLines.push(line(tx)); }
+    else { salary += a; salaryLines.push(line(tx)); }
   }
+  const byDateDesc = (a: IncomeLine, b: IncomeLine) => (a.date < b.date ? 1 : -1);
+  salaryLines.sort(byDateDesc); bonusLines.sort(byDateDesc);
+  rsuLines.sort(byDateDesc); otherLines.sort(byDateDesc);
 
   const total = salary + bonus + rsu + other;
   return {
     salary, bonus, rsu, other, total, months,
     salaryPerMonth: salary / months,
     variablePct: total > 0 ? ((bonus + rsu) / total) * 100 : 0,
+    salaryLines, bonusLines, rsuLines, otherLines,
   };
 }
 
@@ -590,6 +616,14 @@ export type Coverage = {
   equityCoversLifestyle: boolean;
   /** Monthly gap when living on salary alone — what a card bridges between vests. */
   betweenVestGapPerMonth: number;
+  // Composition of each aggregate, so the page can drill into any figure.
+  essentialsByCategory: CategoryBucket[];
+  lifestyleByCategory: CategoryBucket[];
+  taxesByCategory: CategoryBucket[];
+  /** Debt service grouped by who was PAID (mortgage servicer, auto lender) —
+   *  grouping by the funding account just says "Checking", which explains
+   *  nothing about what the money went to. */
+  debtByPayee: CategoryBucket[];
 };
 
 /**
@@ -610,6 +644,27 @@ export function summarizeCoverage(
   let debtService = 0;
   let taxes = 0;
   let lifestyle = 0;
+  const essByCat = new Map<string, CategoryBucket>();
+  const lifeByCat = new Map<string, CategoryBucket>();
+  const taxByCat = new Map<string, CategoryBucket>();
+  const debtByPayee = new Map<string, CategoryBucket>();
+
+  /** Collapse a bank memo to a stable payee label: drop reference numbers,
+   *  trailing routing noise and dates so repeat payments group together. */
+  const payeeLabel = (desc: string | null | undefined): string => {
+    const cleaned = (desc ?? "")
+      .replace(/\b\d{3,}\b/g, " ")
+      .replace(/\bWEB ID\b.*$/i, " ")
+      .replace(/\b\d{1,2}\/\d{1,2}\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return cleaned.slice(0, 28) || "Debt payment";
+  };
+
+  const addCat = (m: Map<string, CategoryBucket>, category: string, amount: number) => {
+    const b = m.get(category) ?? { category, amount: 0, count: 0 };
+    b.amount += amount; b.count += 1; m.set(category, b);
+  };
 
   for (const tx of txs) {
     if (!inRange(tx.date, range)) continue;
@@ -619,13 +674,18 @@ export function summarizeCoverage(
     if (tx.type === "TRANSFER" || tx.type === "BUY" || tx.type === "SELL") continue;
 
     const top = effectiveCategory(tx);
-    if (DEBT_SERVICE_CATEGORIES.has(top)) { debtService += Math.abs(tx.amount ?? 0); continue; }
+    if (DEBT_SERVICE_CATEGORIES.has(top)) {
+      const v = Math.abs(tx.amount ?? 0);
+      debtService += v;
+      addCat(debtByPayee, payeeLabel(tx.description), v);
+      continue;
+    }
     if (isExcludedFromPnl(top)) continue;
 
     for (const { category, amount } of categoryContributions(tx, Math.abs(tx.amount ?? 0))) {
-      if (TAX_CATEGORIES.has(category)) taxes += amount;
-      else if (ESSENTIAL_CATEGORIES.has(category)) essentials += amount;
-      else lifestyle += amount;
+      if (TAX_CATEGORIES.has(category)) { taxes += amount; addCat(taxByCat, category, amount); }
+      else if (ESSENTIAL_CATEGORIES.has(category)) { essentials += amount; addCat(essByCat, category, amount); }
+      else { lifestyle += amount; addCat(lifeByCat, category, amount); }
     }
   }
 
@@ -648,6 +708,10 @@ export function summarizeCoverage(
     lifestylePctOfEquity: equity > 0 ? (lifestyle / equity) * 100 : 0,
     equityCoversLifestyle: equity > 0 && lifestyle <= equity,
     betweenVestGapPerMonth: surplus / months - lifestyle / months,
+    essentialsByCategory: sortedByAmount(essByCat),
+    lifestyleByCategory: sortedByAmount(lifeByCat),
+    taxesByCategory: sortedByAmount(taxByCat),
+    debtByPayee: sortedByAmount(debtByPayee),
   };
 }
 
@@ -659,6 +723,8 @@ export type OneOff = {
 };
 export type OneOffSummary = {
   items: OneOff[];
+  /** One-off spend grouped by category — answers "what kind of one-offs". */
+  byCategory: CategoryBucket[];
   total: number;
   /** Spend per month with these excluded — the underlying run-rate. */
   adjustedPerMonth: number;
@@ -720,10 +786,17 @@ export function detectOneOffs(
   }
   items.sort((a, b) => b.amount - a.amount);
 
+  const byCat = new Map<string, CategoryBucket>();
+  for (const i of items) {
+    const b = byCat.get(i.category) ?? { category: i.category, amount: 0, count: 0 };
+    b.amount += i.amount; b.count += 1; byCat.set(i.category, b);
+  }
+
   const months = monthsInRange(range);
   const total = items.reduce((s, i) => s + i.amount, 0);
   return {
     items, total,
+    byCategory: sortedByAmount(byCat),
     rawPerMonth: rawTotal / months,
     adjustedPerMonth: (rawTotal - total) / months,
   };
