@@ -23,7 +23,8 @@
     "lp:render": "tsx scripts/render_reels.mts",
     "sf:probe": "node --env-file=.env.local scripts/simplefin_probe.mjs",
     "sf:pull": "node --env-file=.env.local scripts/simplefin_pull.mjs",
-    "sf:dedupe": "node --env-file=.env.local scripts/simplefin_dedupe.mjs"
+    "sf:dedupe": "node --env-file=.env.local scripts/simplefin_dedupe.mjs",
+    "amz:itemize": "node --env-file=.env.local scripts/amazon_itemize.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

@@ -36,3 +36,6 @@ out/
 public/backgrounds/
 
 
+
+# Amazon "Request My Data" export — personal order history, never commit
+scripts/data/Your Orders/
