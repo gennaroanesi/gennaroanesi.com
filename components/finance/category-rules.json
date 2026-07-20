@@ -1,41 +1,53 @@
 {
-  "_comment": "Single source of truth for transaction category inference. Consumed by components/finance/categories.ts (web app + review) AND scripts/infer-categories.mjs. Ordered: first matching rule wins. `pattern` is a case-insensitive substring of the transaction description, or a /regex/flags form. `category` is the bucket assigned. Keep the vocabulary stable — the Review page groups by these strings.",
-  "version": 1,
+  "_comment": "Single source of truth for transaction category inference. Consumed by components/finance/categories.ts (web app + review) AND scripts/infer-categories.mjs. Ordered: first matching rule wins, so STRUCTURAL rules (transfers, card/loan payments, investments) come before merchant rules, and specific merchants before generic buckets. `pattern` is a case-insensitive substring of the transaction description, or a /regex/flags form. `category` is the bucket assigned. Keep the vocabulary stable — the Review page groups by these strings. Balance-sheet movements (Transfers, Credit Card Payment, Loan Payment, Investments) are excluded from the income/spend P&L in categories.ts EXCLUDED_FROM_PNL — they move value between accounts and show up in net worth, not consumption.",
+  "version": 2,
   "rules": [
-    { "pattern": "/payroll|direct dep|dir dep|\\bsalary\\b|paychk|pay chk|paycheck/i", "category": "Income" },
+    { "pattern": "/payroll|direct dep|dir dep|\\bsalary\\b|paychk|pay chk|paycheck|meta\\s+payroll/i", "category": "Income" },
     { "pattern": "/interest paid|dividend|div pmt/i", "category": "Income" },
-    { "pattern": "/zelle|venmo|cash app|paypal transfer|transfer to|transfer from|online transfer|\\bxfer\\b|wire transfer|ach transfer|to savings|to checking|to brokerage|internal transfer/i", "category": "Transfers" },
-    { "pattern": "/payment thank you|payment - thank you|cardmember serv|card payment|credit card payment|autopay.*card|card.*autopay|amex.*epayment|amex.*payment|discover.*payment|capital one.*pymt|chase credit crd|online payment to|mobile payment/i", "category": "Credit Card Payment" },
-    { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b/i", "category": "Cash/ATM" },
 
-    { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|heb|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|giant|meijer/i", "category": "Groceries" },
-    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|doordash|uber eats|grubhub|postmates|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery/i", "category": "Dining" },
+    { "pattern": "/starting balance/i", "category": "Transfers" },
+    { "pattern": "/zelle|venmo|cash app|paypal transfer|paypal\\s+inst xfer|transfer to|transfer from|online transfer|realtime transfer|\\bxfer\\b|wire transfer|domestic wire|ach transfer|to savings|to sav |to checking|to chk |to brokerage|to sfcu|internal transfer|wise us inc|wise 888|transferwise/i", "category": "Transfers" },
+    { "pattern": "/payment thank you|payment - thank you|cardmember serv|card payment|credit card payment|autopay.*card|card.*autopay|amex.*epayment|amex.*payment|american express ach|discover.*payment|capital one.*pymt|chase credit crd|online payment to|mobile payment|prime visa payment|visa payment|payment to chase card|comenity pay|credit repaymen|applecard|apple card|gsbank payment/i", "category": "Credit Card Payment" },
+    { "pattern": "/bmwfs|bmw bank|to hmg |hmg 8553|mortgage pmt|mortgage payment|loan pmt|loan payment|auto loan|student loan|sofi/i", "category": "Loan Payment" },
+    { "pattern": "/^buy \\d|^sell \\d|^cash for (buy|sell) |\\bswppx\\b|\\bvti\\b|\\bvoo\\b|\\bvxus\\b| shares of |reinvest|brokerage buy|div reinvest/i", "category": "Investments" },
 
-    { "pattern": "/shell|chevron|exxon|mobil|bp |valero|texaco|gas station|fuel|sunoco|circle k|76 /i", "category": "Gas/Transport" },
-    { "pattern": "/uber|lyft|transit|metro|parking|toll|amtrak|tollway|e-zpass|ezpass/i", "category": "Gas/Transport" },
+    { "pattern": "/us treas tax|treas tax pymt|irs |tax pmt|franchise tax|property tax|dept of revenue|treasury|turbotax|h&r block|tax prep/i", "category": "Taxes" },
+    { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b|withdrawal \\d/i", "category": "Cash/ATM" },
+    { "pattern": "/overdraft|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|foreign transaction fee/i", "category": "Fees" },
 
-    { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|verizon|at&t|t-mobile|tmobile|spectrum|internet|wireless|coned|pg&e|duke energy|sewer|trash/i", "category": "Utilities" },
+    { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium|briteco|jewelers mutual|trupanion/i", "category": "Insurance" },
 
+    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|max\\.|youtube|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|google \\*|google\\*|dropbox|adobe|notion|chatgpt|openai|anthropic|claude\\.ai|microsoft|msbill|twilio|espn|paramount|logo diffusion|650 industries|expo|vercel|cursor|render\\.com|amazon web services|\\baws\\b|tello|boingo|prime global|subscription|kindle unltd|amazon prime|prime video|walmart\\+ member|\\baudible\\b|amazon music/i", "category": "Subscriptions" },
+
+    { "pattern": "/trupanion|dogtopia|banfield|barkin|doginhaus|petco|petsmart|chewy|purely provisions|rover\\.com|veterin|animal hospital|animal clinic/i", "category": "Dolce" },
+    { "pattern": "/cirrus owner|mooneyspace|foreflight|\\baopa\\b|avionics|garmin pilot|sporty|aviation|aircraft|flight school|100ll|avgas|jeppesen|\\bfbo\\b/i", "category": "Flying" },
+    { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range/i", "category": "SHTF" },
+    { "pattern": "/reverb\\.com|reverb com|sweetwater|guitar center|\\bfender\\b|gibson guitar|thomann/i", "category": "Guitar" },
+    { "pattern": "/richemont|cartier|van cleef|\\bbezel\\b|dufrane|\\bomega\\b|\\brolex\\b|tudor watch|watches|jeweler|jewelry|bucherer|hodinkee|watchbox|crown & caliber/i", "category": "Watches/Jewelry" },
+    { "pattern": "/brian harris bmw|\\bbmw\\b|autozone|o'reilly|discount tire|jiffy lube|car wash|shipyourcarnow|ship your car|\\bdmv\\b|toll tag|valvoline|tesla supercharg/i", "category": "Car" },
+    { "pattern": "/sports medicine|sportsmedi|physical therapy|\\bchiro|central park surgery|dermatolog|pharmacy|cvs|walgreens|rite aid|hospital|clinic|dental|dentist|urgent care|labcorp|quest diag/i", "category": "Medical" },
+    { "pattern": "/orangetheory|otf |speediance|planet fitness|lifetime fitness|life time|equinox|peloton|\\bgym\\b|crossfit|\\byoga\\b|pilates|\\bhims\\b|hims inc/i", "category": "Health" },
+
+    { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|verizon|at&t|t-mobile|tmobile|spectrum|internet|wireless|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy/i", "category": "Utilities" },
     { "pattern": "/mortgage|rent payment|\\brent\\b|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
 
-    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|max\\.|youtube premium|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|dropbox|adobe|notion|chatgpt|openai|github|membership|subscription/i", "category": "Subscriptions" },
+    { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer/i", "category": "Groceries" },
+    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|doordash|uber eats|grubhub|postmates|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro/i", "category": "Dining" },
 
-    { "pattern": "/amazon|amzn|target|walmart|best buy|ebay|etsy|wayfair|home depot|lowe's|lowes|ikea|macy|nordstrom|nike|apple store/i", "category": "Shopping" },
+    { "pattern": "/shell|chevron|exxon|mobil|\\bbp \\b|valero|texaco|gas station|\\bfuel\\b|sunoco|circle k|buc-ee|quiktrip|\\b76 \\b|chargepoint|racetrac/i", "category": "Gas/Transport" },
+    { "pattern": "/uber|lyft|transit|\\bmetro\\b|parking|parkwhiz|\\btoll\\b|amtrak|tollway|e-zpass|ezpass|\\btfl\\b/i", "category": "Gas/Transport" },
 
-    { "pattern": "/airline|airlines|delta air|united air|american air|southwest|jetblue|spirit air|hotel|marriott|hilton|hyatt|airbnb|vrbo|expedia|booking\\.com|rental car|hertz|enterprise rent/i", "category": "Travel" },
+    { "pattern": "/airline|airlines|delta air|united air|american air|southwest|jetblue|spirit air|\\bhotel\\b|marriott|hilton|hyatt|four seasons|ritz|intercontinental|airbnb|vrbo|expedia|booking\\.com|rental car|hertz|avis|enterprise rent|go rentals|amextravel|amex travel|amex hotel|talisker|tower of london|iwm duxford|st pancras|heathrow|gatwick|vail resort|\\bwestin\\b|resort/i", "category": "Travel" },
 
-    { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium/i", "category": "Insurance" },
+    { "pattern": "/carpet warehouse|\\bcarpet\\b|home depot|lowe's|lowes|\\bikea\\b|container store|wayfair|ferguson|sherwin|floor & decor|real green|lawn care|\\bhvac\\b|plumber|electrician|wine enthusiast|wine fridge/i", "category": "Home" },
+    { "pattern": "/pypl payin4|payin4|pay in 4|paypal \\*pypl/i", "category": "Shopping" },
+    { "pattern": "/celestron|precision camera|best buy|bestbuy|mac mini|apple online store|apple store|\\bb&h\\b|b and h photo|micro center|microcenter|newegg|logitech|\\bgopro\\b|\\bdji\\b|framework computer|sonos|\\bnvidia\\b/i", "category": "Electronics" },
+    { "pattern": "/\\bsmcp\\b|sandro|maje|luca faloni|mack weldon|\\bnike\\b|uniqlo|lululemon|\\bzara\\b|nordstrom|bonobos|suitsupply|ralph lauren|brooks brothers|mikonos leather|leather sh|dover saddlery/i", "category": "Apparel" },
+    { "pattern": "/amazon|amzn/i", "category": "Amazon" },
+    { "pattern": "/\\btarget\\b|walmart|\\bebay\\b|etsy|\\bmacy|tj maxx|marshalls|\\brei \\b|williams sonoma|crate & barrel|pottery barn|soccer\\.com|duty free|museum shop/i", "category": "Shopping" },
 
-    { "pattern": "/pharmacy|cvs|walgreens|rite aid|hospital|clinic|medical|dental|dentist|doctor|urgent care|labcorp|quest diag|health/i", "category": "Medical" },
-
-    { "pattern": "/cinema|movie|amc |regal|theater|theatre|concert|ticketmaster|stubhub|steam games|playstation|xbox|nintendo|spotify/i", "category": "Entertainment" },
-
-    { "pattern": "/irs |tax pmt|franchise tax|dept of revenue|treasury/i", "category": "Taxes" },
-
-    { "pattern": "/tuition|university|college|school|coursera|udemy|edx/i", "category": "Education" },
-
-    { "pattern": "/donation|charity|red cross|goodwill|church|nonprofit/i", "category": "Charity" },
-
-    { "pattern": "/overdraft|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|annual fee|foreign transaction fee/i", "category": "Fees" }
+    { "pattern": "/cinema|movie|amc |regal|theater|theatre|concert|ticketmaster|stubhub|steam games|playstation|xbox|nintendo/i", "category": "Entertainment" },
+    { "pattern": "/tuition|university|college|\\bschool\\b|coursera|udemy|\\bedx\\b/i", "category": "Education" },
+    { "pattern": "/donation|charity|red cross|goodwill|church|nonprofit/i", "category": "Charity" }
   ]
 }
