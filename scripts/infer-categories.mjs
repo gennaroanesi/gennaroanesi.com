@@ -36,8 +36,8 @@ import rulesData from "../components/finance/category-rules.json" with { type: "
 const DRY_RUN    = process.argv.includes("--dry-run");
 const USE_LLM    = process.argv.includes("--llm");
 const OVERWRITE  = process.argv.includes("--overwrite");
-const userArg    = process.argv.find((a) => a.startsWith("--user="))?.split("=")[1];
-const passArg    = process.argv.find((a) => a.startsWith("--pass="))?.split("=")[1];
+const userArg    = process.argv.find((a) => a.startsWith("--user="))?.split("=")[1] ?? process.env.COGNITO_USER;
+const passArg    = process.argv.find((a) => a.startsWith("--pass="))?.split("=")[1] ?? process.env.COGNITO_PASSWORD;
 const acctArg    = process.argv.find((a) => a.startsWith("--account="))?.split("=")[1];
 const limitArg   = process.argv.find((a) => a.startsWith("--limit="))?.split("=")[1];
 const keyArg     = process.argv.find((a) => a.startsWith("--anthropic-key="))?.split("=")[1];
