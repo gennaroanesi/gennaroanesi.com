@@ -13,18 +13,18 @@
 
     { "pattern": "/us treas tax|treas tax pymt|irs |tax pmt|franchise tax|property tax|dept of revenue|treasury|turbotax|h&r block|tax prep/i", "category": "Taxes" },
     { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b|withdrawal \\d/i", "category": "Cash/ATM" },
-    { "pattern": "/overdraft|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|foreign transaction fee/i", "category": "Fees" },
+    { "pattern": "/overdraft|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|renewal member|foreign transaction fee/i", "category": "Fees" },
 
-    { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium|briteco|jewelers mutual|trupanion/i", "category": "Insurance" },
+    { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium|briteco|jewelers[- _]?mutual|trupanion/i", "category": "Insurance" },
 
-    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|max\\.|youtube|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|google \\*|google\\*|dropbox|adobe|notion|chatgpt|openai|anthropic|claude\\.ai|microsoft|msbill|twilio|espn|paramount|logo diffusion|650 industries|expo|vercel|cursor|render\\.com|amazon web services|\\baws\\b|tello|boingo|prime global|subscription|kindle unltd|amazon prime|prime video|walmart\\+ member|\\baudible\\b|amazon music|sirius ?xm/i", "category": "Subscriptions" },
+    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|\\bmax\\.|youtube|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|google \\*|google\\*|dropbox|adobe|notion|chatgpt|openai|anthropic|claude\\.ai|microsoft|msbill|twilio|espn|paramount|logo diffusion|650 industries|expo|vercel|cursor|render\\.com|amazon web services|\\baws\\b|tello|boingo|prime global|subscription|kindle unltd|amazon prime|prime video|walmart\\+ member|\\baudible\\b|amazon music|sirius ?xm/i", "category": "Subscriptions" },
 
     { "pattern": "/trupanion|dogtopia|banfield|barkin|doginhaus|petco|petsmart|chewy|purely provisions|rover\\.com|veterin|animal hospital|animal clinic/i", "category": "Dolce" },
     { "pattern": "/cirrus owner|mooneyspace|foreflight|\\baopa\\b|avionics|garmin pilot|sporty|aviation|aircraft|flight school|100ll|avgas|jeppesen|\\bfbo\\b|million air|signature flight|atlantic aviation/i", "category": "Flying" },
     { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range|\\baxil\\b|security equipment|\\bsabre\\b|bfg com/i", "category": "SHTF" },
     { "pattern": "/reverb\\.com|reverb com|sweetwater|guitar center|\\bfender\\b|gibson guitar|thomann/i", "category": "Guitar" },
     { "pattern": "/richemont|cartier|van cleef|\\bbezel\\b|dufrane|\\bomega\\b|\\brolex\\b|tudor watch|watches|jeweler|jewelry|bucherer|hodinkee|watchbox|crown & caliber/i", "category": "Watches/Jewelry" },
-    { "pattern": "/brian harris bmw|\\bbmw\\b|autozone|o'reilly|discount tire|jiffy lube|car wash|shipyourcarnow|ship your car|\\bdmv\\b|toll tag|valvoline|tesla supercharg/i", "category": "Car" },
+    { "pattern": "/brian harris bmw|carmax|\\bbmw\\b|autozone|o'reilly|discount tire|jiffy lube|car wash|shipyourcarnow|ship your car|\\bdmv\\b|toll tag|valvoline|tesla supercharg/i", "category": "Car" },
     { "pattern": "/sports medicine|sportsmedi|physical therapy|\\bchiro|central park surgery|dermatolog|pharmacy|cvs|walgreens|rite aid|hospital|clinic|dental|dentist|urgent care|labcorp|quest diag/i", "category": "Medical" },
     { "pattern": "/orangetheory|otf |speediance|planet fitness|lifetime fitness|life time|equinox|peloton|\\bgym\\b|crossfit|\\byoga\\b|pilates|\\bhims\\b|hims inc/i", "category": "Health" },
 
