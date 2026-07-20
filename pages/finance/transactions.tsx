@@ -138,19 +138,15 @@ export default function TransactionsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Explicit type args on each listAll: without them TS infers T from the
-      // (very deep) Amplify model types, and the 8-way Promise.all tuple trips
-      // "Type instantiation is excessively deep" (TS2589). Passing T directly
-      // keeps the tuple shallow while preserving full typing.
       const [accs, txs, gls, maps, lotRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
-        listAll<AccountRecord>(client.models.financeAccount),
-        listAll<TransactionRecord>(client.models.financeTransaction),
-        listAll<GoalRecord>(client.models.financeSavingsGoal),
-        listAll<GoalFundingSourceRecord>(client.models.financeGoalFundingSource),
-        listAll<HoldingLotRecord>(client.models.financeHoldingLot),
-        listAll<TickerQuoteRecord>(client.models.financeTickerQuote),
-        listAll<RecurringRecord>(client.models.financeRecurring),
-        listAll<SpendGroupRecord>(client.models.financeSpendGroup as any),
+        listAll(client.models.financeAccount),
+        listAll(client.models.financeTransaction),
+        listAll(client.models.financeSavingsGoal),
+        listAll(client.models.financeGoalFundingSource),
+        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeTickerQuote),
+        listAll(client.models.financeRecurring),
+        listAll(client.models.financeSpendGroup as any),
       ]);
       setAccounts(accs);
       setTransactions(txs);
@@ -696,11 +692,6 @@ export default function TransactionsPage() {
         {/* ── Edit panel (shared) ───────────────────────────────────────── */}
         {editingTx && (
           <TransactionPanel
-            // Key by tx id so selecting a different row remounts the panel and
-            // re-seeds its form state — the internal useState initializers only
-            // run on mount, so without this the panel keeps showing the first
-            // transaction's values when you click another row.
-            key={editingTx.id}
             mode="edit"
             editingTx={editingTx}
             accounts={accounts}

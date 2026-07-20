@@ -544,16 +544,6 @@ const schema = a.schema({
       // somewhere stable without overwriting the original. Included in the
       // /finance/transactions search bar.
       notes:             a.string(),
-      // Line-item itemization — a JSON-stringified array of
-      //   { name, amount, category, quantity? }
-      // (same "AWSJSON via string" pattern as lotConsumptions / lastSimplefinSyncDetails).
-      // When present, category breakdowns split the transaction across these items'
-      // categories INSTEAD of the single transaction-level `category` — used for
-      // opaque aggregators like Amazon where one charge spans multiple categories.
-      // Populated from Amazon "Request My Data" order exports (see scripts). Item
-      // amounts are scaled to the transaction total at read time so the split is
-      // exact even when tax/shipping make the raw item sum differ slightly.
-      lineItems:         a.string(),
     })
     .secondaryIndexes((index) => [index("recurringId")])
     .authorization((allow) => [allow.group("admins")]),

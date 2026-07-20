@@ -37,7 +37,6 @@ export const INVESTMENT_CATEGORY = "Investments";
 export const EXCLUDED_FROM_PNL = new Set<string>([
   "Transfers",
   "Credit Card Payment",
-  "Loan Payment", // debt paydown — moves cash → equity, net-worth-affecting, not consumption
   INVESTMENT_CATEGORY,
 ]);
 
@@ -101,78 +100,4 @@ export function effectiveCategory(tx: InferInput): string {
   const set = (tx.category ?? "").trim();
   if (set) return set;
   return inferCategory(tx) ?? UNCATEGORIZED;
-}
-
-// ── Line-item itemization ─────────────────────────────────────────────────────
-
-/** One itemized line within a transaction (e.g. a single Amazon order item). */
-export type LineItem = {
-  name?: string | null;
-  amount: number;          // item cost, same sign convention as the tx (usually positive magnitude)
-  category: string;
-  quantity?: number | null;
-};
-
-type ItemizedInput = InferInput & { lineItems?: string | null };
-
-/**
- * Parse the JSON-stringified `lineItems` field into a validated array, or null
- * when absent/empty/malformed. Kept lenient: rows missing a numeric amount or a
- * category are dropped rather than throwing, so a partial import can't break the
- * whole breakdown.
- */
-export function parseLineItems(tx: ItemizedInput): LineItem[] | null {
-  const raw = (tx.lineItems ?? "").trim();
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(parsed) || parsed.length === 0) return null;
-  const items: LineItem[] = [];
-  for (const it of parsed as Record<string, unknown>[]) {
-    const amount = Number(it?.amount);
-    const category = String(it?.category ?? "").trim();
-    if (!Number.isFinite(amount) || !category) continue;
-    items.push({
-      name: (it?.name as string) ?? null,
-      amount: Math.abs(amount),
-      category,
-      quantity: it?.quantity == null ? null : Number(it.quantity),
-    });
-  }
-  return items.length ? items : null;
-}
-
-/**
- * Distribute a transaction's counted magnitude `magnitude` (positive) across
- * category buckets. When the transaction carries valid `lineItems`, the split
- * follows the items' categories — item amounts are scaled proportionally so the
- * contributions sum EXACTLY to `magnitude` even if the raw item total differs
- * (tax, shipping, partial imports). Otherwise it returns a single bucket keyed by
- * `effectiveCategory(tx)`. This is the one place callers should use so item-level
- * and transaction-level rows are summed identically.
- */
-export function categoryContributions(
-  tx: ItemizedInput,
-  magnitude: number,
-): { category: string; amount: number }[] {
-  const items = parseLineItems(tx);
-  if (!items) return [{ category: effectiveCategory(tx), amount: magnitude }];
-
-  const rawSum = items.reduce((s, i) => s + i.amount, 0);
-  if (rawSum <= 0) return [{ category: effectiveCategory(tx), amount: magnitude }];
-
-  // Merge same-category items, then scale to the transaction magnitude.
-  const byCat = new Map<string, number>();
-  for (const it of items) byCat.set(it.category, (byCat.get(it.category) ?? 0) + it.amount);
-  const scale = magnitude / rawSum;
-  return [...byCat.entries()].map(([category, amount]) => ({ category, amount: amount * scale }));
-}
-
-/** True when a transaction has a usable itemization. */
-export function hasLineItems(tx: ItemizedInput): boolean {
-  return parseLineItems(tx) != null;
 }

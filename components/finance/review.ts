@@ -44,7 +44,7 @@ import {
   uniqueTickers,
   type QuoteMap,
 } from "./finance-core";
-import { effectiveCategory, isExcludedFromPnl, categoryContributions } from "./categories";
+import { effectiveCategory, isExcludedFromPnl } from "./categories";
 
 // ── Period & range ────────────────────────────────────────────────────────────
 
@@ -424,15 +424,9 @@ export function summarizeExpenses(
 
     txCount += 1;
     const acc = acctById.get(tx.accountId);
-    // Itemized transactions (e.g. an Amazon order spanning categories) split
-    // their magnitude across the line items' categories; non-itemized rows
-    // yield a single bucket keyed by the transaction category. `count` is
-    // incremented once per contributing category so a 3-item order shows as 3
-    // in whichever categories it touched, but the amount is never double-counted.
-    for (const { category: cat, amount } of categoryContributions(tx, v)) {
-      const cb = byCategory.get(cat) ?? { category: cat, amount: 0, count: 0 };
-      cb.amount += amount; cb.count += 1; byCategory.set(cat, cb);
-    }
+    const cat = effectiveCategory(tx);
+    const cb = byCategory.get(cat) ?? { category: cat, amount: 0, count: 0 };
+    cb.amount += v; cb.count += 1; byCategory.set(cat, cb);
     const ab = byAccount.get(tx.accountId) ?? {
       accountId: tx.accountId, accountName: acc?.name ?? "Unknown account",
       type: (acc?.type as string) ?? null, amount: 0, count: 0,

@@ -13,7 +13,6 @@ import {
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
-import { parseLineItems, type LineItem } from "@/components/finance/categories";
 
 export type TransactionPanelProps = {
   // Data the form reads from
@@ -241,7 +240,6 @@ export function TransactionPanel(props: TransactionPanelProps) {
           consumedCostBasis: consumedCostBasis,
           lotConsumptions:   lotConsumptionsJson,
           notes:             txDraft.notes ?? null,
-          lineItems:         txDraft.lineItems ?? null,
         });
         if (newTx) {
           if (createdLot) onSetLots((p) => [...p, createdLot!]);
@@ -278,7 +276,6 @@ export function TransactionPanel(props: TransactionPanelProps) {
           toAccountId: txDraft.toAccountId ?? null,
           recurringId: txDraft.recurringId ?? null,
           notes:       txDraft.notes ?? null,
-          lineItems:   txDraft.lineItems ?? null,
         });
 
         if (!editingTrade) {
@@ -671,73 +668,6 @@ export function TransactionPanel(props: TransactionPanelProps) {
             value={txDraft.category ?? ""}
             onChange={(e) => setTxDraft((d) => ({ ...d, category: e.target.value }))} />
         </div>
-
-        {/* Line items — itemized breakdown (e.g. an Amazon order spanning
-            categories). When present, category reports split this charge across
-            the items' categories INSTEAD of the single Category above. Populated
-            by the Amazon order import, or add/edit manually here. */}
-        {(() => {
-          const items = parseLineItems(txDraft as { lineItems?: string | null }) ?? [];
-          const hasItems = items.length > 0;
-          const sum = items.reduce((s, it) => s + it.amount, 0);
-          const txMag = Math.abs(txDraft.amount ?? 0);
-          const mismatch = hasItems && txMag > 0 && Math.abs(sum - txMag) > 0.01;
-          const write = (next: LineItem[]) =>
-            setTxDraft((d) => ({ ...d, lineItems: next.length ? JSON.stringify(next) : null }));
-          const update = (i: number, patch: Partial<LineItem>) =>
-            write(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
-          const remove = (i: number) => write(items.filter((_, idx) => idx !== i));
-          const add = () => write([...items, { name: "", amount: 0, category: txDraft.category ?? "" }]);
-          return (
-            <div className="rounded border border-gray-200 dark:border-darkBorder p-3 flex flex-col gap-2 bg-gray-50/50 dark:bg-white/[0.02]">
-              <div className="flex items-center justify-between">
-                <label className={`${labelCls} mb-0`}>
-                  Line items{hasItems ? ` (${items.length})` : ""}
-                </label>
-                <button type="button" onClick={add}
-                  className="text-[11px] font-medium" style={{ color: FINANCE_COLOR }}>
-                  + Add item
-                </button>
-              </div>
-              {hasItems ? (
-                <>
-                  <div className="flex flex-col gap-1.5">
-                    {items.map((it, i) => (
-                      <div key={i} className="flex items-center gap-1">
-                        <input type="text" placeholder="Item"
-                          className="flex-1 min-w-0 bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-1.5 py-1 text-xs text-gray-700 dark:text-gray-200"
-                          value={it.name ?? ""}
-                          onChange={(e) => update(i, { name: e.target.value })} />
-                        <input type="text" placeholder="Category"
-                          className="w-24 flex-shrink-0 bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-1.5 py-1 text-xs text-gray-700 dark:text-gray-200"
-                          value={it.category}
-                          onChange={(e) => update(i, { category: e.target.value })} />
-                        <input type="number" step="0.01" placeholder="0.00"
-                          className="w-16 flex-shrink-0 bg-white dark:bg-darkElevated border border-gray-200 dark:border-darkBorder rounded px-1.5 py-1 text-xs text-right tabular-nums text-gray-700 dark:text-gray-200"
-                          value={it.amount || ""}
-                          onChange={(e) => update(i, { amount: parseFloat(e.target.value) || 0 })} />
-                        <button type="button" onClick={() => remove(i)}
-                          className="text-gray-400 hover:text-red-500 text-sm leading-none px-1 flex-shrink-0"
-                          title="Remove item">×</button>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] mt-0.5">
-                    <span className="text-gray-400">Reports split this charge across these categories.</span>
-                    <span className={`tabular-nums font-medium ${mismatch ? "text-amber-500" : "text-gray-400"}`}
-                      title={mismatch ? `Items sum to ${fmtCurrency(sum, "USD")} but the transaction is ${fmtCurrency(txMag, "USD")}. Amounts are scaled to the transaction total in reports.` : ""}>
-                      Σ {fmtCurrency(sum, "USD")}{mismatch ? " ⚠" : ""}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <p className="text-[10px] text-gray-400 leading-snug">
-                  None. Amazon orders auto-populate here; or add items to split this charge across categories.
-                </p>
-              )}
-            </div>
-          );
-        })()}
         {spendGroups.length > 0 && (
           <div>
             <label className={labelCls}>Group <span className="text-gray-400 font-normal">(trip / project)</span></label>
