@@ -72,10 +72,29 @@ function patternMatches(pattern: string, text: string): boolean {
 }
 
 /**
+ * Payment-processor prefixes that bury the real merchant name — e.g.
+ * `PAYPAL *FALKEUSAONL`, `SP AXIL`, `AplPay PORTE NOIRE`, `PwP AMERICAN EXPR`.
+ * Rules key on merchant names, so these prefixes otherwise defeat every rule and
+ * dump the row into Uncategorized.
+ */
+const PROCESSOR_PREFIX =
+  /^(paypal\s*\*|sq\s*\*|sp\s+|aplpay\s+|pwp\s+|dojo\s*\*|zettle\s*\*|tst\s*\*|py\s*\*|ic\*\s*)+/i;
+
+/** Merchant name with any payment-processor prefix removed. */
+export function stripProcessorPrefix(description: string): string {
+  return description.replace(PROCESSOR_PREFIX, "").trim();
+}
+
+/**
  * Infer a category for a transaction. Returns null when no rule matches and the
  * type carries no implicit bucket — callers decide whether to fall back to
  * UNCATEGORIZED. TRANSFER → "Transfers", BUY/SELL → "Investments" regardless of
  * description (those are structural, not spending).
+ *
+ * Each rule is tested against the raw description AND a prefix-stripped variant,
+ * in rule order. Testing both (rather than only the stripped form) keeps
+ * prefix-dependent rules working — `tst\*` is itself the signal that a row is a
+ * Toast restaurant charge.
  */
 export function inferCategory(tx: InferInput): string | null {
   if (tx.type === "TRANSFER") return "Transfers";
@@ -83,8 +102,10 @@ export function inferCategory(tx: InferInput): string | null {
 
   const desc = (tx.description ?? "").trim();
   if (desc) {
+    const stripped = stripProcessorPrefix(desc);
     for (const rule of CATEGORY_RULES) {
       if (patternMatches(rule.pattern, desc)) return rule.category;
+      if (stripped !== desc && patternMatches(rule.pattern, stripped)) return rule.category;
     }
   }
   // Income with no rule hit still reads as income.

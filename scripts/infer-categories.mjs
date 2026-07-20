@@ -72,13 +72,21 @@ function patternMatches(pattern, text) {
   return text.toLowerCase().includes(p.toLowerCase());
 }
 
+// Mirrors stripProcessorPrefix in components/finance/categories.ts — keep in sync.
+// Processor prefixes (PAYPAL *, SP , AplPay , PwP …) bury the merchant name and
+// otherwise defeat every merchant rule.
+const PROCESSOR_PREFIX =
+  /^(paypal\s*\*|sq\s*\*|sp\s+|aplpay\s+|pwp\s+|dojo\s*\*|zettle\s*\*|tst\s*\*|py\s*\*|ic\*\s*)+/i;
+
 function inferByRules(tx) {
   if (tx.type === "TRANSFER") return "Transfers";
   if (tx.type === "BUY" || tx.type === "SELL") return "Investments";
   const desc = (tx.description ?? "").trim();
   if (desc) {
+    const stripped = desc.replace(PROCESSOR_PREFIX, "").trim();
     for (const rule of CATEGORY_RULES) {
       if (patternMatches(rule.pattern, desc)) return rule.category;
+      if (stripped !== desc && patternMatches(rule.pattern, stripped)) return rule.category;
     }
   }
   if (tx.type === "INCOME") return "Income";

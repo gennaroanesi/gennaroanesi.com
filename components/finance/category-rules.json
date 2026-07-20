@@ -17,11 +17,11 @@
 
     { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium|briteco|jewelers mutual|trupanion/i", "category": "Insurance" },
 
-    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|max\\.|youtube|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|google \\*|google\\*|dropbox|adobe|notion|chatgpt|openai|anthropic|claude\\.ai|microsoft|msbill|twilio|espn|paramount|logo diffusion|650 industries|expo|vercel|cursor|render\\.com|amazon web services|\\baws\\b|tello|boingo|prime global|subscription|kindle unltd|amazon prime|prime video|walmart\\+ member|\\baudible\\b|amazon music/i", "category": "Subscriptions" },
+    { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|max\\.|youtube|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|google \\*|google\\*|dropbox|adobe|notion|chatgpt|openai|anthropic|claude\\.ai|microsoft|msbill|twilio|espn|paramount|logo diffusion|650 industries|expo|vercel|cursor|render\\.com|amazon web services|\\baws\\b|tello|boingo|prime global|subscription|kindle unltd|amazon prime|prime video|walmart\\+ member|\\baudible\\b|amazon music|sirius ?xm/i", "category": "Subscriptions" },
 
     { "pattern": "/trupanion|dogtopia|banfield|barkin|doginhaus|petco|petsmart|chewy|purely provisions|rover\\.com|veterin|animal hospital|animal clinic/i", "category": "Dolce" },
-    { "pattern": "/cirrus owner|mooneyspace|foreflight|\\baopa\\b|avionics|garmin pilot|sporty|aviation|aircraft|flight school|100ll|avgas|jeppesen|\\bfbo\\b/i", "category": "Flying" },
-    { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range/i", "category": "SHTF" },
+    { "pattern": "/cirrus owner|mooneyspace|foreflight|\\baopa\\b|avionics|garmin pilot|sporty|aviation|aircraft|flight school|100ll|avgas|jeppesen|\\bfbo\\b|million air|signature flight|atlantic aviation/i", "category": "Flying" },
+    { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range|\\baxil\\b|security equipment|\\bsabre\\b|bfg com/i", "category": "SHTF" },
     { "pattern": "/reverb\\.com|reverb com|sweetwater|guitar center|\\bfender\\b|gibson guitar|thomann/i", "category": "Guitar" },
     { "pattern": "/richemont|cartier|van cleef|\\bbezel\\b|dufrane|\\bomega\\b|\\brolex\\b|tudor watch|watches|jeweler|jewelry|bucherer|hodinkee|watchbox|crown & caliber/i", "category": "Watches/Jewelry" },
     { "pattern": "/brian harris bmw|\\bbmw\\b|autozone|o'reilly|discount tire|jiffy lube|car wash|shipyourcarnow|ship your car|\\bdmv\\b|toll tag|valvoline|tesla supercharg/i", "category": "Car" },
@@ -31,19 +31,21 @@
     { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|verizon|at&t|t-mobile|tmobile|spectrum|internet|wireless|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy/i", "category": "Utilities" },
     { "pattern": "/mortgage|rent payment|\\brent\\b|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
 
-    { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer/i", "category": "Groceries" },
-    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|doordash|uber eats|grubhub|postmates|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro/i", "category": "Dining" },
+    { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
+    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|doordash|uber eats|grubhub|postmates|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro|porte noire/i", "category": "Dining" },
 
     { "pattern": "/shell|chevron|exxon|mobil|\\bbp \\b|valero|texaco|gas station|\\bfuel\\b|sunoco|circle k|buc-ee|quiktrip|\\b76 \\b|chargepoint|racetrac/i", "category": "Gas/Transport" },
     { "pattern": "/uber|lyft|transit|\\bmetro\\b|parking|parkwhiz|\\btoll\\b|amtrak|tollway|e-zpass|ezpass|\\btfl\\b/i", "category": "Gas/Transport" },
 
-    { "pattern": "/airline|airlines|delta air|united air|american air|southwest|jetblue|spirit air|\\bhotel\\b|marriott|hilton|hyatt|four seasons|ritz|intercontinental|airbnb|vrbo|expedia|booking\\.com|rental car|hertz|avis|enterprise rent|go rentals|amextravel|amex travel|amex hotel|talisker|tower of london|iwm duxford|st pancras|heathrow|gatwick|vail resort|\\bwestin\\b|resort/i", "category": "Travel" },
+    { "pattern": "/airline|airlines|delta air|united air|american air|southwest|jetblue|spirit air|\\bhotel\\b|marriott|hilton|hyatt|four seasons|ritz|intercontinental|airbnb|vrbo|expedia|booking\\.com|rental car|hertz|avis|enterprise rent|go rentals|amextravel|amex travel|amex hotel|talisker|tower of london|iwm duxford|st pancras|heathrow|gatwick|american expr|\\bjuly us\\b|ic houston|vail resort|\\bwestin\\b|resort/i", "category": "Travel" },
 
-    { "pattern": "/carpet warehouse|\\bcarpet\\b|home depot|lowe's|lowes|\\bikea\\b|container store|wayfair|ferguson|sherwin|floor & decor|real green|lawn care|\\bhvac\\b|plumber|electrician|wine enthusiast|wine fridge/i", "category": "Home" },
+    { "pattern": "/carpet warehouse|\\bcarpet\\b|home depot|lowe's|lowes|\\bikea\\b|container store|wayfair|ferguson|sherwin|floor & decor|real green|lawn care|\\bhvac\\b|plumber|electrician|wine enthusiast|wine fridge|cloudfree|olibra|bond home|laguiole/i", "category": "Home" },
     { "pattern": "/pypl payin4|payin4|pay in 4|paypal \\*pypl/i", "category": "Shopping" },
     { "pattern": "/celestron|precision camera|best buy|bestbuy|mac mini|apple online store|apple store|\\bb&h\\b|b and h photo|micro center|microcenter|newegg|logitech|\\bgopro\\b|\\bdji\\b|framework computer|sonos|\\bnvidia\\b/i", "category": "Electronics" },
-    { "pattern": "/\\bsmcp\\b|sandro|maje|luca faloni|mack weldon|\\bnike\\b|uniqlo|lululemon|\\bzara\\b|nordstrom|bonobos|suitsupply|ralph lauren|brooks brothers|mikonos leather|leather sh|dover saddlery/i", "category": "Apparel" },
+    { "pattern": "/\\bsmcp\\b|sandro|maje|luca faloni|mack weldon|hugo boss|falkeusa|\\bfalke\\b|\\bnike\\b|uniqlo|lululemon|\\bzara\\b|nordstrom|bonobos|suitsupply|ralph lauren|brooks brothers|mikonos leather|leather sh|dover saddlery/i", "category": "Apparel" },
     { "pattern": "/amazon|amzn/i", "category": "Amazon" },
+    { "pattern": "/\\bcarv\\b|snowboard|\\bskis\\b|ski rental|ski patrol|epic pass|ikon pass|vail resort|breckenridge|park city mountain/i", "category": "Ski" },
+    { "pattern": "/red tool|harbor freight|\\bdewalt\\b|milwaukee tool|home hardware|ace hardware|fastenal|grainger/i", "category": "Tools" },
     { "pattern": "/\\btarget\\b|walmart|\\bebay\\b|etsy|\\bmacy|tj maxx|marshalls|\\brei \\b|williams sonoma|crate & barrel|pottery barn|soccer\\.com|duty free|museum shop/i", "category": "Shopping" },
 
     { "pattern": "/cinema|movie|amc |regal|theater|theatre|concert|ticketmaster|stubhub|steam games|playstation|xbox|nintendo/i", "category": "Entertainment" },
