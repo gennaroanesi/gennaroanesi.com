@@ -100,15 +100,19 @@ export default function AccountDetailPage() {
     if (!accountId) return;
     setLoading(true);
     try {
+      // Explicit type args: without them TS infers T from the (very deep)
+      // Amplify model types and the 8-way Promise.all tuple trips TS2589
+      // ("Type instantiation is excessively deep"). Same fix as
+      // /finance/transactions — keeps the tuple shallow, typing intact.
       const [accRecs, txs, lotRecs, quoteRecs, goalRecs, mappingRecs, recRecs, groupRecs] = await Promise.all([
-        listAll(client.models.financeAccount),
-        listAll(client.models.financeTransaction),
-        listAll(client.models.financeHoldingLot),
-        listAll(client.models.financeTickerQuote),
-        listAll(client.models.financeSavingsGoal),
-        listAll(client.models.financeGoalFundingSource),
-        listAll(client.models.financeRecurring),
-        listAll(client.models.financeSpendGroup as any),
+        listAll<AccountRecord>(client.models.financeAccount),
+        listAll<TransactionRecord>(client.models.financeTransaction),
+        listAll<HoldingLotRecord>(client.models.financeHoldingLot),
+        listAll<TickerQuoteRecord>(client.models.financeTickerQuote),
+        listAll<GoalRecord>(client.models.financeSavingsGoal),
+        listAll<GoalFundingSourceRecord>(client.models.financeGoalFundingSource),
+        listAll<RecurringRecord>(client.models.financeRecurring),
+        listAll<SpendGroupRecord>(client.models.financeSpendGroup as any),
       ]);
       setAccounts(accRecs);
       // The shared panel can save TRANSFERs that change accountId or move
@@ -935,6 +939,11 @@ export default function AccountDetailPage() {
         {/* Transaction / import panels render their own chrome. */}
         {panel?.kind === "new-tx" && (
           <TransactionPanel
+            // Key by the seed type: the panel's form state is built in useState
+            // initializers, which only run on mount. Without this, switching
+            // between the Buy / Sell / Add-transaction buttons while the panel
+            // is open would leave it showing the previously seeded type.
+            key={`new-${panel.defaultType ?? "EXPENSE"}`}
             mode="create"
             defaultType={panel.defaultType ?? "EXPENSE"}
             defaultAccountId={accountId}
@@ -952,6 +961,10 @@ export default function AccountDetailPage() {
         )}
         {panel?.kind === "edit-tx" && (
           <TransactionPanel
+            // Same fix as /finance/transactions: key by tx id so clicking a
+            // different row remounts the panel and re-seeds its form state
+            // instead of keeping the first transaction's values.
+            key={panel.tx.id}
             mode="edit"
             editingTx={panel.tx}
             accounts={accounts}
