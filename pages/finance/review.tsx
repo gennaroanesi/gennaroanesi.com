@@ -295,20 +295,22 @@ export default function ReviewPage() {
     };
   }, [period, txs, accounts, recurrings, spendGroups, lots, quotes, holdingSnaps, goalSnaps, goals]);
 
+  // Single-category drill-down: dropdown options + the selected category's stats.
+  // These hooks must run on every render — keep them ABOVE the auth early-return
+  // below, or the hook count changes between renders (React error #310).
+  const spendCategories = useMemo(() => listSpendCategories(txs, view.range), [txs, view.range]);
+  const activeDetailCat =
+    detailCat && spendCategories.includes(detailCat) ? detailCat : (spendCategories[0] ?? "");
+  const catAnalysis = useMemo(
+    () => (activeDetailCat ? analyzeCategory(txs, view.range, activeDetailCat) : null),
+    [txs, view.range, activeDetailCat],
+  );
+
   if (authState !== "authenticated") return null;
 
   const { range, income, expenses, recurring, recurringSuggestions, cards, groups, stock, goalEvo, trend,
           sources, coverage, oneOffs, carry } = view;
   const net = income.total - expenses.total;
-
-  // Single-category drill-down: dropdown options + the selected category's stats.
-  const spendCategories = useMemo(() => listSpendCategories(txs, range), [txs, range]);
-  const activeDetailCat =
-    detailCat && spendCategories.includes(detailCat) ? detailCat : (spendCategories[0] ?? "");
-  const catAnalysis = useMemo(
-    () => (activeDetailCat ? analyzeCategory(txs, range, activeDetailCat) : null),
-    [txs, range, activeDetailCat],
-  );
 
   return (
     <FinanceLayout>
