@@ -862,6 +862,116 @@ export function summarizeCostOfCarry(
   };
 }
 
+// ── Single-category drill-down ─────────────────────────────────────────────────
+
+export type CategoryAnalysis = {
+  category: string;
+  count: number;
+  total: number;
+  average: number;
+  median: number;
+  p90: number;
+  min: number;
+  max: number;
+  /** Mean days between consecutive transactions; null with <2 transactions. */
+  avgIntervalDays: number | null;
+  firstDate: string | null;
+  lastDate: string | null;
+  /** Per-month spend series for the timeseries chart. */
+  series: { bucket: string; label: string; amount: number; count: number }[];
+};
+
+/** Nearest-rank percentile of an ascending-sorted array. */
+function quantileSorted(sortedAsc: number[], p: number): number {
+  if (sortedAsc.length === 0) return 0;
+  const i = Math.min(sortedAsc.length - 1, Math.max(0, Math.round(p * (sortedAsc.length - 1))));
+  return sortedAsc[i];
+}
+
+const daysBetweenIso = (a: string, b: string) =>
+  Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+
+/**
+ * Outflow transactions whose effective category matches, in range. Uses the
+ * transaction-level category (not the item split) — this is per-transaction
+ * cadence/size analysis, so the transaction is the unit.
+ */
+function categoryRows(txs: TransactionRecord[], range: DateRange, category: string): TransactionRecord[] {
+  return txs
+    .filter((tx) =>
+      inRange(tx.date, range) && isPosted(tx)
+      && tx.type !== "TRANSFER" && tx.type !== "BUY" && tx.type !== "SELL"
+      && !tx.toAccountId && (tx.amount ?? 0) < 0
+      && effectiveCategory(tx) === category)
+    .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+}
+
+/** Categories with real outflow spend in range, most-spent first — for the
+ *  dropdown. Excludes balance-sheet buckets (transfers, card/loan payments,
+ *  investments) since those aren't consumption. */
+export function listSpendCategories(txs: TransactionRecord[], range: DateRange): string[] {
+  const totals = new Map<string, number>();
+  for (const tx of txs) {
+    if (!inRange(tx.date, range) || !isPosted(tx)) continue;
+    if (tx.type === "TRANSFER" || tx.type === "BUY" || tx.type === "SELL") continue;
+    if (tx.toAccountId || (tx.amount ?? 0) >= 0) continue;
+    const cat = effectiveCategory(tx);
+    if (isExcludedFromPnl(cat)) continue;
+    totals.set(cat, (totals.get(cat) ?? 0) + Math.abs(tx.amount ?? 0));
+  }
+  return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+}
+
+/** Count, average, p90, cadence and a monthly series for one category. */
+export function analyzeCategory(
+  txs: TransactionRecord[],
+  range: DateRange,
+  category: string,
+): CategoryAnalysis {
+  const rows = categoryRows(txs, range, category);
+  const amounts = rows.map((r) => Math.abs(r.amount ?? 0)).sort((a, b) => a - b);
+  const total = amounts.reduce((s, v) => s + v, 0);
+  const count = rows.length;
+  const firstDate = rows[0]?.date ?? null;
+  const lastDate = rows[count - 1]?.date ?? null;
+  const avgIntervalDays =
+    count >= 2 && firstDate && lastDate ? daysBetweenIso(firstDate, lastDate) / (count - 1) : null;
+
+  const byMonth = new Map<string, { amount: number; count: number }>();
+  for (const r of rows) {
+    const b = (r.date ?? "").slice(0, 7);
+    const e = byMonth.get(b) ?? { amount: 0, count: 0 };
+    e.amount += Math.abs(r.amount ?? 0);
+    e.count += 1;
+    byMonth.set(b, e);
+  }
+  // Fill the interior months (first→last active month) with zeros so the
+  // timeseries reads continuously — a gap month should show $0, not be skipped.
+  const series: CategoryAnalysis["series"] = [];
+  if (firstDate && lastDate) {
+    let y = Number(firstDate.slice(0, 4));
+    let mo = Number(firstDate.slice(5, 7));
+    const endKey = lastDate.slice(0, 7);
+    for (let guard = 0; guard < 600; guard++) {
+      const key = `${y}-${String(mo).padStart(2, "0")}`;
+      const v = byMonth.get(key) ?? { amount: 0, count: 0 };
+      series.push({ bucket: key, label: `${MONTH_NAMES[mo - 1].slice(0, 3)} ${String(y).slice(2)}`, amount: v.amount, count: v.count });
+      if (key === endKey) break;
+      if (++mo > 12) { mo = 1; y++; }
+    }
+  }
+
+  return {
+    category, count, total,
+    average: count ? total / count : 0,
+    median: median(amounts),
+    p90: quantileSorted(amounts, 0.9),
+    min: amounts[0] ?? 0,
+    max: amounts[count - 1] ?? 0,
+    avgIntervalDays, firstDate, lastDate, series,
+  };
+}
+
 // ── Credit-card spending + ticket-size distribution ────────────────────────────
 
 export type ExpenseLine = { id: string; date: string; description: string; accountName: string; category: string; amount: number };

@@ -35,6 +35,8 @@ import {
   summarizeCoverage,
   detectOneOffs,
   summarizeCostOfCarry,
+  listSpendCategories,
+  analyzeCategory,
   EMPLOYER_TICKERS,
   summarizeExpenses,
   summarizeRecurring,
@@ -218,6 +220,7 @@ export default function ReviewPage() {
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [spendGroups, setSpendGroups] = useState<SpendGroupRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detailCat, setDetailCat] = useState<string>("");
 
   const today = todayIso();
   const curYear = Number(today.slice(0, 4));
@@ -297,6 +300,15 @@ export default function ReviewPage() {
   const { range, income, expenses, recurring, recurringSuggestions, cards, groups, stock, goalEvo, trend,
           sources, coverage, oneOffs, carry } = view;
   const net = income.total - expenses.total;
+
+  // Single-category drill-down: dropdown options + the selected category's stats.
+  const spendCategories = useMemo(() => listSpendCategories(txs, range), [txs, range]);
+  const activeDetailCat =
+    detailCat && spendCategories.includes(detailCat) ? detailCat : (spendCategories[0] ?? "");
+  const catAnalysis = useMemo(
+    () => (activeDetailCat ? analyzeCategory(txs, range, activeDetailCat) : null),
+    [txs, range, activeDetailCat],
+  );
 
   return (
     <FinanceLayout>
@@ -626,6 +638,70 @@ export default function ReviewPage() {
                 <BreakdownBars data={acctToBars(expenses.byAccount)} color={EXPENSE_COLOR} emptyLabel="No discretionary spending this period." />
               </div>
             </div>
+
+            {/* ── Category detail ──────────────────────────────────── */}
+            {spendCategories.length > 0 && (
+              <>
+                <SectionTitle hint="pick a category">Category detail</SectionTitle>
+                <div className={CARD}>
+                  <select
+                    value={activeDetailCat}
+                    onChange={(e) => setDetailCat(e.target.value)}
+                    className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-sm px-3 py-1.5 text-gray-700 dark:text-gray-200"
+                  >
+                    {spendCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+
+                  {catAnalysis && catAnalysis.count > 0 ? (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                        <StatCard
+                          label="Transactions"
+                          value={String(catAnalysis.count)}
+                          hint={`${fmtCurrency(catAnalysis.total)} total`}
+                        />
+                        <StatCard
+                          label="Average"
+                          value={fmtCurrency(catAnalysis.average)}
+                          hint={`median ${fmtCurrency(catAnalysis.median)}`}
+                        />
+                        <StatCard
+                          label="P90"
+                          value={fmtCurrency(catAnalysis.p90)}
+                          hint={`max ${fmtCurrency(catAnalysis.max)}`}
+                        />
+                        <StatCard
+                          label="Avg interval"
+                          value={catAnalysis.avgIntervalDays != null ? `${Math.round(catAnalysis.avgIntervalDays)} days` : "—"}
+                          hint={catAnalysis.avgIntervalDays != null && catAnalysis.avgIntervalDays > 0
+                            ? `~${(30.44 / catAnalysis.avgIntervalDays).toFixed(1)}/mo`
+                            : "single transaction"}
+                        />
+                      </div>
+                      <div className="mt-4">
+                        <p className="text-xs text-gray-400 mb-2">Spend over time</p>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart data={catAnalysis.series} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
+                            <CartesianGrid strokeOpacity={0.1} vertical={false} />
+                            <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                            <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 11 }} width={48} />
+                            <Tooltip
+                              formatter={(v: any, _n: any, p: any) => [`${fmtCurrency(Number(v))} · ${p?.payload?.count ?? 0} tx`, catAnalysis.category]}
+                              cursor={{ fillOpacity: 0.06 }}
+                              labelStyle={TOOLTIP_LABEL_STYLE}
+                              contentStyle={TOOLTIP_CONTENT_STYLE}
+                            />
+                            <Bar dataKey="amount" fill={AMBER} radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400 py-6 text-center">No transactions in this category for the period.</p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* ── Recurring ────────────────────────────────────────── */}
             <SectionTitle hint={`${fmtCurrency(recurring.total)} matched`}>Recurring</SectionTitle>
