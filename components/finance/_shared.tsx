@@ -176,6 +176,11 @@ export const RETIREMENT_TYPE_LABELS: Record<RetirementType, string> = {
 export const INVESTED_ACCOUNT_TYPES: AccountType[] = ["BROKERAGE", "RETIREMENT"];
 // isInvestedAccount lives in finance-core (re-exported at the top of this file).
 
+// Accounts that hold a positive balance you own (vs. CREDIT/LOAN liabilities,
+// which are legitimately negative). Their projected balance is floored at 0 —
+// you run out of money, you don't overdraw into the red.
+export const ASSET_ACCOUNT_TYPES = new Set<string>(["CHECKING", "SAVINGS", "BROKERAGE", "RETIREMENT", "CASH"]);
+
 export const TX_TYPES    = ["INCOME", "EXPENSE", "TRANSFER", "BUY", "SELL"] as const;
 export type  TxType      = (typeof TX_TYPES)[number];
 
@@ -1581,13 +1586,23 @@ export function projectBalance(
   const band = scaledStdev;            // ±1σ (P16/P84)
   const pad  = Z_P20 * scaledStdev;    // ±0.84σ (P20/P80)
 
+  // Asset accounts can't realistically go negative — you run out of money, you
+  // don't overdraw savings into the red — so floor their projection at 0. A
+  // net-negative trailing drift would otherwise carry the point estimate (and
+  // its conservative band) straight through zero. CREDIT/LOAN are liabilities
+  // and legitimately negative; they normally return above via the cohort /
+  // amortization paths, but a data-poor one can fall through here, so gate on
+  // type rather than clamping unconditionally.
+  const floor = ASSET_ACCOUNT_TYPES.has(account.type ?? "") ? 0 : -Infinity;
+  const clamp = (v: number) => round2(Math.max(floor, v));
+
   return {
     current:       round2(current),
-    projected:     round2(projected),
-    conservative:  round2(projected - pad),
-    optimistic:    round2(projected + pad),
-    low:           round2(projected - band),
-    high:          round2(projected + band),
+    projected:     clamp(projected),
+    conservative:  clamp(projected - pad),
+    optimistic:    clamp(projected + pad),
+    low:           clamp(projected - band),
+    high:          clamp(projected + band),
     method,
     horizonDays,
     deterministic: round2(deterministic),
