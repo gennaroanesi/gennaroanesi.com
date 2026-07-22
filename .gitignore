@@ -39,3 +39,6 @@ public/backgrounds/
 
 # Amazon "Request My Data" export — personal order history, never commit
 scripts/data/Your Orders/
+
+# Local DB backups (financial data — keep out of git)
+scripts/data/backups/

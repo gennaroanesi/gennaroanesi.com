@@ -6,7 +6,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
-  HoldingLotRecord, TickerQuoteRecord, RecurringRecord, SpendGroupRecord,
+  HoldingLotRecord, HoldingRecord, TickerQuoteRecord, RecurringRecord, SpendGroupRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate, amountColor,
   computeGoalAllocations,
@@ -65,6 +65,7 @@ export default function TransactionsPage() {
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
+  const [holdings,     setHoldings]     = useState<HoldingRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [recurrings,   setRecurrings]   = useState<RecurringRecord[]>([]);
   const [spendGroups,  setSpendGroups]  = useState<SpendGroupRecord[]>([]);
@@ -142,12 +143,13 @@ export default function TransactionsPage() {
       // (very deep) Amplify model types, and the 8-way Promise.all tuple trips
       // "Type instantiation is excessively deep" (TS2589). Passing T directly
       // keeps the tuple shallow while preserving full typing.
-      const [accs, txs, gls, maps, lotRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
+      const [accs, txs, gls, maps, lotRecs, holdingRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
         listAll<AccountRecord>(client.models.financeAccount),
         listAll<TransactionRecord>(client.models.financeTransaction),
         listAll<GoalRecord>(client.models.financeSavingsGoal),
         listAll<GoalFundingSourceRecord>(client.models.financeGoalFundingSource),
         listAll<HoldingLotRecord>(client.models.financeHoldingLot),
+        listAll<HoldingRecord>(client.models.financeHolding),
         listAll<TickerQuoteRecord>(client.models.financeTickerQuote),
         listAll<RecurringRecord>(client.models.financeRecurring),
         listAll<SpendGroupRecord>(client.models.financeSpendGroup as any),
@@ -157,6 +159,7 @@ export default function TransactionsPage() {
       setGoals(gls);
       setMappings(maps);
       setLots(lotRecs);
+      setHoldings(holdingRecs);
       setQuotes(quoteRecs);
       setRecurrings(recRecs);
       setSpendGroups(groupRecs as SpendGroupRecord[]);
@@ -230,8 +233,8 @@ export default function TransactionsPage() {
   }, [transactions]);
 
   const allocations = useMemo(
-    () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
-    [accounts, goals, mappings, lots, quotes],
+    () => computeGoalAllocations(accounts, goals, mappings, holdings, quotes),
+    [accounts, goals, mappings, holdings, quotes],
   );
 
   // Typeahead options: categories already in use + the inference vocabulary.

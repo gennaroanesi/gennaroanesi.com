@@ -124,6 +124,7 @@ export type GoalRecord        = Schema["financeSavingsGoal"]["type"];
 export type SpendGroupRecord  = Schema["financeSpendGroup"]["type"];
 export type GoalFundingSourceRecord = Schema["financeGoalFundingSource"]["type"];
 export type HoldingLotRecord  = Schema["financeHoldingLot"]["type"];
+export type HoldingRecord     = Schema["financeHolding"]["type"];
 export type TickerQuoteRecord = Schema["financeTickerQuote"]["type"];
 export type AssetRecord       = Schema["financeAsset"]["type"];
 export type MilestoneRecord   = Schema["financeGoalMilestone"]["type"];
@@ -517,9 +518,14 @@ export async function refreshAllQuotes(): Promise<RefreshPricesResult> {
     message: "", fatal: null,
   };
 
-  // 1. Gather every ticker held across all brokerage/retirement accounts
-  const allLots = await listAll(client.models.financeHoldingLot);
-  const allTickers = uniqueTickers(allLots);
+  // 1. Gather every ticker held across all brokerage/retirement accounts —
+  //    current positions (financeHolding) plus any unvested-RSU / not-yet-backfilled
+  //    tickers that only exist as lots.
+  const [allHoldings, allLots] = await Promise.all([
+    listAll(client.models.financeHolding),
+    listAll(client.models.financeHoldingLot),
+  ]);
+  const allTickers = uniqueTickers(allHoldings, allLots);
   if (allTickers.length === 0) {
     return { ...empty, message: "No tickers to refresh" };
   }

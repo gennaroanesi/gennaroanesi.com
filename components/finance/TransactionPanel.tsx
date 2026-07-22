@@ -15,6 +15,66 @@ import {
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 import { parseLineItems, type LineItem } from "@/components/finance/categories";
 
+/**
+ * Keep the current-position row (financeHolding) in step with a manual trade.
+ * financeHolding is the source of truth for value; a BUY/SELL adjusts it by the
+ * traded delta so manual (non-SimpleFIN) accounts stay accurate between syncs.
+ * For SimpleFIN-mapped accounts the next sf:pull overwrites this anyway — the
+ * live adjustment just avoids a stale gap until then.
+ *
+ *   deltaQty  > 0 on BUY, < 0 on SELL
+ *   deltaCost signed cost-basis change (BUY: +buy cost; SELL: −consumed basis)
+ *
+ * A holding whose quantity falls to ~0 is deleted (position closed). Cost basis
+ * is left null when the existing row's basis is unknown.
+ */
+async function applyHoldingDelta(
+  accountId: string,
+  tickerRaw: string,
+  deltaQty: number,
+  deltaCost: number,
+  assetType: string | null,
+): Promise<void> {
+  const ticker = (tickerRaw ?? "").toUpperCase();
+  if (!ticker || !accountId) return;
+  const { data: matches } = await client.models.financeHolding.list({
+    filter: { accountId: { eq: accountId }, ticker: { eq: ticker } },
+    limit: 50,
+  });
+  const existing = (matches ?? [])[0] ?? null;
+  const now = new Date().toISOString();
+
+  if (existing) {
+    const newQty = (existing.quantity ?? 0) + deltaQty;
+    if (newQty <= 1e-6) {
+      await client.models.financeHolding.delete({ id: existing.id });
+      return;
+    }
+    const newCost = existing.costBasisTotal == null
+      ? null
+      : Math.max(0, existing.costBasisTotal + deltaCost);
+    await client.models.financeHolding.update({
+      id:             existing.id,
+      quantity:       newQty,
+      costBasisTotal: newCost,
+      avgCostBasis:   newCost != null && newQty > 1e-9 ? newCost / newQty : null,
+      updatedAt:      now,
+    });
+  } else if (deltaQty > 1e-6) {
+    // No holding yet (e.g. first BUY on a manual account) → create it.
+    await client.models.financeHolding.create({
+      accountId,
+      ticker,
+      assetType:      (assetType ?? null) as any,
+      quantity:       deltaQty,
+      costBasisTotal: deltaCost,
+      avgCostBasis:   deltaQty > 1e-9 ? deltaCost / deltaQty : null,
+      source:         "MANUAL" as any,
+      updatedAt:      now,
+    });
+  }
+}
+
 export type TransactionPanelProps = {
   // Data the form reads from
   accounts:     AccountRecord[];
@@ -170,6 +230,10 @@ export function TransactionPanel(props: TransactionPanelProps) {
             notes:        null,
           });
           if (data) { createdLot = data; createdLotId = data.id; }
+          // Keep the current-position row in step with the buy.
+          await applyHoldingDelta(
+            txDraft.accountId!, (txDraft.ticker ?? ""), txDraft.quantity!, buyCostBasis, "STOCK",
+          );
         }
 
         // SELL: walk sellLotPicks in order, take min(remaining, lotQty) from
@@ -219,6 +283,10 @@ export function TransactionPanel(props: TransactionPanelProps) {
           consumedCostBasis   = runningCost || null;
           lotConsumptionsJson = breakdown.length > 0 ? JSON.stringify(breakdown) : null;
           firstLotId          = breakdown[0]?.lotId ?? null;
+          // Draw the sold shares (and their basis) down from the current position.
+          await applyHoldingDelta(
+            txDraft.accountId!, (txDraft.ticker ?? ""), -sellQty, -(runningCost || 0), null,
+          );
         }
 
         const { data: newTx } = await client.models.financeTransaction.create({

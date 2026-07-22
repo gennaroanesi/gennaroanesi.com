@@ -6,7 +6,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   GoalRecord, MilestoneRecord, MilestoneStatus,
-  AccountRecord, GoalFundingSourceRecord, HoldingLotRecord, TickerQuoteRecord,
+  AccountRecord, GoalFundingSourceRecord, HoldingRecord, TickerQuoteRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, monthsUntil, goalPctColor,
   sortMilestones, milestoneStatus,
@@ -41,7 +41,7 @@ export default function GoalsPage() {
   const [milestones, setMilestones] = useState<MilestoneRecord[]>([]);
   const [accounts,   setAccounts]   = useState<AccountRecord[]>([]);
   const [mappings,   setMappings]   = useState<GoalFundingSourceRecord[]>([]);
-  const [lots,       setLots]       = useState<HoldingLotRecord[]>([]);
+  const [holdings,   setHoldings]   = useState<HoldingRecord[]>([]);
   const [quotes,     setQuotes]     = useState<TickerQuoteRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
@@ -54,19 +54,19 @@ export default function GoalsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [gs, ms, accs, maps, lotRecs, quoteRecs] = await Promise.all([
+      const [gs, ms, accs, maps, holdingRecs, quoteRecs] = await Promise.all([
         listAll(client.models.financeSavingsGoal),
         listAll(client.models.financeGoalMilestone),
         listAll(client.models.financeAccount),
         listAll(client.models.financeGoalFundingSource),
-        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeHolding),
         listAll(client.models.financeTickerQuote),
       ]);
       setGoals(gs);
       setMilestones(ms);
       setAccounts(accs);
       setMappings(maps);
-      setLots(lotRecs);
+      setHoldings(holdingRecs);
       setQuotes(quoteRecs);
     } finally {
       setLoading(false);
@@ -229,8 +229,8 @@ export default function GoalsPage() {
   // IMPORTANT: hooks must come before any early return, so this lives above the
   // authState guard below.
   const allocations = useMemo(
-    () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
-    [accounts, goals, mappings, lots, quotes],
+    () => computeGoalAllocations(accounts, goals, mappings, holdings, quotes),
+    [accounts, goals, mappings, holdings, quotes],
   );
 
   // Lookup used in goal cards to show "funded by X, Y, Z"
@@ -601,7 +601,7 @@ export default function GoalsPage() {
                       <div className="flex flex-col gap-1">
                         {goalMappings.map((row) => {
                           const acc = row.account!;
-                          const totalVal = accountTotalValue(acc, lots, quoteMap);
+                          const totalVal = accountTotalValue(acc, holdings, quoteMap);
                           return (
                             <a
                               key={row.mapping.id}

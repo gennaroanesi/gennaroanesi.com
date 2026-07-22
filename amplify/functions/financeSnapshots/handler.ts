@@ -42,8 +42,6 @@ import type { Schema } from "../../data/resource";
 // is erased at bundle time, so this adds only the pure functions to the bundle.
 import {
   buildQuoteMap,
-  tickerAggregate,
-  uniqueTickers,
   isInvestedAccount,
   computeGoalAllocations,
   effectiveGoalAmount,
@@ -303,9 +301,9 @@ async function captureMarketSnapshots(
   date: string,
 ): Promise<{ holdings: number; goals: number; skipped: number }> {
   const c = await getClient();
-  const [accounts, lots, quotes, goals, mappings] = await Promise.all([
+  const [accounts, holdingRecs, quotes, goals, mappings] = await Promise.all([
     listAll(c.models.financeAccount),
-    listAll(c.models.financeHoldingLot),
+    listAll(c.models.financeHolding),
     listAll(c.models.financeTickerQuote),
     listAll(c.models.financeSavingsGoal),
     listAll(c.models.financeGoalFundingSource),
@@ -316,22 +314,27 @@ async function captureMarketSnapshots(
   let goalsCount = 0;
   let skipped = 0;
 
-  // Per invested account, one snapshot row per held ticker.
+  // Per invested account, one snapshot row per current holding. financeHolding is
+  // the source of truth for vested positions; unvested RSUs live in lots and are
+  // intentionally not snapshotted (they don't count toward current value).
   for (const acc of accounts) {
     if (!acc.id || !isInvestedAccount(acc.type)) continue;
-    const accLots = (lots as any[]).filter((l) => l.accountId === acc.id);
-    for (const ticker of uniqueTickers(accLots)) {
-      const agg = tickerAggregate(ticker, accLots, quoteMap);
+    const accHoldings = (holdingRecs as any[]).filter((h) => h.accountId === acc.id);
+    for (const h of accHoldings) {
+      const ticker = (h.ticker ?? "").toUpperCase();
+      if (!ticker) continue;
+      const q = quoteMap.get(ticker);
       // No quote → can't value it; skip rather than write a null-priced row.
-      if (agg.price == null) { skipped++; continue; }
+      if (q?.price == null) { skipped++; continue; }
+      const qty = h.quantity ?? 0;
       const ok = await upsertHoldingSnapshot(c, {
         accountId:   acc.id,
-        ticker:      agg.ticker,
+        ticker,
         date,
-        quantity:    agg.totalQty,
-        price:       agg.price,
-        marketValue: agg.marketValue ?? 0,
-        costBasis:   agg.totalCost,
+        quantity:    qty,
+        price:       q.price,
+        marketValue: q.price * qty,
+        costBasis:   h.costBasisTotal ?? null,
         capturedAt,
       });
       if (ok) holdings++; else skipped++;
@@ -339,7 +342,7 @@ async function captureMarketSnapshots(
   }
 
   // Per goal, the computed effective funded amount (cash + positions).
-  const alloc = computeGoalAllocations(accounts as any, goals as any, mappings as any, lots as any, quotes as any);
+  const alloc = computeGoalAllocations(accounts as any, goals as any, mappings as any, holdingRecs as any, quotes as any);
   for (const g of goals) {
     if (!g.id) continue;
     const ok = await upsertGoalSnapshot(c, {

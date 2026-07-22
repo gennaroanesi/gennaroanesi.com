@@ -5,7 +5,7 @@ import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  AccountRecord, HoldingLotRecord, TickerQuoteRecord,
+  AccountRecord, HoldingRecord, TickerQuoteRecord,
   ACCOUNT_TYPES, ACCOUNT_TYPE_LABELS,
   RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, FINANCE_COLOR,
   fmtCurrency, amountColor,
@@ -42,7 +42,7 @@ export default function AccountsPage() {
   const router = useRouter();
 
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
-  const [lots,     setLots]     = useState<HoldingLotRecord[]>([]);
+  const [holdings, setHoldings] = useState<HoldingRecord[]>([]);
   const [quotes,   setQuotes]   = useState<TickerQuoteRecord[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [busyId,   setBusyId]   = useState<string | null>(null);   // id of the account whose star is mid-toggle
@@ -59,13 +59,13 @@ export default function AccountsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, lotRecs, quoteRecs] = await Promise.all([
+      const [accs, holdingRecs, quoteRecs] = await Promise.all([
         listAll(client.models.financeAccount),
-        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeHolding),
         listAll(client.models.financeTickerQuote),
       ]);
       setAccounts(accs);
-      setLots(lotRecs);
+      setHoldings(holdingRecs);
       setQuotes(quoteRecs);
     } finally {
       setLoading(false);
@@ -82,7 +82,7 @@ export default function AccountsPage() {
   const quoteMap = useMemo(() => buildQuoteMap(quotes), [quotes]);
 
   const rows: AccountRow[] = useMemo(() => accounts.map((acc) => {
-    const totalValue = accountTotalValue(acc, lots, quoteMap);
+    const totalValue = accountTotalValue(acc, holdings, quoteMap);
     // Credit utilization: owed balance (positive of negative currentBalance) / limit.
     // Only meaningful for CREDIT accounts with a limit > 0.
     let utilization: number | null = null;
@@ -91,7 +91,7 @@ export default function AccountsPage() {
       utilization = Math.min(1, owed / (acc.creditLimit ?? 1));
     }
     return { id: acc.id, account: acc, totalValue, utilization };
-  }), [accounts, lots, quoteMap]);
+  }), [accounts, holdings, quoteMap]);
 
   // ── Toggle favorite ──────────────────────────────────────────────────
 
@@ -332,7 +332,7 @@ export default function AccountsPage() {
   // Summary stat: combined total across all active accounts (respects holdings valuation)
   const totalNetValue = accounts
     .filter((a) => a.active !== false)
-    .reduce((s, a) => s + accountTotalValue(a, lots, quoteMap), 0);
+    .reduce((s, a) => s + accountTotalValue(a, holdings, quoteMap), 0);
 
   return (
     <FinanceLayout>

@@ -23,7 +23,7 @@ import type {
   TransactionRecord,
   AccountRecord,
   GoalRecord,
-  HoldingLotRecord,
+  HoldingRecord,
   TickerQuoteRecord,
   HoldingSnapshotRecord,
   GoalSnapshotRecord,
@@ -40,8 +40,6 @@ import {
 } from "./_shared";
 import {
   buildQuoteMap,
-  tickerAggregate,
-  uniqueTickers,
   type QuoteMap,
 } from "./finance-core";
 import { effectiveCategory, isExcludedFromPnl, categoryContributions } from "./categories";
@@ -1152,7 +1150,7 @@ function snapshotAt(snaps: HoldingSnapshotRecord[], boundaryIso: string): Holdin
 
 export function computeStockReview(
   holdingSnapshots: HoldingSnapshotRecord[],
-  lots: HoldingLotRecord[],
+  holdings: HoldingRecord[],
   quotes: TickerQuoteRecord[],
   trades: TransactionRecord[],
   range: DateRange,
@@ -1161,13 +1159,17 @@ export function computeStockReview(
 ): StockReview {
   const quoteMap: QuoteMap = buildQuoteMap(quotes);
 
+  // Current portfolio value + cost basis come straight from the financeHolding
+  // rows (the source of truth for vested positions). Unvested RSUs live in lots
+  // and are excluded from current value by design. A holding with an unknown
+  // cost basis makes the whole portfolio basis (and unrealized gain) null.
   let currentMarketValue = 0;
   let currentCostBasis: number | null = 0;
-  for (const t of uniqueTickers(lots)) {
-    const agg = tickerAggregate(t, lots, quoteMap);
-    currentMarketValue += agg.marketValue ?? 0;
-    if (agg.totalCost == null) currentCostBasis = null;
-    else if (currentCostBasis != null) currentCostBasis += agg.totalCost;
+  for (const h of holdings) {
+    const q = quoteMap.get((h.ticker ?? "").toUpperCase());
+    if (q?.price != null) currentMarketValue += q.price * (h.quantity ?? 0);
+    if (h.costBasisTotal == null) currentCostBasis = null;
+    else if (currentCostBasis != null) currentCostBasis += h.costBasisTotal;
   }
   const currentUnrealizedGain = currentCostBasis == null ? null : currentMarketValue - currentCostBasis;
 

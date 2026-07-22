@@ -749,6 +749,46 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index("accountId"), index("ticker")])
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Holding (current position) ───────────────────────────────────────────────
+  // One row per (accountId, ticker) — the CURRENT vested/liquid position and the
+  // read model for value + unrealized gains. This is the source of truth going
+  // forward: SimpleFIN pulls upsert it (source=SIMPLEFIN), manual trades write it
+  // directly (source=MANUAL). `financeHoldingLot` is demoted to an OPTIONAL tax-lot
+  // detail layer that no longer has to reconcile with this row (drift is allowed
+  // and surfaced non-blockingly in the UI).
+  //
+  // Market value is DERIVED, never stored: quantity × financeTickerQuote.price
+  // (same live-quote pipeline as before). `marketValueReported` keeps SimpleFIN's
+  // own market_value only as a fallback/sanity check.
+  //
+  // Scope: VESTED/liquid positions only. Unvested RSUs stay as isVested=false
+  // financeHoldingLot rows and are NOT represented here — they contribute only to
+  // the forward net-worth projection (unvestedValueByHorizon), never to current
+  // account value.
+  financeHolding: a
+    .model({
+      accountId:      a.id().required(),      // FK → financeAccount.id (BROKERAGE/RETIREMENT)
+      ticker:         a.string().required(),  // "VOO", "AAPL", "META"
+      assetType: a.enum([
+        "STOCK",
+        "ETF",
+        "MUTUAL_FUND",
+        "CRYPTO",
+        "BOND",
+        "OTHER",
+      ]),
+      quantity:       a.float().required(),   // current VESTED shares/units
+      costBasisTotal: a.float(),              // total $ paid for the current position (SF cost_basis)
+      avgCostBasis:   a.float(),              // per-share cost (SF purchase_price); ≈ costBasisTotal / quantity
+      source:         a.enum(["SIMPLEFIN", "MANUAL"]),
+      // SimpleFIN's own reported market_value, as of the last SF sync. Kept ONLY
+      // as a fallback/sanity check — live valuation always uses financeTickerQuote.
+      marketValueReported: a.float(),
+      updatedAt:      a.datetime(),           // last write to this row, from any source
+    })
+    .secondaryIndexes((index) => [index("accountId"), index("ticker")])
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Ticker Quote ───────────────────────────────────────────────────────────
   // Last known market price per ticker. Single row per ticker (PK = ticker).
   // Refresh loop upserts these; lot records join in memory for market value.

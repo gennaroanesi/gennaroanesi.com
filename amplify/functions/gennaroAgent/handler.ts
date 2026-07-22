@@ -400,9 +400,21 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
+    name: "list_holdings",
+    description:
+      "List CURRENT positions in brokerage/retirement accounts. Each holding is one row per (account, ticker) with the current vested quantity, total cost basis, and average cost. This is the source of truth for current value and unrealized gains — market value = quantity × the ticker's latest quote. Use this (not list_holding_lots) for 'what do I hold / what's it worth' questions.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        accountId: { type: "string" },
+        ticker:    { type: "string" },
+      },
+    },
+  },
+  {
     name: "list_holding_lots",
     description:
-      "List purchase lots in brokerage/retirement accounts. Each lot records a ticker, quantity, cost basis, and purchase date. Aggregate by ticker for total positions.",
+      "List individual purchase lots (tax detail) in brokerage/retirement accounts. Each lot records a ticker, quantity, cost basis, and purchase date, and may be marked unvested (RSUs). Lots are an OPTIONAL detail layer for tax-lot / realized-gain analysis and can drift from the current position — for current holdings and value use list_holdings instead. Unvested lots are the only source for not-yet-vested RSUs.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -858,6 +870,13 @@ async function executeTool(name: string, input: Record<string, any>): Promise<st
         const { data, errors } = await c.models.financeAsset.get({ id: input.id });
         if (errors?.length) return stringify({ ok: false, error: errors[0].message });
         return stringify({ ok: true, data: { asset: data } });
+      }
+      case "list_holdings": {
+        const filter: any = {};
+        if (input.accountId) filter.accountId = { eq: input.accountId };
+        if (input.ticker)    filter.ticker    = { eq: input.ticker.toUpperCase() };
+        const holdings = await listAll(c.models.financeHolding, Object.keys(filter).length ? filter : undefined);
+        return stringify({ ok: true, data: { holdings } });
       }
       case "list_holding_lots": {
         const filter: any = {};

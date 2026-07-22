@@ -4,7 +4,7 @@ import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  HoldingLotRecord, TickerQuoteRecord,
+  HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
   FINANCE_COLOR,
   fmtCurrency, fmtDate,
   uniqueTickers, isQuoteStale, isQuoteManual,
@@ -33,6 +33,7 @@ export default function PricesPage() {
   const { authState } = useRequireAuth();
 
   const [lots,       setLots]       = useState<HoldingLotRecord[]>([]);
+  const [holdings,   setHoldings]   = useState<HoldingRecord[]>([]);
   const [quotes,     setQuotes]     = useState<TickerQuoteRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
@@ -43,11 +44,13 @@ export default function PricesPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [lotRecs, quoteRecs] = await Promise.all([
+      const [lotRecs, holdingRecs, quoteRecs] = await Promise.all([
         listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeHolding),
         listAll(client.models.financeTickerQuote),
       ]);
       setLots(lotRecs);
+      setHoldings(holdingRecs);
       setQuotes(quoteRecs);
     } finally {
       setLoading(false);
@@ -76,12 +79,12 @@ export default function PricesPage() {
     return m;
   }, [lots]);
 
-  // Union of tickers used in lots + orphan quotes
+  // Union of tickers used in holdings + lots (unvested RSUs) + orphan quotes
   const allTickers = useMemo(() => {
-    const fromLots   = uniqueTickers(lots);
-    const fromQuotes = quotes.map((q) => (q.ticker ?? "").toUpperCase()).filter(Boolean);
-    return Array.from(new Set([...fromLots, ...fromQuotes])).sort();
-  }, [lots, quotes]);
+    const fromPositions = uniqueTickers(holdings, lots);
+    const fromQuotes    = quotes.map((q) => (q.ticker ?? "").toUpperCase()).filter(Boolean);
+    return Array.from(new Set([...fromPositions, ...fromQuotes])).sort();
+  }, [holdings, lots, quotes]);
 
   // Build denormalized rows for the table
   const rows: PriceRow[] = useMemo(() => allTickers.map((ticker) => {

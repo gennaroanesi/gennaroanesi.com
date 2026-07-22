@@ -4,7 +4,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
-  HoldingLotRecord, TickerQuoteRecord, AssetRecord, LoanRecord, LoanPaymentRecord,
+  HoldingLotRecord, HoldingRecord, TickerQuoteRecord, AssetRecord, LoanRecord, LoanPaymentRecord,
   GoalFundingSourceRecord, AccountSnapshotRecord, PaycheckRecord,
   PAYCHECK_PERSON_LABELS, type PaycheckPerson,
   FINANCE_COLOR, CADENCE_LABELS,
@@ -56,6 +56,7 @@ export default function FinanceDashboard() {
   // ── Per-section state + loading flags ──────────────────────────────────
   const [accounts,     setAccounts]     = useState<AccountRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
+  const [holdings,     setHoldings]     = useState<HoldingRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
 
@@ -93,14 +94,16 @@ export default function FinanceDashboard() {
       // this width.
       const sinceIso = new Date(Date.now() - 90 * 24 * 3600 * 1000)
         .toISOString().slice(0, 10);
-      const [accs, lotRecs, quoteRecs, snapRecs] = await Promise.all([
+      const [accs, lotRecs, holdingRecs, quoteRecs, snapRecs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeHolding),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeAccountSnapshot, { date: { ge: sinceIso } }),
       ]);
       setAccounts(accs);
       setLots(lotRecs);
+      setHoldings(holdingRecs);
       setQuotes(quoteRecs);
       setSnapshots(snapRecs);
     } finally {
@@ -245,8 +248,8 @@ export default function FinanceDashboard() {
 
   // Goal allocations: derived from mappings + account balances.
   const allocations = useMemo(
-    () => computeGoalAllocations(accounts, goals, mappings, lots, quotes),
-    [accounts, goals, mappings, lots, quotes],
+    () => computeGoalAllocations(accounts, goals, mappings, holdings, quotes),
+    [accounts, goals, mappings, holdings, quotes],
   );
 
   // Total unallocated cash across all accounts that have at least one mapping.
@@ -264,7 +267,7 @@ export default function FinanceDashboard() {
 
   // Net worth = total account value + active asset values.
   const netWorth =
-    activeAccounts.reduce((sum, a) => sum + accountTotalValue(a, lots, quoteMap), 0) +
+    activeAccounts.reduce((sum, a) => sum + accountTotalValue(a, holdings, quoteMap), 0) +
     assetsTotal;
 
   // Projected net worth at EOY (conservative floor) = current net worth shifted
@@ -529,7 +532,7 @@ export default function FinanceDashboard() {
   const upcomingStartBalance = upcomingAccFilter.length > 0
     ? upcomingAccFilter.reduce((s, accId) => {
         const acc = accounts.find((a) => a.id === accId);
-        return acc ? s + accountTotalValue(acc, lots, quoteMap) : s;
+        return acc ? s + accountTotalValue(acc, holdings, quoteMap) : s;
       }, 0)
     : 0;
   const upcomingProjected = useMemo(() => {
@@ -608,7 +611,7 @@ export default function FinanceDashboard() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {dashboardAccounts.map((acc) => {
-                      const totalValue = accountTotalValue(acc, lots, quoteMap);
+                      const totalValue = accountTotalValue(acc, holdings, quoteMap);
                       const invested = isInvestedAccount(acc.type);
                       const positionsValue = invested ? totalValue - (acc.currentBalance ?? 0) : 0;
                       const series = balanceSeriesByAccount.get(acc.id) ?? [];
@@ -901,7 +904,7 @@ export default function FinanceDashboard() {
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border"
                       style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
                     >
-                      {acc.name}: {fmtCurrency(accountTotalValue(acc, lots, quoteMap))}
+                      {acc.name}: {fmtCurrency(accountTotalValue(acc, holdings, quoteMap))}
                       <button
                         onClick={() => setUpcomingAccFilter((p) => p.filter((x) => x !== accId))}
                         className="ml-0.5 hover:opacity-60"

@@ -26,6 +26,7 @@ export type TransactionRecord        = Schema["financeTransaction"]["type"];
 export type GoalRecord               = Schema["financeSavingsGoal"]["type"];
 export type GoalFundingSourceRecord  = Schema["financeGoalFundingSource"]["type"];
 export type HoldingLotRecord         = Schema["financeHoldingLot"]["type"];
+export type HoldingRecord            = Schema["financeHolding"]["type"];
 export type TickerQuoteRecord        = Schema["financeTickerQuote"]["type"];
 
 /** Asset-class union for a holding lot. Mirrors ASSET_TYPES in `_shared.tsx`. */
@@ -57,31 +58,49 @@ export function buildQuoteMap(quotes: TickerQuoteRecord[]): QuoteMap {
 }
 
 /**
- * Aggregated view of one ticker across all its lots in an account.
- * - totalQty:     summed across lots
- * - totalCost:    summed if all lots have a cost basis; null if any lot missing
+ * Aggregated view of one ticker in an account.
+ *
+ * The CURRENT vested position (totalQty / totalCost / marketValue / gainLoss)
+ * comes from the `financeHolding` row — the source of truth. Lots contribute
+ * only the UNVESTED figures (RSUs, which have no holding row) and the per-lot
+ * `lots` list used for the expandable tax-detail sub-rows.
+ *
+ * `lotQtyDrift` surfaces disagreement between the holding's vested quantity and
+ * the sum of its vested lots — non-blocking; lots are allowed to drift now.
+ *
+ * - totalQty:     holding.quantity (vested); falls back to Σ vested-lot qty when
+ *                 no holding row exists yet (pre-backfill / lot-only tickers)
+ * - totalCost:    holding.costBasisTotal; falls back to Σ vested-lot costBasis
  * - marketValue:  quote.price * totalQty (null if no quote)
  * - gainLoss / gainLossPct: null unless both totalCost and marketValue are known
  */
 export type TickerAggregate = {
   ticker:       string;
   assetType:    AssetType | null;
+  holding:      HoldingRecord | null; // the current-position row (null for lot-only/unvested-only tickers)
   lots:         HoldingLotRecord[];   // all lots (vested + unvested) — used for the expanded sub-rows
-  totalQty:     number;               // vested-only — drives "Qty" column on the holdings table
-  totalCost:    number | null;        // vested-only
+  totalQty:     number;               // vested — drives "Qty" column on the holdings table
+  totalCost:    number | null;        // vested
   price:        number | null;
   fetchedAt:    string | null;
-  marketValue:  number | null;        // vested-only — drives "Value" column
-  gainLoss:     number | null;        // vested-only
-  gainLossPct:  number | null;        // vested-only
+  marketValue:  number | null;        // vested — drives "Value" column
+  gainLoss:     number | null;        // vested
+  gainLossPct:  number | null;        // vested
   unvestedQty:  number;               // sum of unvested-lot quantities for this ticker
   unvestedValue: number | null;       // unvested qty × price (null if no quote)
   unvestedLotsCount: number;
+  lotQtyDrift:  number;               // holding.quantity − Σ(vested lot qty); 0 when in sync or no holding
 };
 
-/** Aggregate a set of lots for one ticker, joined with a quote map. */
+/**
+ * Aggregate one ticker: the vested position from its `financeHolding` row, the
+ * unvested position + per-lot detail from its lots, joined with a quote map.
+ * Pass `holding = null` for tickers that only exist as lots (e.g. unvested RSUs,
+ * or positions not yet backfilled).
+ */
 export function tickerAggregate(
   ticker: string,
+  holding: HoldingRecord | null,
   lots: HoldingLotRecord[],
   quotes: QuoteMap,
 ): TickerAggregate {
@@ -98,11 +117,20 @@ export function tickerAggregate(
     });
   const vestedLots   = myLots.filter(isLotVested);
   const unvestedLots = myLots.filter((l) => !isLotVested(l));
-  const totalQty = vestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
-  const anyMissingCost = vestedLots.some((l) => l.costBasis == null);
-  const totalCost = anyMissingCost
+
+  // Vested position: holding is authoritative. Fall back to vested lots only
+  // when there's no holding row yet (pre-backfill or a lot-only ticker).
+  const vestedLotQty = vestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
+  const anyMissingLotCost = vestedLots.some((l) => l.costBasis == null);
+  const vestedLotCost = anyMissingLotCost
     ? null
     : vestedLots.reduce((s, l) => s + (l.costBasis ?? 0), 0);
+
+  const totalQty = holding ? (holding.quantity ?? 0) : vestedLotQty;
+  const totalCost = holding
+    ? (holding.costBasisTotal ?? null)
+    : vestedLotCost;
+
   const quote = quotes.get(tickerUpper) ?? null;
   const price = quote?.price ?? null;
   const fetchedAt = quote?.fetchedAt ?? null;
@@ -111,14 +139,21 @@ export function tickerAggregate(
   const gainLossPct = gainLoss != null && totalCost != null && totalCost !== 0
     ? gainLoss / totalCost
     : null;
-  // assetType: take the first lot's value; if lots disagree, first wins (user error)
-  const assetType = (myLots.find((l) => l.assetType)?.assetType ?? null) as AssetType | null;
+  // assetType: prefer the holding's; else the first lot's (first wins if lots disagree)
+  const assetType = (holding?.assetType
+    ?? myLots.find((l) => l.assetType)?.assetType
+    ?? null) as AssetType | null;
   const unvestedQty = unvestedLots.reduce((s, l) => s + (l.quantity ?? 0), 0);
   const unvestedValue = price != null ? price * unvestedQty : null;
+  // Drift only meaningful when a holding exists AND there are vested lots to compare.
+  const lotQtyDrift = holding && vestedLots.length > 0
+    ? (holding.quantity ?? 0) - vestedLotQty
+    : 0;
 
   return {
     ticker: tickerUpper,
     assetType,
+    holding,
     lots: myLots,
     totalQty,
     totalCost,
@@ -130,12 +165,23 @@ export function tickerAggregate(
     unvestedQty,
     unvestedValue,
     unvestedLotsCount: unvestedLots.length,
+    lotQtyDrift,
   };
 }
 
-/** Distinct tickers across a set of lots (uppercase). */
-export function uniqueTickers(lots: HoldingLotRecord[]): string[] {
+/**
+ * Distinct tickers (uppercase) across current holdings ∪ lots. Holdings cover the
+ * vested positions; lots add any ticker that only exists as a lot (unvested RSUs
+ * or not-yet-backfilled positions). Pass lots `[]` to enumerate holdings alone.
+ */
+export function uniqueTickers(
+  holdings: HoldingRecord[],
+  lots: HoldingLotRecord[] = [],
+): string[] {
   const s = new Set<string>();
+  for (const h of holdings) {
+    if (h.ticker) s.add(h.ticker.toUpperCase());
+  }
   for (const l of lots) {
     if (l.ticker) s.add(l.ticker.toUpperCase());
   }
@@ -145,22 +191,23 @@ export function uniqueTickers(lots: HoldingLotRecord[]): string[] {
 /**
  * Total value of an account including holdings.
  * For non-invested accounts this is just `currentBalance`.
- * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(vested lot qty * quote price).
- * Unvested RSU lots are excluded — see `unvestedValueByHorizon` for forward-looking projections.
- * Lots with no quote contribute 0 — UI should surface unpriced tickers.
+ * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(holding qty * quote price).
+ * Holdings are vested/liquid by definition — unvested RSUs live in lots and are
+ * excluded here; see `unvestedValueByHorizon` for forward-looking projections.
+ * Holdings with no quote contribute 0 — UI should surface unpriced tickers.
  */
 export function accountTotalValue(
   acc: AccountRecord,
-  lots: HoldingLotRecord[] = [],
+  holdings: HoldingRecord[] = [],
   quotes: QuoteMap = new Map(),
 ): number {
   const cash = acc.currentBalance ?? 0;
   if (!isInvestedAccount(acc.type)) return cash;
-  const myLots = lots.filter((l) => l.accountId === acc.id && isLotVested(l));
-  const holdingsValue = myLots.reduce((s, l) => {
-    const q = quotes.get((l.ticker ?? "").toUpperCase());
+  const myHoldings = holdings.filter((h) => h.accountId === acc.id);
+  const holdingsValue = myHoldings.reduce((s, h) => {
+    const q = quotes.get((h.ticker ?? "").toUpperCase());
     if (!q?.price) return s;
-    return s + (l.quantity ?? 0) * q.price;
+    return s + (h.quantity ?? 0) * q.price;
   }, 0);
   return cash + holdingsValue;
 }
@@ -197,13 +244,13 @@ export type GoalAllocationResult = {
  * - **Goals cap at target**: excess on the account becomes surplus (a signal).
  * - **Multi-account goals**: allocated amount accumulates across accounts; cap is global.
  * - **Holdings ARE included**: BROKERAGE/RETIREMENT use accountTotalValue (market-volatile).
- *   Degrades to cash-only when lots/quotes are empty.
+ *   Degrades to cash-only when holdings/quotes are empty.
  */
 export function computeGoalAllocations(
   accounts: AccountRecord[],
   goals:    GoalRecord[],
   mappings: GoalFundingSourceRecord[],
-  lots:     HoldingLotRecord[] = [],
+  holdings: HoldingRecord[] = [],
   quotes:   TickerQuoteRecord[] = [],
 ): GoalAllocationResult {
   const allocatedByGoal    = new Map<string, number>();
@@ -247,7 +294,7 @@ export function computeGoalAllocations(
     // For brokerage/retirement accounts this includes positions at current market
     // price. For cash-only accounts it's just currentBalance. Clamp to 0 — a
     // negative total (overdrawn) can't fund anything.
-    let remaining = Math.max(0, accountTotalValue(acc, lots, quoteMap));
+    let remaining = Math.max(0, accountTotalValue(acc, holdings, quoteMap));
 
     // Sort by priority asc, stable tiebreak by mapping id so re-renders are deterministic
     const sorted = [...accMappings].sort((a, b) => {

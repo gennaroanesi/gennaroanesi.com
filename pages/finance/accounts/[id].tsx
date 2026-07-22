@@ -5,7 +5,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
 import {
   client,
-  AccountRecord, TransactionRecord, HoldingLotRecord, TickerQuoteRecord,
+  AccountRecord, TransactionRecord, HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
   GoalRecord, GoalFundingSourceRecord, RecurringRecord, SpendGroupRecord,
   ACCOUNT_TYPES, ASSET_TYPES, ASSET_TYPE_LABELS, FINANCE_COLOR,
   ACCOUNT_TYPE_LABELS,
@@ -77,6 +77,7 @@ export default function AccountDetailPage() {
   const [accounts,     setAccounts]     = useState<AccountRecord[]>([]);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
   const [lots,         setLots]         = useState<HoldingLotRecord[]>([]);
+  const [holdings,     setHoldings]     = useState<HoldingRecord[]>([]);
   const [quotes,       setQuotes]       = useState<TickerQuoteRecord[]>([]);
   const [goals,        setGoals]        = useState<GoalRecord[]>([]);
   const [mappings,     setMappings]     = useState<GoalFundingSourceRecord[]>([]);
@@ -104,10 +105,11 @@ export default function AccountDetailPage() {
       // Amplify model types and the 8-way Promise.all tuple trips TS2589
       // ("Type instantiation is excessively deep"). Same fix as
       // /finance/transactions — keeps the tuple shallow, typing intact.
-      const [accRecs, txs, lotRecs, quoteRecs, goalRecs, mappingRecs, recRecs, groupRecs] = await Promise.all([
+      const [accRecs, txs, lotRecs, holdingRecs, quoteRecs, goalRecs, mappingRecs, recRecs, groupRecs] = await Promise.all([
         listAll<AccountRecord>(client.models.financeAccount),
         listAll<TransactionRecord>(client.models.financeTransaction),
         listAll<HoldingLotRecord>(client.models.financeHoldingLot),
+        listAll<HoldingRecord>(client.models.financeHolding),
         listAll<TickerQuoteRecord>(client.models.financeTickerQuote),
         listAll<GoalRecord>(client.models.financeSavingsGoal),
         listAll<GoalFundingSourceRecord>(client.models.financeGoalFundingSource),
@@ -122,6 +124,7 @@ export default function AccountDetailPage() {
       setAccount(accRecs.find((a) => a.id === accountId) ?? null);
       setTransactions(txs);
       setLots(lotRecs);
+      setHoldings(holdingRecs);
       setQuotes(quoteRecs);
       setGoals(goalRecs);
       setMappings(mappingRecs);
@@ -156,6 +159,10 @@ export default function AccountDetailPage() {
     () => lots.filter((l) => l.accountId === accountId),
     [lots, accountId],
   );
+  const accountHoldings = useMemo(
+    () => holdings.filter((h) => h.accountId === accountId),
+    [holdings, accountId],
+  );
   const accountTransactions = useMemo(
     () => transactions.filter((t) => t.accountId === accountId),
     [transactions, accountId],
@@ -173,14 +180,28 @@ export default function AccountDetailPage() {
     return s;
   }, [accountTransactions]);
 
-  const tickers = useMemo(() => uniqueTickers(accountLots), [accountLots]);
-
-  const aggregates = useMemo(
-    () => tickers.map((t) => tickerAggregate(t, accountLots, quoteMap)),
-    [tickers, accountLots, quoteMap],
+  // Tickers span current holdings (vested positions) ∪ lots (unvested RSUs or
+  // not-yet-backfilled). Each aggregate pairs a ticker's holding row (source of
+  // truth for vested qty/cost) with its lots (unvested + per-lot tax detail).
+  const tickers = useMemo(
+    () => uniqueTickers(accountHoldings, accountLots),
+    [accountHoldings, accountLots],
   );
 
-  const totalValue = account ? accountTotalValue(account, lots, quoteMap) : 0;
+  const holdingByTicker = useMemo(() => {
+    const m = new Map<string, HoldingRecord>();
+    for (const h of accountHoldings) {
+      if (h.ticker) m.set(h.ticker.toUpperCase(), h);
+    }
+    return m;
+  }, [accountHoldings]);
+
+  const aggregates = useMemo(
+    () => tickers.map((t) => tickerAggregate(t, holdingByTicker.get(t) ?? null, accountLots, quoteMap)),
+    [tickers, holdingByTicker, accountLots, quoteMap],
+  );
+
+  const totalValue = account ? accountTotalValue(account, holdings, quoteMap) : 0;
   const holdingsValue = account && isInvestedAccount(account.type)
     ? aggregates.reduce((s, a) => s + (a.marketValue ?? 0), 0)
     : 0;

@@ -221,6 +221,75 @@ const UPDATE_ACCOUNT = `
     }
   }`;
 
+// ── Holdings (current positions) ───────────────────────────────────────────────
+// financeHolding is the source of truth for a brokerage/retirement account's
+// current VESTED positions. Each SimpleFIN pull upserts one row per (accountId,
+// ticker) from the SF holdings array. source=SIMPLEFIN marks these as sync-owned;
+// we never touch source=MANUAL rows (hand-entered / RSU lots live elsewhere).
+
+const LIST_HOLDINGS = `
+  query ListHoldings($accountId: ID!, $next: String) {
+    listFinanceHoldings(
+      filter: { accountId: { eq: $accountId } },
+      limit: 500,
+      nextToken: $next
+    ) {
+      items { id accountId ticker quantity costBasisTotal avgCostBasis source marketValueReported }
+      nextToken
+    }
+  }`;
+
+const CREATE_HOLDING = `
+  mutation CreateHolding($input: CreateFinanceHoldingInput!) {
+    createFinanceHolding(input: $input) { id }
+  }`;
+
+const UPDATE_HOLDING = `
+  mutation UpdateHolding($input: UpdateFinanceHoldingInput!) {
+    updateFinanceHolding(input: $input) { id }
+  }`;
+
+const DELETE_HOLDING = `
+  mutation DeleteHolding($input: DeleteFinanceHoldingInput!) {
+    deleteFinanceHolding(input: $input) { id }
+  }`;
+
+async function fetchExistingHoldings(accountId) {
+  const rows = [];
+  let next = null;
+  do {
+    const data = await gql(LIST_HOLDINGS, { accountId, next });
+    rows.push(...(data.listFinanceHoldings.items ?? []));
+    next = data.listFinanceHoldings.nextToken;
+  } while (next);
+  return rows;
+}
+
+/**
+ * Collapse a SimpleFIN account's raw holdings into one desired financeHolding
+ * per ticker. SF sometimes emits duplicate/garbage rows (e.g. the Equity Awards
+ * account returns the same META position many times with shares=0); aggregating
+ * by symbol and dropping zero-share results filters those out. Returns a Map
+ * keyed by UPPERCASE ticker.
+ */
+function desiredHoldingsFromSf(sfAcc) {
+  const byTicker = new Map();
+  for (const h of sfAcc.holdings ?? []) {
+    const ticker = (h.symbol ?? "").trim().toUpperCase();
+    if (!ticker) continue; // no symbol → can't key a holding on it
+    const agg = byTicker.get(ticker) ?? { ticker, shares: 0, costBasis: 0, marketValue: 0, hasCost: false };
+    agg.shares += h.shares ?? 0;
+    if (h.costBasis != null)   { agg.costBasis += h.costBasis; agg.hasCost = true; }
+    if (h.marketValue != null) agg.marketValue += h.marketValue;
+    byTicker.set(ticker, agg);
+  }
+  // Drop zero/near-zero-share aggregates (the SF garbage rows).
+  for (const [k, v] of [...byTicker]) {
+    if (Math.abs(v.shares) < 1e-9) byTicker.delete(k);
+  }
+  return byTicker;
+}
+
 // ── Hash + draft building ─────────────────────────────────────────────────────
 
 function importHash(date, amount, description) {
@@ -444,6 +513,62 @@ async function main() {
     }
   }
 
+  // ── Holdings (current positions) ─────────────────────────────────────
+  // Upsert one financeHolding per (account, ticker) for invested accounts,
+  // straight from SimpleFIN's holdings array. SF is authoritative for these
+  // vested positions: we match existing rows by ticker (any source), write
+  // source=SIMPLEFIN, and delete SF-owned rows for positions that vanished
+  // (sold out). MANUAL rows SF can't see are left untouched.
+  const holdingCreates = [];
+  const holdingUpdates = [];
+  const holdingDeletes = [];
+  for (const sfAcc of accounts) {
+    const finAcc = byId.get(sfAcc.id);
+    if (!finAcc) continue;
+    if (!SKIP_BALANCE_TYPES.has(finAcc.type)) continue; // BROKERAGE/RETIREMENT only
+    const desired  = desiredHoldingsFromSf(sfAcc);
+    const existing = await fetchExistingHoldings(finAcc.id);
+    const existingByTicker = new Map(existing.map((h) => [(h.ticker ?? "").toUpperCase(), h]));
+
+    for (const [ticker, d] of desired) {
+      const avg = d.hasCost && Math.abs(d.shares) > 1e-9 ? d.costBasis / d.shares : null;
+      const fields = {
+        quantity:            d.shares,
+        costBasisTotal:      d.hasCost ? d.costBasis : null,
+        avgCostBasis:        avg,
+        source:              "SIMPLEFIN",
+        marketValueReported: d.marketValue,
+      };
+      const ex = existingByTicker.get(ticker);
+      if (ex) holdingUpdates.push({ finAcc, ticker, id: ex.id, fields, prev: ex });
+      else    holdingCreates.push({ finAcc, ticker, fields });
+    }
+    // SF-owned positions that are no longer present → sold out → delete.
+    for (const [ticker, ex] of existingByTicker) {
+      if (desired.has(ticker)) continue;
+      if (ex.source !== "SIMPLEFIN") continue; // don't touch manual rows
+      holdingDeletes.push({ finAcc, ticker, id: ex.id });
+    }
+  }
+
+  const holdingChanges = holdingCreates.length + holdingUpdates.length + holdingDeletes.length;
+  if (holdingChanges > 0) {
+    console.log(`\nHolding updates (${holdingChanges}):  ${holdingCreates.length} new, ${holdingUpdates.length} updated, ${holdingDeletes.length} removed`);
+    for (const c of holdingCreates) {
+      console.log(`  + ${c.finAcc.name.slice(0, 28).padEnd(28)}  ${c.ticker.padEnd(8)}  ${String((c.fields.quantity ?? 0).toFixed(4)).padStart(12)} sh  cost ${c.fields.costBasisTotal != null ? c.fields.costBasisTotal.toFixed(2) : "—"}`);
+    }
+    for (const u of holdingUpdates) {
+      const dq = (u.fields.quantity ?? 0) - (u.prev.quantity ?? 0);
+      const sign = dq >= 0 ? "+" : "";
+      console.log(`  ~ ${u.finAcc.name.slice(0, 28).padEnd(28)}  ${u.ticker.padEnd(8)}  ${String((u.fields.quantity ?? 0).toFixed(4)).padStart(12)} sh  (${sign}${dq.toFixed(4)})`);
+    }
+    for (const d of holdingDeletes) {
+      console.log(`  − ${d.finAcc.name.slice(0, 28).padEnd(28)}  ${d.ticker.padEnd(8)}  (sold out)`);
+    }
+  } else {
+    console.log("\nAll holdings already in sync with SimpleFIN.");
+  }
+
   if (!APPLY) {
     console.log("\nDry-run complete. Re-run with --apply to write.");
     return;
@@ -505,7 +630,41 @@ async function main() {
     }
   }
 
-  console.log(`\nDone. Transactions: ${txOk} written, ${txFail} failed. Accounts stamped: ${acctOk} ok (${balOk} with balance write), ${acctFail} failed.`);
+  // ── Holdings writes ──────────────────────────────────────────────────
+  let holdOk = 0;
+  let holdFail = 0;
+  if (holdingChanges > 0) {
+    console.log("\nWriting holdings…");
+    for (const c of holdingCreates) {
+      try {
+        await gql(CREATE_HOLDING, { input: { accountId: c.finAcc.id, ticker: c.ticker, updatedAt: nowIso, ...c.fields } });
+        holdOk++;
+      } catch (e) {
+        console.error(`  ✗ create ${c.finAcc.name} ${c.ticker}: ${e.message}`);
+        holdFail++;
+      }
+    }
+    for (const u of holdingUpdates) {
+      try {
+        await gql(UPDATE_HOLDING, { input: { id: u.id, updatedAt: nowIso, ...u.fields } });
+        holdOk++;
+      } catch (e) {
+        console.error(`  ✗ update ${u.finAcc.name} ${u.ticker}: ${e.message}`);
+        holdFail++;
+      }
+    }
+    for (const d of holdingDeletes) {
+      try {
+        await gql(DELETE_HOLDING, { input: { id: d.id } });
+        holdOk++;
+      } catch (e) {
+        console.error(`  ✗ delete ${d.finAcc.name} ${d.ticker}: ${e.message}`);
+        holdFail++;
+      }
+    }
+  }
+
+  console.log(`\nDone. Transactions: ${txOk} written, ${txFail} failed. Accounts stamped: ${acctOk} ok (${balOk} with balance write), ${acctFail} failed. Holdings: ${holdOk} written, ${holdFail} failed.`);
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────

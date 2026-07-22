@@ -19,7 +19,7 @@ import {
   type TransactionRecord,
   type AccountRecord,
   type GoalRecord,
-  type HoldingLotRecord,
+  type HoldingRecord,
   type TickerQuoteRecord,
   type HoldingSnapshotRecord,
   type GoalSnapshotRecord,
@@ -213,7 +213,7 @@ export default function ReviewPage() {
   const [txs, setTxs] = useState<TransactionRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [recurrings, setRecurrings] = useState<RecurringRecord[]>([]);
-  const [lots, setLots] = useState<HoldingLotRecord[]>([]);
+  const [holdings, setHoldings] = useState<HoldingRecord[]>([]);
   const [quotes, setQuotes] = useState<TickerQuoteRecord[]>([]);
   const [holdingSnaps, setHoldingSnaps] = useState<HoldingSnapshotRecord[]>([]);
   const [goalSnaps, setGoalSnaps] = useState<GoalSnapshotRecord[]>([]);
@@ -236,7 +236,7 @@ export default function ReviewPage() {
         listAll(client.models.financeTransaction),
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring as any),
-        listAll(client.models.financeHoldingLot),
+        listAll(client.models.financeHolding),
         listAll(client.models.financeTickerQuote),
         listAll(client.models.financeHoldingSnapshot),
         listAll(client.models.financeGoalSnapshot),
@@ -246,7 +246,7 @@ export default function ReviewPage() {
       setTxs(t as TransactionRecord[]);
       setAccounts(a as AccountRecord[]);
       setRecurrings(rec as RecurringRecord[]);
-      setLots(l as HoldingLotRecord[]);
+      setHoldings(l as HoldingRecord[]);
       setQuotes(q as TickerQuoteRecord[]);
       setHoldingSnaps(hs as HoldingSnapshotRecord[]);
       setGoalSnaps(gs as GoalSnapshotRecord[]);
@@ -289,11 +289,11 @@ export default function ReviewPage() {
       recurringSuggestions: detectRecurringSuggestions(txs, accounts, recurrings, range.toIso),
       cards: summarizeCreditCards(txs, accounts, range),
       groups: summarizeGroups(txs, accounts, spendGroups, range),
-      stock: computeStockReview(holdingSnaps, lots, quotes, trades, range, ytd),
+      stock: computeStockReview(holdingSnaps, holdings, quotes, trades, range, ytd),
       goalEvo: computeGoalEvolution(goalSnaps, goals, range),
       trend: computeTrend(txs, accounts, period),
     };
-  }, [period, txs, accounts, recurrings, spendGroups, lots, quotes, holdingSnaps, goalSnaps, goals]);
+  }, [period, txs, accounts, recurrings, spendGroups, holdings, quotes, holdingSnaps, goalSnaps, goals]);
 
   // Single-category drill-down: dropdown options + the selected category's stats.
   // These hooks must run on every render — keep them ABOVE the auth early-return
