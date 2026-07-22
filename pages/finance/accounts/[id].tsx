@@ -11,7 +11,7 @@ import {
   ACCOUNT_TYPE_LABELS,
   RETIREMENT_TYPES, RETIREMENT_TYPE_LABELS, isInvestedAccount,
   fmtCurrency, fmtDate, amountColor,
-  accountTotalValue, buildQuoteMap, tickerAggregate, uniqueTickers, isQuoteStale, isQuoteManual,
+  accountTotalValue, buildQuoteMap, tickerAggregate, isLotVested, isQuoteStale, isQuoteManual,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
   listAll, refreshAllQuotes,
@@ -180,13 +180,20 @@ export default function AccountDetailPage() {
     return s;
   }, [accountTransactions]);
 
-  // Tickers span current holdings (vested positions) ∪ lots (unvested RSUs or
-  // not-yet-backfilled). Each aggregate pairs a ticker's holding row (source of
-  // truth for vested qty/cost) with its lots (unvested + per-lot tax detail).
-  const tickers = useMemo(
-    () => uniqueTickers(accountHoldings, accountLots),
-    [accountHoldings, accountLots],
-  );
+  // Rows are driven by current holdings (source of truth for vested positions)
+  // plus any UNVESTED lots (RSUs, which have no holding row). A *vested* lot with
+  // no holding is stale — e.g. a position sold via SimpleFIN whose old lot lingers
+  // — and is intentionally not shown as a position, so a sold-out holding can't be
+  // resurrected from a leftover lot. Each holding still carries its own lots below
+  // as expandable tax detail.
+  const tickers = useMemo(() => {
+    const s = new Set<string>();
+    for (const h of accountHoldings) if (h.ticker) s.add(h.ticker.toUpperCase());
+    for (const l of accountLots) {
+      if (!isLotVested(l) && l.ticker) s.add(l.ticker.toUpperCase());
+    }
+    return Array.from(s).sort();
+  }, [accountHoldings, accountLots]);
 
   const holdingByTicker = useMemo(() => {
     const m = new Map<string, HoldingRecord>();
