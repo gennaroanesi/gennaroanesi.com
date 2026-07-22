@@ -31,6 +31,9 @@
   ],
   "exclude": [
     "node_modules",
-    "amplify/functions/**/*"
+    "amplify/functions/**/*",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**"
   ]
 }
