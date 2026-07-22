@@ -6,7 +6,7 @@
     "dev": "next dev --turbo -H 0.0.0.0 -p 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "npx eslint . --ext .ts,.tsx -c .eslintrc.json --fix",
+    "lint": "eslint .",
     "sandbox": "node --env-file=.env.sandbox node_modules/.bin/ampx sandbox",
     "parse-nasr": "node scripts/parse-nasr.mjs",
     "parse-dtpp": "node scripts/parse-dtpp.mjs",
@@ -24,7 +24,10 @@
     "sf:probe": "node --env-file=.env.local scripts/simplefin_probe.mjs",
     "sf:pull": "node --env-file=.env.local scripts/simplefin_pull.mjs",
     "sf:dedupe": "node --env-file=.env.local scripts/simplefin_dedupe.mjs",
-    "amz:itemize": "node --env-file=.env.local scripts/amazon_itemize.mjs"
+    "amz:itemize": "node --env-file=.env.local scripts/amazon_itemize.mjs",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
@@ -130,7 +133,8 @@
     "tailwindcss": "3.4.3",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.29.0"
+    "typescript-eslint": "^8.29.0",
+    "vitest": "^2.1.9"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
