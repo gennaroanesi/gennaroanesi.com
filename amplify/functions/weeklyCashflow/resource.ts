@@ -14,7 +14,10 @@ export const weeklyCashflow = defineFunction({
   memoryMB: 512,
   resourceGroupName: "data",
   environment: {
-    SES_FROM_EMAIL:  "noreply@gennaroanesi.com",
+    // Sender must be an SES-verified identity. Using the verified Gmail for now;
+    // switch to "noreply@gennaroanesi.com" once the gennaroanesi.com domain is
+    // verified in SES (us-east-1).
+    SES_FROM_EMAIL:  "gennaroanesi@gmail.com",
     WEEKLY_TO_EMAIL: "gennaroanesi@gmail.com",
     BUFFER:          "750",
   },
