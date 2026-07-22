@@ -62,10 +62,15 @@ export const handler = async (event: any = {}) => {
   ]);
   const accounts: Account[] = accountsRaw
     .filter((a) => a.active !== false)
-    .map((a) => ({ id: a.id, name: a.name, type: a.type, currentBalance: a.currentBalance ?? 0, creditLimit: a.creditLimit, apr: a.apr, statementClosingDay: a.statementClosingDay }));
+    .map((a) => ({
+      id: a.id, name: a.name, type: a.type, currentBalance: a.currentBalance ?? 0,
+      creditLimit: a.creditLimit, apr: a.apr,
+      statementClosingDay: a.statementClosingDay, statementDueDay: a.statementDueDay,
+    }));
   const recurrings: Recurring[] = recurringsRaw.map((r) => ({
-    id: r.id, description: r.description, amount: r.amount, type: r.type, cadence: r.cadence,
-    nextDate: r.nextDate, startDate: r.startDate, endDate: r.endDate, active: r.active, accountId: r.accountId,
+    id: r.id, description: r.description, amount: r.amount, type: r.type, category: r.category,
+    cadence: r.cadence, nextDate: r.nextDate, startDate: r.startDate, endDate: r.endDate,
+    active: r.active, accountId: r.accountId, toAccountId: r.toAccountId,
   }));
 
   const buffer = env.BUFFER ? parseFloat(env.BUFFER) : 750;
