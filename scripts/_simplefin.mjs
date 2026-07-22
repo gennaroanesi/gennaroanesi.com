@@ -136,14 +136,24 @@ function normalizeAccount(a) {
   // Holdings — brokerage/retirement accounts sometimes carry a per-position
   // array. Fields vary by institution; keep the shape close to what SF sends
   // so downstream code can decide what to do with each.
+  // SimpleFIN sends holding money fields with UNDERSCORES (market_value,
+  // cost_basis, purchase_price) — unlike account-level fields, which use hyphens
+  // (available-balance, balance-date). Read underscore first, fall back to hyphen
+  // in case a bridge/institution emits the other spelling.
+  const pickNum = (obj, ...keys) => {
+    for (const k of keys) {
+      if (obj[k] != null && obj[k] !== "") return parseFloat(obj[k]);
+    }
+    return null;
+  };
   const holdings = (a.holdings ?? []).map((h) => ({
     id:            h.id ?? "",
     symbol:        (h.symbol ?? "").trim(),
     description:   (h.description ?? "").trim(),
     shares:        h.shares != null ? parseFloat(h.shares) : null,
-    marketValue:   h["market-value"] != null ? parseFloat(h["market-value"]) : null,
-    purchasePrice: h["purchase-price"] != null ? parseFloat(h["purchase-price"]) : null,
-    costBasis:     h["cost-basis"] != null ? parseFloat(h["cost-basis"]) : null,
+    marketValue:   pickNum(h, "market_value", "market-value"),
+    purchasePrice: pickNum(h, "purchase_price", "purchase-price"),
+    costBasis:     pickNum(h, "cost_basis", "cost-basis"),
     currency:      h.currency ?? a.currency ?? "USD",
     createdAt:     h.created ? unixToIsoDate(h.created) : null,
   }));

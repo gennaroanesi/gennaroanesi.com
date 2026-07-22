@@ -279,7 +279,10 @@ function desiredHoldingsFromSf(sfAcc) {
     if (!ticker) continue; // no symbol → can't key a holding on it
     const agg = byTicker.get(ticker) ?? { ticker, shares: 0, costBasis: 0, marketValue: 0, hasCost: false };
     agg.shares += h.shares ?? 0;
-    if (h.costBasis != null)   { agg.costBasis += h.costBasis; agg.hasCost = true; }
+    // SimpleFIN reports 0.00 cost_basis for positions where basis is unknown
+    // (e.g. 401k funds). Treat only a positive basis as real so we don't overwrite
+    // a null with 0 and manufacture a full-market-value "gain".
+    if (h.costBasis != null && h.costBasis > 0) { agg.costBasis += h.costBasis; agg.hasCost = true; }
     if (h.marketValue != null) agg.marketValue += h.marketValue;
     byTicker.set(ticker, agg);
   }
