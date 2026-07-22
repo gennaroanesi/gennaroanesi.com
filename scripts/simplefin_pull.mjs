@@ -42,6 +42,7 @@ import {
 } from "@aws-sdk/client-cognito-identity-provider";
 
 import { fetchAccounts, maskAccessUrl } from "./_simplefin.mjs";
+import { loadTickerRules, classifyTrade } from "./_trade_classify.mjs";
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ const CATEGORY_RULES_RAW = JSON.parse(
 );
 const CATEGORY_RULES = CATEGORY_RULES_RAW.rules ?? [];
 const INVESTMENT_CATEGORY = "Investments";
+
+// Security name → ticker rules, for typing brokerage cash rows as BUY/SELL.
+const TICKER_RULES = loadTickerRules();
 
 function patternMatches(pattern, text) {
   const p = pattern.trim();
@@ -301,14 +305,40 @@ function importHash(date, amount, description) {
 }
 
 function sfTxToDraft(sfTx, financeAccount) {
-  const description = sfTx.payee || sfTx.description || "(no description)";
-  let type = sfTx.amount >= 0 ? "INCOME" : "EXPENSE";
-  let category = inferCategory({ type, description });
-  // Investment accounts: default any un-categorized rows to "Investments"
-  // so they drop out of the review's P&L (matches your existing convention).
-  if (!category && (financeAccount.type === "BROKERAGE" || financeAccount.type === "RETIREMENT")) {
-    category = INVESTMENT_CATEGORY;
+  const invested = financeAccount.type === "BROKERAGE" || financeAccount.type === "RETIREMENT";
+
+  // On investment accounts, try to read the row as a security trade. SimpleFIN
+  // gives no shares/price, so these are cash-only BUY/SELL rows: amount < 0 = BUY,
+  // amount > 0 = SELL. The ticker comes from the name→ticker map; unmapped names
+  // fall through to ordinary income/expense so transfers/interest aren't misread.
+  const trade = invested
+    ? classifyTrade({ description: sfTx.description, payee: sfTx.payee, amount: sfTx.amount }, TICKER_RULES)
+    : { isTrade: false };
+
+  let type;
+  let category;
+  let ticker = null;
+  // For trades, prefer the security name (SF description) over the generic payee
+  // ("Charles Schwab") so the ledger row is self-describing.
+  const description = (trade.isTrade
+    ? (sfTx.description || sfTx.payee)
+    : (sfTx.payee || sfTx.description)) || "(no description)";
+
+  if (trade.isTrade) {
+    type = trade.side;                 // BUY / SELL
+    ticker = trade.ticker;
+    category = INVESTMENT_CATEGORY;     // excluded from P&L
+  } else {
+    type = sfTx.amount >= 0 ? "INCOME" : "EXPENSE";
+    category = inferCategory({ type, description });
+    // Investment accounts: never let an uncategorized row — or the generic
+    // INCOME→"Income" fallback — pollute real income. Default to Investments so
+    // brokerage cash movements drop out of the review's P&L.
+    if (invested && (!category || category === "Income")) {
+      category = INVESTMENT_CATEGORY;
+    }
   }
+
   return {
     accountId:  financeAccount.id,
     date:       sfTx.posted,
@@ -317,6 +347,7 @@ function sfTxToDraft(sfTx, financeAccount) {
     type,
     status:     sfTx.pending ? "PENDING" : "POSTED",
     category:   category ?? null,
+    ticker,                            // set for BUY/SELL; null otherwise
     importHash: importHash(sfTx.posted, sfTx.amount, description),
     // Trace back to the SF tx id for debugging future dedup issues.
     notes:      `sf:${sfTx.id}`,
