@@ -23,6 +23,7 @@ import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
 import { gennaroAgent } from "./functions/gennaroAgent/resource";
 import { financeSnapshots } from "./functions/financeSnapshots/resource";
+import { weeklyCashflow } from "./functions/weeklyCashflow/resource";
 import { parsePaycheckPdf } from "./functions/parsePaycheckPdf/resource";
 
 const backend = defineBackend({
@@ -33,6 +34,7 @@ const backend = defineBackend({
   importLogbook,
   gennaroAgent,
   financeSnapshots,
+  weeklyCashflow,
   parsePaycheckPdf,
   //storage,
 });
@@ -362,6 +364,24 @@ new Rule(backend.stack, "FinanceSnapshotsDailyRule", {
   description: "Daily 6 AM Central capture of per-account balance + flow",
   schedule: Schedule.cron({ minute: "0", hour: "11" }),
   targets: [new LambdaFunctionTarget(snapshotFn)],
+});
+
+// ── weeklyCashflow cron + SES ────────────────────────────────────────────────
+// Monday 12:00 UTC ≈ 6–7 AM Central. Reads accounts + recurring, emails the
+// weekly cashflow briefing. Data access granted via allow.resource(weeklyCashflow)
+// in data/resource.ts; needs ses:SendEmail to deliver.
+const cashflowFn = backend.weeklyCashflow.resources.lambda as LambdaFunction;
+cashflowFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:    Effect.ALLOW,
+    actions:   ["ses:SendEmail", "ses:SendRawEmail"],
+    resources: ["*"],
+  }),
+);
+new Rule(backend.stack, "WeeklyCashflowMondayRule", {
+  description: "Monday morning cashflow briefing email",
+  schedule: Schedule.cron({ minute: "0", hour: "12", weekDay: "MON" }),
+  targets: [new LambdaFunctionTarget(cashflowFn)],
 });
 
 // ── transcribeAudio infrastructure ──────────────────────────────────────────

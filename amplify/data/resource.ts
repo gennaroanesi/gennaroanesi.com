@@ -2,6 +2,7 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { sendNotification } from "../functions/sendNotification/resource";
 import { gennaroAgent } from "../functions/gennaroAgent/resource";
 import { financeSnapshots } from "../functions/financeSnapshots/resource";
+import { weeklyCashflow } from "../functions/weeklyCashflow/resource";
 import { parsePaycheckPdf } from "../functions/parsePaycheckPdf/resource";
 
 const schema = a.schema({
@@ -1186,6 +1187,7 @@ const schema = a.schema({
 .authorization((allow) => [
   allow.resource(gennaroAgent),
   allow.resource(financeSnapshots),
+  allow.resource(weeklyCashflow),
 ]);
 
 export type Schema = ClientSchema<typeof schema>;
