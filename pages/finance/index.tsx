@@ -497,6 +497,18 @@ export default function FinanceDashboard() {
             accountId: r.accountId ?? "",
             cadence: r.cadence ?? null,
           });
+          // A TRANSFER also lands the opposite amount in the destination account,
+          // so per-account projections credit the money moving in.
+          if (r.type === "TRANSFER" && r.toAccountId) {
+            entries.push({
+              rec: r, tx: null, next: cur,
+              amount: -(r.amount ?? 0),
+              description: r.description ?? "",
+              category: r.category ?? "",
+              accountId: r.toAccountId,
+              cadence: r.cadence ?? null,
+            });
+          }
         }
         const prev = cur;
         cur = advanceByCadence(cur, r.cadence as Cadence);
@@ -515,6 +527,16 @@ export default function FinanceDashboard() {
           accountId: t.accountId ?? "",
           cadence: null,
         });
+        if (t.type === "TRANSFER" && t.toAccountId) {
+          entries.push({
+            rec: null, tx: t, next: t.date!,
+            amount: -(t.amount ?? 0),
+            description: t.description ?? "",
+            category: t.category ?? "",
+            accountId: t.toAccountId,
+            cadence: null,
+          });
+        }
       }
     }
 
@@ -525,8 +547,11 @@ export default function FinanceDashboard() {
   const upcomingFiltered = upcomingAccFilter.length > 0
     ? upcoming.filter((e) => upcomingAccFilter.includes(e.accountId))
     : upcoming;
-  const upcomingIncome  = upcomingFiltered.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0);
-  const upcomingExpense = upcomingFiltered.filter((e) => e.amount < 0).reduce((s, e) => s + e.amount, 0);
+  // Transfers move money between the user's own accounts — never count them as
+  // income or expense (they'd otherwise inflate both sides of the ledger).
+  const isTransferEntry = (e: typeof upcoming[number]) => e.rec?.type === "TRANSFER" || e.tx?.type === "TRANSFER";
+  const upcomingIncome  = upcomingFiltered.filter((e) => e.amount > 0 && !isTransferEntry(e)).reduce((s, e) => s + e.amount, 0);
+  const upcomingExpense = upcomingFiltered.filter((e) => e.amount < 0 && !isTransferEntry(e)).reduce((s, e) => s + e.amount, 0);
 
   // Projected balance
   const upcomingStartBalance = upcomingAccFilter.length > 0

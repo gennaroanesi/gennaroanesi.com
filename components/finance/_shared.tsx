@@ -1518,16 +1518,25 @@ export function projectBalance(
   const horizonEnd = addDays(todayStr, horizonDays);
 
   // ── Deterministic: enumerate recurring occurrences in the window ──────
-  const myRules = recurrings.filter((r) =>
-    r.accountId === account.id && isRecurrenceLive(r),
-  );
+  // A rule affects this account either as its source (accountId → apply amount)
+  // or, for a TRANSFER, as its destination (toAccountId → apply the opposite
+  // amount = money in). Pair each rule with its signed effect on THIS account.
+  const myRules = recurrings
+    .filter((r) => isRecurrenceLive(r) && (
+      r.accountId === account.id || (r.type === "TRANSFER" && r.toAccountId === account.id)
+    ))
+    .map((r) => ({
+      rule: r,
+      effAmount: (r.type === "TRANSFER" && r.toAccountId === account.id && r.accountId !== account.id)
+        ? -(r.amount ?? 0)
+        : (r.amount ?? 0),
+    }));
   const recurringDates = new Set<string>();
   let deterministic = 0;
 
-  for (const rule of myRules) {
+  for (const { rule, effAmount: amount } of myRules) {
     const cadence = rule.cadence as Cadence;
     const seed = rule.nextDate ?? rule.startDate ?? todayStr;
-    const amount = rule.amount ?? 0;
 
     // Roll to first occurrence ≥ today. Anchor follows the current value
     // so manual edits to nextDate carry forward instead of snapping back
@@ -1568,7 +1577,7 @@ export function projectBalance(
     // recurring amount, treat as recurring and skip.
     const flowToday = (cur.inflow ?? 0) - (cur.outflow ?? 0);
     const looksRecurring = myRules.some((r) =>
-      Math.abs((r.amount ?? 0) - flowToday) < 0.01,
+      Math.abs((r.effAmount ?? 0) - flowToday) < 0.01,
     );
     if (looksRecurring) continue;
     drifts.push(d);

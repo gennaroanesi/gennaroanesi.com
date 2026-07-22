@@ -354,7 +354,7 @@ export default function RecurringPage() {
           <div>
             <p className="text-gray-800 dark:text-gray-200 font-medium">{r.description}</p>
             {r.category && <p className="text-[11px] text-gray-400">{r.category}</p>}
-            {acc && <p className="text-[11px] text-gray-400">{acc.name}</p>}
+            {acc && <p className="text-[11px] text-gray-400">{acc.name}{r.type === "TRANSFER" && r.toAccountId ? ` → ${accounts.find((a) => a.id === r.toAccountId)?.name ?? "?"}` : ""}</p>}
             {lastMatched && (
               <p className="text-[10px]" style={{ color: FINANCE_COLOR }}>
                 · last matched {fmtDate(lastMatched)}
@@ -627,7 +627,7 @@ export default function RecurringPage() {
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Money moves out of the “from” account into this one. Enter Amount as negative (money leaving the “from” account).</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Money moves out of the “from” account into this one. Enter a positive amount.</p>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
@@ -649,10 +649,16 @@ export default function RecurringPage() {
                 </div>
               </div>
               <div>
-                <label className={labelCls}>Amount</label>
-                <input type="number" step="0.01" className={inputCls} placeholder="0.00"
-                  value={draft.amount ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, amount: parseFloat(e.target.value) || 0 }))} />
+                <label className={labelCls}>{draft.type === "TRANSFER" ? "Amount to move" : "Amount"}</label>
+                <input type="number" step="0.01" min={draft.type === "TRANSFER" ? 0 : undefined} className={inputCls} placeholder="0.00"
+                  value={draft.type === "TRANSFER" ? (draft.amount != null ? Math.abs(draft.amount) : "") : (draft.amount ?? "")}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value) || 0;
+                    // Transfers are stored as the signed effect on the "from" account
+                    // (negative = money leaving), consistent with the rest of the app;
+                    // the user just enters a positive amount to move.
+                    setDraft((d) => ({ ...d, amount: d.type === "TRANSFER" ? -Math.abs(v) : v }));
+                  }} />
                 <p className="text-[10px] text-gray-400 mt-0.5">Positive = income · Negative = expense</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
