@@ -31,7 +31,7 @@
     { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|verizon|at&t|t-mobile|tmobile|spectrum|internet|wireless|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy/i", "category": "Utilities" },
     { "pattern": "/mortgage|rent payment|\\brent\\b|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
 
-    { "pattern": "/whole foods|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
+    { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
     { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|doordash|uber eats|grubhub|postmates|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro|porte noire/i", "category": "Dining" },
 
     { "pattern": "/shell|chevron|exxon|mobil|\\bbp \\b|valero|texaco|gas station|\\bfuel\\b|sunoco|circle k|buc-ee|quiktrip|\\b76 \\b|chargepoint|racetrac/i", "category": "Gas/Transport" },

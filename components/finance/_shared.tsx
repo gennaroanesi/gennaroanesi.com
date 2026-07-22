@@ -1869,6 +1869,30 @@ const BANK_FORMATS: BankFormat[] = [
     },
   },
   {
+    // H-E-B credit card "Activity" export. Header: Date,Amount,Type,Merchant,Category,Method
+    name:   "H-E-B Card",
+    detect: (h) => h.includes("Merchant") && h.includes("Method") && h.includes("Type"),
+    parse:  (row) => {
+      // Date field is `YYYY/MM/DD, HH:MM:SS` — Y/M/D order (not toIso's M/D/Y),
+      // with a time suffix. Parse it directly rather than routing through toIso.
+      const [y, m, d] = ((row["Date"] ?? "").split(",")[0].trim()).split("/");
+      if (!y || !m || !d) return null;
+      const date = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+      // H-E-B exports purchases as POSITIVE and payments/refunds/rewards as
+      // NEGATIVE (opposite of our convention). Negate so money-leaving is negative.
+      const raw    = parseAmt(row["Amount"] ?? "0");
+      const amount = -raw;
+      const description = row["Merchant"]?.trim() || (row["Type"]?.trim() ?? "");
+      // The Type column is authoritative for balance-sheet rows: card payments and
+      // statement-credit rewards are debt paydown, not income — bucket them as
+      // "Credit Card Payment" (excluded from P&L). Everything else falls through
+      // to merchant-based inference (Groceries / Shopping / Fees / …).
+      const type = (row["Type"] ?? "").trim().toUpperCase();
+      const category = type === "PAYMENT" || type === "REWARD" ? "Credit Card Payment" : "";
+      return { date, description, amount, category, hash: importHash(date, amount, description) };
+    },
+  },
+  {
     // Generic fallback
     name:   "Generic CSV",
     detect: (h) => h.some((c) => /date/i.test(c)) && h.some((c) => /amount/i.test(c)),
