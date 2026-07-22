@@ -39,7 +39,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
     const items = g.items.map((i) => `${i.description} ${money(i.amount)}`).join(", ");
     T.push(`  ${g.category} (${money(g.total)}): ${items}`);
   });
-  if (res.transfers.length) { T.push(`\nINTERNAL TRANSFERS (own accounts — not income/bills)`); res.transfers.forEach((t) => T.push(`  ${t.date}  ${money(t.amount)}  ${t.description}`)); }
+  if (res.transfers.length) { T.push(`\nINTERNAL TRANSFERS (own accounts — not income/bills)`); res.transfers.forEach((t) => T.push(`  ${t.date}  ${money(t.amount)}  ${t.description} — ${t.accountName}`)); }
   if (res.statementsDue.length) { T.push(`\nCARD STATEMENTS DUE`); res.statementsDue.forEach((s) => T.push(`  ${s.card}: ~${money(s.approxAmount)} due ${s.dueDate}${s.approxDate ? " (est.)" : ""}`)); }
   T.push(`\nWHAT TO DO WITH LEFTOVER CASH (buffer ${money(res.buffer)})`);
   if (res.actions.length) {
@@ -90,7 +90,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   H.push(`</tbody></table>`);
   if (res.transfers.length) {
     H.push(h2(`Internal transfers <span style="font-weight:400;color:#999;font-size:12px">(own accounts — not income/bills)</span>`));
-    H.push(`<ul style="margin:0;padding-left:18px">${res.transfers.map((t) => li(`${t.date} &nbsp; ${money(t.amount)} &nbsp; ${t.description}`)).join("")}</ul>`);
+    H.push(`<ul style="margin:0;padding-left:18px">${res.transfers.map((t) => li(`${t.date} &nbsp; ${money(t.amount)} &nbsp; ${t.description} <span style="color:#999">— ${t.accountName}</span>`)).join("")}</ul>`);
   }
   if (res.statementsDue.length) {
     H.push(h2("Card statements due"));

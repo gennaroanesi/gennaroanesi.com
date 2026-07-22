@@ -31,15 +31,16 @@ export interface Account {
 export interface Recurring {
   id: string;
   description: string;
-  amount: number;               // + income, − expense
-  type: string;                 // INCOME | EXPENSE
+  amount: number;               // + income, − expense/transfer-out
+  type: string;                 // INCOME | EXPENSE | TRANSFER
   category?: string | null;     // e.g. "Streaming", "Utilities", "Housing"
   cadence: string;              // WEEKLY | BIWEEKLY | MONTHLY | QUARTERLY | SEMIANNUALLY | ANNUALLY
   nextDate?: string | null;
   startDate?: string | null;
   endDate?: string | null;
   active?: boolean | null;
-  accountId?: string | null;
+  accountId?: string | null;    // source account
+  toAccountId?: string | null;  // TRANSFER destination
 }
 
 export interface AnalyzeOptions {
@@ -78,7 +79,7 @@ function advance(iso: string, cadence: string, anchorDay: number): string {
   return iso;
 }
 
-interface Occurrence { id: string; date: string; amount: number; type: string; description: string; category: string | null; accountId: string | null }
+interface Occurrence { id: string; date: string; amount: number; type: string; description: string; category: string | null; accountId: string | null; toAccountId: string | null }
 
 /** Occurrences of a recurring rule with date in [fromIso, toIso], rolled forward from its (possibly stale) anchor. */
 export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: string): Occurrence[] {
@@ -93,7 +94,7 @@ export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: stri
   guard = 0;
   while (cur <= toIso && guard++ < 400) {
     if (rec.endDate && cur > rec.endDate) break;
-    out.push({ id: rec.id, date: cur, amount: rec.amount, type: rec.type, description: rec.description, category: rec.category ?? null, accountId: rec.accountId ?? null });
+    out.push({ id: rec.id, date: cur, amount: rec.amount, type: rec.type, description: rec.description, category: rec.category ?? null, accountId: rec.accountId ?? null, toAccountId: rec.toAccountId ?? null });
     cur = advance(cur, rec.cadence, anchorDay);
   }
   return out;
@@ -226,26 +227,32 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     .map(([category, g]) => ({ category, total: round2(g.total), items: g.items }))
     .sort((a, b) => a.total - b.total); // most-negative (biggest spend) first
 
-  // Transfers between own accounts — shown for transparency, one row per outflow.
+  // Transfers between own accounts — shown for transparency, one row per outflow
+  // (from → to when a destination is known).
   const transfers = occ
     .filter((o) => xferIds.has(o.id) && o.amount < 0)
     .map((o) => {
-      const acc = o.accountId ? acctById.get(o.accountId) : undefined;
-      return { date: o.date, amount: o.amount, description: o.description, accountName: acc?.name ?? "—" };
+      const from = o.accountId ? acctById.get(o.accountId) : undefined;
+      const to = o.toAccountId ? acctById.get(o.toAccountId) : undefined;
+      const route = to ? `${from?.name ?? "—"} → ${to.name}` : (from?.name ?? "—");
+      return { date: o.date, amount: o.amount, description: o.description, accountName: route };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Per-checking-account projection over the window.
   const projections = checking.map((acc) => {
+    // An occurrence affects this account either as its source (apply amount) or,
+    // for a transfer, as its destination (apply the opposite amount = money in).
     const events = occ
-      .filter((o) => o.accountId === acc.id)
+      .filter((o) => o.accountId === acc.id || o.toAccountId === acc.id)
+      .map((o) => ({ date: o.date, description: o.description, effAmount: o.toAccountId === acc.id ? -o.amount : o.amount }))
       .sort((a, b) => a.date.localeCompare(b.date));
     let running = acc.currentBalance ?? 0;
     let minBalance = running;
     let minDate = today;
     const dips: Array<{ date: string; balance: number; description: string }> = [];
     for (const e of events) {
-      running += e.amount;
+      running += e.effAmount;
       if (running < minBalance) { minBalance = running; minDate = e.date; }
       if (running < 0) dips.push({ date: e.date, balance: running, description: e.description });
     }

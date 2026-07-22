@@ -562,9 +562,13 @@ const schema = a.schema({
 
   financeRecurring: a
     .model({
-      accountId: a.id().required(), // FK → financeAccount.id
-      amount: a.float().required(), // positive = income, negative = expense
-      type: a.enum(["INCOME", "EXPENSE"]),
+      accountId: a.id().required(), // FK → financeAccount.id (the "from" account for a TRANSFER)
+      amount: a.float().required(), // positive = income, negative = expense/transfer-out
+      type: a.enum(["INCOME", "EXPENSE", "TRANSFER"]),
+      // TRANSFER only: destination account. One TRANSFER rule = money out of
+      // accountId and into toAccountId (mirrors financeTransaction.toAccountId),
+      // replacing the old two-rule INCOME+EXPENSE convention. Excluded from P&L.
+      toAccountId: a.id(),
       category: a.string(),
       description: a.string().required(),
       cadence: a.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"]),
