@@ -441,6 +441,30 @@ export function isRecurrenceLive(rec: RecurringRecord): boolean {
   return true;
 }
 
+// ── Amount-sign convention ──────────────────────────────────────────────────
+// One canonical rule for how a signed `amount` relates to its transaction/rule
+// type, so the finance forms can normalize on blur instead of trusting the user
+// to remember the minus sign:
+//   INCOME / SELL      → positive (money in)
+//   EXPENSE / BUY      → negative (money out)
+//   TRANSFER           → positive magnitude (direction comes from from→to)
+// Anything else is left as typed.
+export function normalizeAmountSign(amount: number, type: string | null | undefined): number {
+  if (!Number.isFinite(amount)) return amount;
+  const mag = Math.abs(amount);
+  switch (type) {
+    case "INCOME":
+    case "SELL":
+    case "TRANSFER":
+      return mag;
+    case "EXPENSE":
+    case "BUY":
+      return -mag;
+    default:
+      return amount;
+  }
+}
+
 // ── Holdings ───────────────────────────────────────────────────────────────────────────────
 // QuoteMap, buildQuoteMap, TickerAggregate, isLotVested, tickerAggregate,
 // uniqueTickers, and accountTotalValue live in finance-core (re-exported at the
@@ -1527,8 +1551,10 @@ export function projectBalance(
     ))
     .map((r) => ({
       rule: r,
-      effAmount: (r.type === "TRANSFER" && r.toAccountId === account.id && r.accountId !== account.id)
-        ? -(r.amount ?? 0)
+      // A TRANSFER moves |amount| out of its source and into its destination —
+      // magnitude-based so a mis-signed stored amount can't invert the direction.
+      effAmount: r.type === "TRANSFER"
+        ? (r.toAccountId === account.id ? Math.abs(r.amount ?? 0) : -Math.abs(r.amount ?? 0))
         : (r.amount ?? 0),
     }));
   const recurringDates = new Set<string>();

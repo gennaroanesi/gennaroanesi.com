@@ -230,12 +230,14 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
   // Transfers between own accounts — shown for transparency, one row per outflow
   // (from → to when a destination is known).
   const transfers = occ
-    .filter((o) => xferIds.has(o.id) && o.amount < 0)
+    // Explicit TRANSFER rules show regardless of stored sign; heuristic pairs
+    // still contribute only their outflow (negative) side.
+    .filter((o) => xferIds.has(o.id) && (o.type === "TRANSFER" || o.amount < 0))
     .map((o) => {
       const from = o.accountId ? acctById.get(o.accountId) : undefined;
       const to = o.toAccountId ? acctById.get(o.toAccountId) : undefined;
       const route = to ? `${from?.name ?? "—"} → ${to.name}` : (from?.name ?? "—");
-      return { date: o.date, amount: o.amount, description: o.description, accountName: route };
+      return { date: o.date, amount: -Math.abs(o.amount), description: o.description, accountName: route };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -245,7 +247,14 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     // for a transfer, as its destination (apply the opposite amount = money in).
     const events = occ
       .filter((o) => o.accountId === acc.id || o.toAccountId === acc.id)
-      .map((o) => ({ date: o.date, description: o.description, effAmount: o.toAccountId === acc.id ? -o.amount : o.amount }))
+      .map((o) => {
+        // A TRANSFER moves |amount| out of its source and into its destination —
+        // use magnitude so a mis-signed stored amount can't invert the direction.
+        const eff = o.type === "TRANSFER"
+          ? (o.toAccountId === acc.id ? Math.abs(o.amount) : -Math.abs(o.amount))
+          : o.amount;
+        return { date: o.date, description: o.description, effAmount: eff };
+      })
       .sort((a, b) => a.date.localeCompare(b.date));
     let running = acc.currentBalance ?? 0;
     let minBalance = running;

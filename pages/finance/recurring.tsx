@@ -8,7 +8,7 @@ import {
   AccountRecord, RecurringRecord, TransactionRecord,
   CADENCES, CADENCE_LABELS, CADENCE_MONTHLY_FACTOR, FINANCE_COLOR,
   fmtCurrency, fmtDate, todayIso, nextOccurrence, advanceByCadence, amountColor,
-  isRecurrenceLive,
+  isRecurrenceLive, normalizeAmountSign,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState,
   listAll,
@@ -44,6 +44,7 @@ export default function RecurringPage() {
   const [saving,     setSaving]     = useState(false);
   const [panel,      setPanel]      = useState<PanelState>(null);
   const [draft,      setDraft]      = useState<Partial<RecurringRecord>>({});
+  const [errors,     setErrors]     = useState<{ amount?: string; description?: string; accountId?: string; toAccountId?: string }>({});
   // Checked candidates in the match-panel multi-select.
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
   // All transactions linked to the currently-edited rule. Fetched on demand
@@ -118,11 +119,13 @@ export default function RecurringPage() {
       nextDate:  todayIso(),
       ...prefill,
     });
+    setErrors({});
     setPanel({ kind: "new" });
   }
 
   function openEdit(rec: RecurringRecord) {
     setDraft({ ...rec });
+    setErrors({});
     setPanel({ kind: "edit", rec });
   }
 
@@ -180,50 +183,73 @@ export default function RecurringPage() {
     }
   }
 
-  async function handleSave() {
-    if (!draft.accountId || draft.amount == null || !draft.description?.trim()) return;
-    const isTransfer = draft.type === "TRANSFER";
-    if (isTransfer && (!draft.toAccountId || draft.toAccountId === draft.accountId)) {
-      alert("A transfer needs a destination account different from the source.");
-      return;
+  // Field-level validation shared by on-blur checks and Save.
+  function validateDraft(d: Partial<RecurringRecord>): typeof errors {
+    const e: typeof errors = {};
+    if (!d.description?.trim()) e.description = "Description is required.";
+    if (!d.accountId) e.accountId = d.type === "TRANSFER" ? "Choose a source account." : "Account is required.";
+    if (d.amount == null || d.amount === 0 || Number.isNaN(d.amount)) e.amount = "Enter a non-zero amount.";
+    if (d.type === "TRANSFER") {
+      if (!d.toAccountId) e.toAccountId = "Choose a destination account.";
+      else if (d.toAccountId === d.accountId) e.toAccountId = "Destination must differ from the source.";
     }
+    return e;
+  }
+
+  // Apply `overrides`, snap the amount's sign to match the type (income +,
+  // expense −, transfer +), commit the draft, and refresh validation. Called on
+  // amount blur and whenever the type changes so signs stay canonical.
+  const reNormalize = (overrides: Partial<RecurringRecord> = {}) => {
+    const next: Partial<RecurringRecord> = { ...draft, ...overrides };
+    if (next.amount != null) next.amount = normalizeAmountSign(next.amount, next.type);
+    setDraft(next);
+    setErrors(validateDraft(next));
+  };
+
+  async function handleSave() {
+    const normalized = { ...draft, amount: draft.amount != null ? normalizeAmountSign(draft.amount, draft.type) : draft.amount };
+    const errs = validateDraft(normalized);
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) { setDraft(normalized); return; }
+    const draftToSave = normalized;
+    const isTransfer = draftToSave.type === "TRANSFER";
     setSaving(true);
     try {
       if (panel?.kind === "new") {
         const { data: newRec } = await client.models.financeRecurring.create({
-          accountId:    draft.accountId!,
-          amount:       draft.amount!,
-          type:         (draft.type ?? "EXPENSE") as any,
-          toAccountId:  isTransfer ? draft.toAccountId! : null,
-          category:     draft.category ?? null,
-          description:  draft.description!,
-          cadence:      (draft.cadence ?? "MONTHLY") as any,
-          startDate:    draft.startDate ?? todayIso(),
-          endDate:      draft.endDate ?? null,
-          nextDate:     draft.nextDate ?? draft.startDate ?? todayIso(),
-          active:       draft.active ?? true,
-          goalId:       draft.goalId ?? null,
-          matchPattern: draft.matchPattern?.trim() || null,
+          accountId:    draftToSave.accountId!,
+          amount:       draftToSave.amount!,
+          type:         (draftToSave.type ?? "EXPENSE") as any,
+          toAccountId:  isTransfer ? draftToSave.toAccountId! : null,
+          category:     draftToSave.category ?? null,
+          description:  draftToSave.description!,
+          cadence:      (draftToSave.cadence ?? "MONTHLY") as any,
+          startDate:    draftToSave.startDate ?? todayIso(),
+          endDate:      draftToSave.endDate ?? null,
+          nextDate:     draftToSave.nextDate ?? draftToSave.startDate ?? todayIso(),
+          active:       draftToSave.active ?? true,
+          goalId:       draftToSave.goalId ?? null,
+          matchPattern: draftToSave.matchPattern?.trim() || null,
         });
         if (newRec) setRecurrings((p) => [...p, newRec]);
       } else if (panel?.kind === "edit") {
         await client.models.financeRecurring.update({
           id:           panel.rec.id,
-          accountId:    draft.accountId!,
-          amount:       draft.amount!,
-          type:         (draft.type ?? "EXPENSE") as any,
-          toAccountId:  isTransfer ? draft.toAccountId! : null,
-          category:     draft.category ?? null,
-          description:  draft.description!,
-          cadence:      (draft.cadence ?? "MONTHLY") as any,
-          startDate:    draft.startDate ?? todayIso(),
-          endDate:      draft.endDate ?? null,
-          nextDate:     draft.nextDate ?? draft.startDate ?? todayIso(),
-          active:       draft.active ?? true,
-          goalId:       draft.goalId ?? null,
-          matchPattern: draft.matchPattern?.trim() || null,
+          accountId:    draftToSave.accountId!,
+          amount:       draftToSave.amount!,
+          type:         (draftToSave.type ?? "EXPENSE") as any,
+          toAccountId:  isTransfer ? draftToSave.toAccountId! : null,
+          category:     draftToSave.category ?? null,
+          description:  draftToSave.description!,
+          cadence:      (draftToSave.cadence ?? "MONTHLY") as any,
+          startDate:    draftToSave.startDate ?? todayIso(),
+          endDate:      draftToSave.endDate ?? null,
+          nextDate:     draftToSave.nextDate ?? draftToSave.startDate ?? todayIso(),
+          active:       draftToSave.active ?? true,
+          goalId:       draftToSave.goalId ?? null,
+          matchPattern: draftToSave.matchPattern?.trim() || null,
         });
-        setRecurrings((p) => p.map((r) => r.id === panel.rec.id ? { ...r, ...draft } as RecurringRecord : r));
+        setRecurrings((p) => p.map((r) => r.id === panel.rec.id ? { ...r, ...draftToSave } as RecurringRecord : r));
       }
       setPanel(null);
     } finally {
@@ -250,9 +276,12 @@ export default function RecurringPage() {
     try {
       const today = todayIso();
       const isTransfer = rec.type === "TRANSFER";
+      // A transfer moves |amount| out of the source (magnitude-based, so a
+      // mis-signed stored amount can't invert it); non-transfers use amount as-is.
+      const srcDelta = isTransfer ? -Math.abs(rec.amount ?? 0) : (rec.amount ?? 0);
       await client.models.financeTransaction.create({
         accountId:   rec.accountId!,
-        amount:      rec.amount!,
+        amount:      srcDelta,
         type:        (rec.type ?? "EXPENSE") as any,
         category:    rec.category ?? null,
         description: rec.description ?? "",
@@ -262,18 +291,18 @@ export default function RecurringPage() {
         toAccountId: isTransfer ? (rec.toAccountId ?? null) : null,
         importHash:  null,
       });
-      // Adjust balances: the amount hits the source account; a TRANSFER also
-      // moves the opposite amount into the destination account.
+      // Adjust balances: srcDelta hits the source; a TRANSFER lands |amount| in
+      // the destination account.
       const acc = accounts.find((a) => a.id === rec.accountId);
       if (acc) {
-        const newBal = (acc.currentBalance ?? 0) + (rec.amount ?? 0);
+        const newBal = (acc.currentBalance ?? 0) + srcDelta;
         await client.models.financeAccount.update({ id: acc.id, currentBalance: newBal });
         setAccounts((p) => p.map((a) => a.id === acc.id ? { ...a, currentBalance: newBal } : a));
       }
       if (isTransfer && rec.toAccountId) {
         const dest = accounts.find((a) => a.id === rec.toAccountId);
         if (dest) {
-          const destBal = (dest.currentBalance ?? 0) - (rec.amount ?? 0); // amount is negative on source → adds to dest
+          const destBal = (dest.currentBalance ?? 0) + Math.abs(rec.amount ?? 0);
           await client.models.financeAccount.update({ id: dest.id, currentBalance: destBal });
           setAccounts((p) => p.map((a) => a.id === dest.id ? { ...a, currentBalance: destBal } : a));
         }
@@ -603,38 +632,43 @@ export default function RecurringPage() {
             <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
               <div>
                 <label className={labelCls}>Description *</label>
-                <input type="text" className={inputCls} placeholder="e.g. Rent, Netflix, Salary…"
+                <input type="text" className={`${inputCls} ${errors.description ? "border-red-400" : ""}`} placeholder="e.g. Rent, Netflix, Salary…"
                   value={draft.description ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} />
+                  onChange={(e) => { setDraft((d) => ({ ...d, description: e.target.value })); if (errors.description) setErrors((x) => ({ ...x, description: undefined })); }}
+                  onBlur={() => setErrors((x) => ({ ...x, description: draft.description?.trim() ? undefined : "Description is required." }))} />
+                {errors.description && <p className="text-[11px] text-red-500 mt-0.5">{errors.description}</p>}
               </div>
               <div>
                 <label className={labelCls}>{draft.type === "TRANSFER" ? "From account *" : "Account *"}</label>
-                <select className={inputCls} value={draft.accountId ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, accountId: e.target.value }))}>
+                <select className={`${inputCls} ${errors.accountId ? "border-red-400" : ""}`} value={draft.accountId ?? ""}
+                  onChange={(e) => { setDraft((d) => ({ ...d, accountId: e.target.value })); setErrors((x) => ({ ...x, accountId: undefined })); }}>
                   <option value="">Select account…</option>
                   {accounts.filter((a) => a.active !== false).map((a) => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
+                {errors.accountId && <p className="text-[11px] text-red-500 mt-0.5">{errors.accountId}</p>}
               </div>
               {draft.type === "TRANSFER" && (
                 <div>
                   <label className={labelCls}>To account *</label>
-                  <select className={inputCls} value={draft.toAccountId ?? ""}
-                    onChange={(e) => setDraft((d) => ({ ...d, toAccountId: e.target.value }))}>
+                  <select className={`${inputCls} ${errors.toAccountId ? "border-red-400" : ""}`} value={draft.toAccountId ?? ""}
+                    onChange={(e) => { setDraft((d) => ({ ...d, toAccountId: e.target.value })); setErrors((x) => ({ ...x, toAccountId: undefined })); }}>
                     <option value="">Select destination…</option>
                     {accounts.filter((a) => a.active !== false && a.id !== draft.accountId).map((a) => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Money moves out of the “from” account into this one. Enter a positive amount.</p>
+                  {errors.toAccountId
+                    ? <p className="text-[11px] text-red-500 mt-0.5">{errors.toAccountId}</p>
+                    : <p className="text-[10px] text-gray-400 mt-0.5">Money moves out of the “from” account into this one. Enter a positive amount.</p>}
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={labelCls}>Type</label>
                   <select className={inputCls} value={draft.type ?? "EXPENSE"}
-                    onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as any, ...(e.target.value !== "TRANSFER" ? { toAccountId: null } : {}) }))}>
+                    onChange={(e) => reNormalize({ type: e.target.value as any, ...(e.target.value !== "TRANSFER" ? { toAccountId: null } : {}) })}>
                     <option value="INCOME">Income</option>
                     <option value="EXPENSE">Expense</option>
                     <option value="TRANSFER">Transfer</option>
@@ -650,16 +684,19 @@ export default function RecurringPage() {
               </div>
               <div>
                 <label className={labelCls}>{draft.type === "TRANSFER" ? "Amount to move" : "Amount"}</label>
-                <input type="number" step="0.01" min={draft.type === "TRANSFER" ? 0 : undefined} className={inputCls} placeholder="0.00"
-                  value={draft.type === "TRANSFER" ? (draft.amount != null ? Math.abs(draft.amount) : "") : (draft.amount ?? "")}
+                <input type="number" step="0.01" className={`${inputCls} ${errors.amount ? "border-red-400" : ""}`} placeholder="0.00"
+                  value={draft.amount != null && Number.isFinite(draft.amount)
+                    ? (draft.type === "TRANSFER" ? Math.abs(draft.amount) : draft.amount)
+                    : ""}
                   onChange={(e) => {
-                    const v = parseFloat(e.target.value) || 0;
-                    // Transfers are stored as the signed effect on the "from" account
-                    // (negative = money leaving), consistent with the rest of the app;
-                    // the user just enters a positive amount to move.
-                    setDraft((d) => ({ ...d, amount: d.type === "TRANSFER" ? -Math.abs(v) : v }));
-                  }} />
-                <p className="text-[10px] text-gray-400 mt-0.5">Positive = income · Negative = expense</p>
+                    const s = e.target.value;
+                    setDraft((d) => ({ ...d, amount: s === "" ? undefined : parseFloat(s) }));
+                    if (errors.amount) setErrors((x) => ({ ...x, amount: undefined }));
+                  }}
+                  onBlur={() => reNormalize()} />
+                {errors.amount
+                  ? <p className="text-[11px] text-red-500 mt-0.5">{errors.amount}</p>
+                  : <p className="text-[10px] text-gray-400 mt-0.5">{draft.type === "INCOME" ? "Income is stored positive — sign set automatically." : draft.type === "TRANSFER" ? "Transfers move a positive amount from → to." : "Expenses are stored negative — sign set automatically."}</p>}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>

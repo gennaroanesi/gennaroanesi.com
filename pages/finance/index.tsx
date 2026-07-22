@@ -489,20 +489,23 @@ export default function FinanceDashboard() {
       while (cur <= in30) {
         if (r.endDate && cur > r.endDate) break;
         if (cur >= today) {
+          // Transfers move |amount| out of the source; a mis-signed stored amount
+          // must not invert that, so use magnitude for the source leg too.
+          const srcAmount = r.type === "TRANSFER" ? -Math.abs(r.amount ?? 0) : (r.amount ?? 0);
           entries.push({
             rec: r, tx: null, next: cur,
-            amount: r.amount ?? 0,
+            amount: srcAmount,
             description: r.description ?? "",
             category: r.category ?? "",
             accountId: r.accountId ?? "",
             cadence: r.cadence ?? null,
           });
-          // A TRANSFER also lands the opposite amount in the destination account,
-          // so per-account projections credit the money moving in.
+          // …and lands |amount| in the destination account, so per-account
+          // projections credit the money moving in.
           if (r.type === "TRANSFER" && r.toAccountId) {
             entries.push({
               rec: r, tx: null, next: cur,
-              amount: -(r.amount ?? 0),
+              amount: Math.abs(r.amount ?? 0),
               description: r.description ?? "",
               category: r.category ?? "",
               accountId: r.toAccountId,
