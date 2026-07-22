@@ -474,6 +474,7 @@ const schema = a.schema({
       favorite: a.boolean().default(false),   // starred on dashboard; unstarred accounts still accessible from /finance/accounts
       creditLimit: a.float(), // CREDIT accounts only
       statementClosingDay: a.integer(), // CREDIT only: day-of-month (1-31) the statement closes
+      statementDueDay: a.integer(),     // CREDIT only: day-of-month (1-31) the payment is due (usually ~3 weeks after close)
       apr: a.float(), // CREDIT only: annual percentage rate as decimal (0.2499 for 24.99%)
       apy: a.float(), // SAVINGS only: annual percentage yield as decimal (0.04 for 4%)
       // SimpleFIN Bridge account id (e.g. "ACT-abc123-..."). When set, the

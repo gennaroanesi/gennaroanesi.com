@@ -34,10 +34,13 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   T.push(`\nCHECKING OUTLOOK (next ${daysBetween(res.todayIso, res.horizonIso)} days)`);
   res.projections.forEach((p) => T.push(`  ${p.name}: ${money(p.start)} → low ${money(p.minBalance)} on ${p.minDate} → ${money(p.end)} at horizon`));
   if (res.incomeEvents.length) { T.push(`\nINCOME`); res.incomeEvents.forEach((e) => T.push(`  ${e.date}  +${money(e.amount).replace("−", "")}  ${e.description}`)); }
-  T.push(`\nBILLS DUE (next 2 weeks)`);
-  res.bills.forEach((b) => T.push(`  ${b.date}  ${money(b.amount)}  ${b.onCard ? "[card]" : "[cash]"}  ${b.description}`));
+  T.push(`\nDUE IN THE NEXT 2 WEEKS`);
+  res.billsByCategory.forEach((g) => {
+    const items = g.items.map((i) => `${i.description} ${money(i.amount)}`).join(", ");
+    T.push(`  ${g.category} (${money(g.total)}): ${items}`);
+  });
   if (res.transfers.length) { T.push(`\nINTERNAL TRANSFERS (own accounts — not income/bills)`); res.transfers.forEach((t) => T.push(`  ${t.date}  ${money(t.amount)}  ${t.description}`)); }
-  if (res.statementsDue.length) { T.push(`\nCARD STATEMENTS DUE`); res.statementsDue.forEach((s) => T.push(`  ${s.card}: ~${money(s.approxAmount)} due ${s.dueDate}`)); }
+  if (res.statementsDue.length) { T.push(`\nCARD STATEMENTS DUE`); res.statementsDue.forEach((s) => T.push(`  ${s.card}: ~${money(s.approxAmount)} due ${s.dueDate}${s.approxDate ? " (est.)" : ""}`)); }
   T.push(`\nWHAT TO DO WITH LEFTOVER CASH (buffer ${money(res.buffer)})`);
   if (res.actions.length) {
     T.push(`  Surplus above buffer: ${money(res.surplus)}`);
@@ -70,9 +73,20 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   res.projections.forEach((p) => H.push(li(`${p.name}: ${money(p.start)} → <strong style="color:${p.minBalance < 0 ? "#b02a2a" : p.minBalance < res.buffer ? "#c47d00" : "#1a7f37"}">low ${money(p.minBalance)}</strong> on ${p.minDate} → ${money(p.end)} at horizon`)));
   H.push(`</ul>`);
   if (res.incomeEvents.length) { H.push(h2("Income")); H.push(`<ul style="margin:0;padding-left:18px">${res.incomeEvents.map((e) => li(`${e.date} &nbsp; <strong style="color:#1a7f37">+${money(e.amount).replace("−", "")}</strong> &nbsp; ${e.description}`)).join("")}</ul>`); }
-  H.push(h2("Bills due (next 2 weeks)"));
+  H.push(h2("Due in the next 2 weeks"));
   H.push(`<table style="border-collapse:collapse;width:100%;font-size:13px"><tbody>`);
-  res.bills.forEach((b) => H.push(`<tr><td style="padding:2px 8px 2px 0;color:#666;white-space:nowrap">${b.date}</td><td style="padding:2px 8px;text-align:right;color:#b02a2a;white-space:nowrap">${money(b.amount)}</td><td style="padding:2px 6px"><span style="font-size:11px;color:#999">${b.onCard ? "card" : "cash"}</span></td><td style="padding:2px 0">${b.description}</td></tr>`));
+  res.billsByCategory.forEach((g) => {
+    const items = g.items
+      .map((i) => `<span style="white-space:nowrap">${i.description} <span style="color:#b02a2a">${money(i.amount)}</span></span>`)
+      .join('<span style="color:#ccc"> &nbsp;·&nbsp; </span>');
+    H.push(
+      `<tr style="border-bottom:1px solid #f0f0f0;vertical-align:top">` +
+        `<td style="padding:6px 10px 6px 0;font-weight:600;color:#1e2d4a;white-space:nowrap">${g.category}</td>` +
+        `<td style="padding:6px 10px 6px 0;text-align:right;color:#b02a2a;font-weight:600;white-space:nowrap">${money(g.total)}</td>` +
+        `<td style="padding:6px 0;color:#555">${items}</td>` +
+      `</tr>`,
+    );
+  });
   H.push(`</tbody></table>`);
   if (res.transfers.length) {
     H.push(h2(`Internal transfers <span style="font-weight:400;color:#999;font-size:12px">(own accounts — not income/bills)</span>`));
@@ -80,7 +94,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   }
   if (res.statementsDue.length) {
     H.push(h2("Card statements due"));
-    H.push(`<ul style="margin:0;padding-left:18px">${res.statementsDue.map((s) => { const id = cardId(s.card); const nm = id ? `<a href="${acctUrl(id)}" style="color:#1e2d4a">${s.card}</a>` : s.card; return li(`${nm}: ~<strong>${money(s.approxAmount)}</strong> due ${s.dueDate}`); }).join("")}</ul>`);
+    H.push(`<ul style="margin:0;padding-left:18px">${res.statementsDue.map((s) => { const id = cardId(s.card); const nm = id ? `<a href="${acctUrl(id)}" style="color:#1e2d4a">${s.card}</a>` : s.card; return li(`${nm}: ~<strong>${money(s.approxAmount)}</strong> due ${s.dueDate}${s.approxDate ? ` <span style="color:#c47d00;font-size:11px">(est. — set a due day)</span>` : ""}`); }).join("")}</ul>`);
   }
   H.push(h2(`What to do with leftover cash <span style="font-weight:400;color:#999;font-size:12px">(buffer ${money(res.buffer)})</span>`));
   if (res.actions.length) {

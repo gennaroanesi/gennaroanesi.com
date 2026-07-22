@@ -25,6 +25,7 @@ export interface Account {
   creditLimit?: number | null;
   apr?: number | null;          // decimal, e.g. 0.2749
   statementClosingDay?: number | null;
+  statementDueDay?: number | null;   // day-of-month the payment is due (preferred over closing+grace)
 }
 
 export interface Recurring {
@@ -32,6 +33,7 @@ export interface Recurring {
   description: string;
   amount: number;               // + income, − expense
   type: string;                 // INCOME | EXPENSE
+  category?: string | null;     // e.g. "Streaming", "Utilities", "Housing"
   cadence: string;              // WEEKLY | BIWEEKLY | MONTHLY | QUARTERLY | SEMIANNUALLY | ANNUALLY
   nextDate?: string | null;
   startDate?: string | null;
@@ -76,7 +78,7 @@ function advance(iso: string, cadence: string, anchorDay: number): string {
   return iso;
 }
 
-interface Occurrence { id: string; date: string; amount: number; type: string; description: string; accountId: string | null }
+interface Occurrence { id: string; date: string; amount: number; type: string; description: string; category: string | null; accountId: string | null }
 
 /** Occurrences of a recurring rule with date in [fromIso, toIso], rolled forward from its (possibly stale) anchor. */
 export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: string): Occurrence[] {
@@ -91,7 +93,7 @@ export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: stri
   guard = 0;
   while (cur <= toIso && guard++ < 400) {
     if (rec.endDate && cur > rec.endDate) break;
-    out.push({ id: rec.id, date: cur, amount: rec.amount, type: rec.type, description: rec.description, accountId: rec.accountId ?? null });
+    out.push({ id: rec.id, date: cur, amount: rec.amount, type: rec.type, description: rec.description, category: rec.category ?? null, accountId: rec.accountId ?? null });
     cur = advance(cur, rec.cadence, anchorDay);
   }
   return out;
@@ -141,7 +143,8 @@ export interface CashflowResult {
   salaryWeek: boolean;
   nextPaycheck: string | null;   // date of the next paycheck in the window, if any
   incomeEvents: Array<{ date: string; amount: number; description: string }>;
-  bills: Array<{ date: string; amount: number; description: string; accountName: string; onCard: boolean }>;
+  bills: Array<{ date: string; amount: number; description: string; category: string; accountName: string; onCard: boolean }>;
+  billsByCategory: Array<{ category: string; total: number; items: Array<{ date: string; amount: number; description: string; onCard: boolean }> }>;
   transfers: Array<{ date: string; amount: number; description: string; accountName: string }>;
   balances: {
     checking: Array<{ id: string; name: string; balance: number }>;
@@ -155,7 +158,7 @@ export interface CashflowResult {
   surplus: number;
   moves: string[];                      // "Move $X from … to … before …"
   actions: Array<{ card: string; amount: number; reason: string }>;
-  statementsDue: Array<{ card: string; dueDate: string; approxAmount: number }>;
+  statementsDue: Array<{ card: string; dueDate: string; approxAmount: number; approxDate: boolean }>;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────────
@@ -203,11 +206,25 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
       const acc = o.accountId ? acctById.get(o.accountId) : undefined;
       return {
         date: o.date, amount: o.amount, description: o.description,
+        category: o.category || "Other",
         accountName: acc?.name ?? "—",
         onCard: acc?.type === "CREDIT",
       };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Bills grouped by recurrence category (largest total first), each with its
+  // individual items — drives the compact "Due in the next 2 weeks" table.
+  const byCat = new Map<string, { total: number; items: Array<{ date: string; amount: number; description: string; onCard: boolean }> }>();
+  for (const b of bills) {
+    const g = byCat.get(b.category) ?? { total: 0, items: [] };
+    g.total += b.amount;
+    g.items.push({ date: b.date, amount: b.amount, description: b.description, onCard: b.onCard });
+    byCat.set(b.category, g);
+  }
+  const billsByCategory = [...byCat.entries()]
+    .map(([category, g]) => ({ category, total: round2(g.total), items: g.items }))
+    .sort((a, b) => a.total - b.total); // most-negative (biggest spend) first
 
   // Transfers between own accounts — shown for transparency, one row per outflow.
   const transfers = occ
@@ -251,16 +268,22 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     }
   }
 
-  // Card statements due in the window (approx: last close + 21-day grace).
-  const statementsDue: Array<{ card: string; dueDate: string; approxAmount: number; id: string; apr: number | null }> = [];
+  // Card statements due in the window. Prefer the real statementDueDay; fall back
+  // to the last statement close + 21-day grace only when a due day isn't set.
+  const statementsDue: Array<{ card: string; dueDate: string; approxAmount: number; approxDate: boolean; id: string; apr: number | null }> = [];
   for (const c of cards) {
     const owed = Math.abs(Math.min(0, c.currentBalance ?? 0));
     if (owed <= 0) continue;
-    if (c.statementClosingDay) {
-      const dueDate = statementDueDate(today, c.statementClosingDay);
-      if (dueDate >= today && dueDate <= horizonIso) {
-        statementsDue.push({ card: c.name, dueDate, approxAmount: owed, id: c.id, apr: c.apr ?? null });
-      }
+    let dueDate: string | null = null;
+    let approxDate = false;
+    if (c.statementDueDay) {
+      dueDate = nextDayOfMonth(today, c.statementDueDay);
+    } else if (c.statementClosingDay) {
+      dueDate = statementDueDate(today, c.statementClosingDay);
+      approxDate = true;
+    }
+    if (dueDate && dueDate >= today && dueDate <= horizonIso) {
+      statementsDue.push({ card: c.name, dueDate, approxAmount: owed, approxDate, id: c.id, apr: c.apr ?? null });
     }
   }
 
@@ -292,7 +315,7 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
   }
 
   return {
-    todayIso: today, horizonIso, buffer, salaryWeek, nextPaycheck, incomeEvents, bills, transfers,
+    todayIso: today, horizonIso, buffer, salaryWeek, nextPaycheck, incomeEvents, bills, billsByCategory, transfers,
     balances: {
       checking: checking.map((a) => ({ id: a.id, name: a.name, balance: a.currentBalance ?? 0 })),
       savings: savings.map((a) => ({ id: a.id, name: a.name, balance: a.currentBalance ?? 0 })),
@@ -306,12 +329,21 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     surplus: round2(surplus),
     moves,
     actions,
-    statementsDue: statementsDue.map((s) => ({ card: s.card, dueDate: s.dueDate, approxAmount: round2(s.approxAmount) })),
+    statementsDue: statementsDue.map((s) => ({ card: s.card, dueDate: s.dueDate, approxAmount: round2(s.approxAmount), approxDate: s.approxDate })),
   };
 }
 
-// Payment due ≈ the statement close on `closingDay` that most recently passed,
-// plus a 21-day grace period (conservative / earliest typical due date).
+// Next calendar occurrence of a day-of-month on or after today (this month if it
+// hasn't passed, else next month; clamped to the month length).
+function nextDayOfMonth(todayIso: string, day: number): string {
+  const [y, m, d] = todayIso.split("-").map(Number);
+  const clamped = Math.min(day, daysInMonth(y, m));
+  if (clamped >= d) return `${y}-${String(m).padStart(2, "0")}-${String(clamped).padStart(2, "0")}`;
+  return addMonthsAnchored(`${y}-${String(m).padStart(2, "0")}-01`, 1, day);
+}
+
+// Fallback when no due day is set: statement close on `closingDay` that most
+// recently passed, plus a 21-day grace period (earliest typical due date).
 function statementDueDate(todayIso: string, closingDay: number): string {
   const [y, m] = todayIso.split("-").map(Number);
   const day = Math.min(closingDay, daysInMonth(y, m));

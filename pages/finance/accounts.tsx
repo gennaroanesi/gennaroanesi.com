@@ -141,6 +141,7 @@ export default function AccountsPage() {
         favorite:            accDraft.favorite ?? false,
         creditLimit:         accDraft.creditLimit ?? null,
         statementClosingDay: isCredit  ? accDraft.statementClosingDay ?? null : null,
+        statementDueDay:     isCredit  ? accDraft.statementDueDay ?? null : null,
         apr:                 isCredit  ? accDraft.apr                 ?? null : null,
         apy:                 isSavings ? accDraft.apy                 ?? null : null,
       };
@@ -488,6 +489,16 @@ export default function AccountsPage() {
                           setAccDraft((d) => ({ ...d, statementClosingDay: Number.isFinite(n) ? Math.min(31, Math.max(1, n)) : null as any }));
                         }} />
                       <p className="text-[10px] text-gray-400 mt-0.5">Day of month (1–31)</p>
+                    </div>
+                    <div>
+                      <label className={labelCls}>Statement Due Day</label>
+                      <input type="number" min={1} max={31} step={1} className={inputCls} placeholder="5"
+                        value={accDraft.statementDueDay ?? ""}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value, 10);
+                          setAccDraft((d) => ({ ...d, statementDueDay: Number.isFinite(n) ? Math.min(31, Math.max(1, n)) : null as any }));
+                        }} />
+                      <p className="text-[10px] text-gray-400 mt-0.5">Payment due day (1–31)</p>
                     </div>
                     <div>
                       <label className={labelCls}>APR (%)</label>
