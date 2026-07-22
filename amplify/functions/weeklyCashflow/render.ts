@@ -23,7 +23,9 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   // ── plain text ──
   const T: string[] = [];
   T.push(`WEEKLY CASHFLOW  ${dateRange}`);
-  T.push(res.salaryWeek ? "✅ Salary week — paycheck lands in this window." : "— No salary this window.");
+  T.push(res.salaryWeek
+    ? "✅ Salary week — paycheck lands this week."
+    : `— Not a salary week${res.nextPaycheck ? ` (next paycheck ${res.nextPaycheck})` : ""}.`);
   if (res.moves.length) { T.push(`\n⚠️ ACTION NEEDED:`); res.moves.forEach((m) => T.push(`  • ${m}`)); }
   T.push(`\nBALANCES`);
   res.balances.checking.forEach((c) => T.push(`  ${c.name}: ${money(c.balance)} (checking)`));
@@ -34,6 +36,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   if (res.incomeEvents.length) { T.push(`\nINCOME`); res.incomeEvents.forEach((e) => T.push(`  ${e.date}  +${money(e.amount).replace("−", "")}  ${e.description}`)); }
   T.push(`\nBILLS DUE (next 2 weeks)`);
   res.bills.forEach((b) => T.push(`  ${b.date}  ${money(b.amount)}  ${b.onCard ? "[card]" : "[cash]"}  ${b.description}`));
+  if (res.transfers.length) { T.push(`\nINTERNAL TRANSFERS (own accounts — not income/bills)`); res.transfers.forEach((t) => T.push(`  ${t.date}  ${money(t.amount)}  ${t.description}`)); }
   if (res.statementsDue.length) { T.push(`\nCARD STATEMENTS DUE`); res.statementsDue.forEach((s) => T.push(`  ${s.card}: ~${money(s.approxAmount)} due ${s.dueDate}`)); }
   T.push(`\nWHAT TO DO WITH LEFTOVER CASH (buffer ${money(res.buffer)})`);
   if (res.actions.length) {
@@ -51,7 +54,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   H.push(`<div style="font-family:-apple-system,sans-serif;font-size:14px;line-height:1.55;color:#333;max-width:640px">`);
   H.push(`<h1 style="font-size:18px;color:#1e2d4a;margin:0 0 4px">💸 Weekly Cashflow</h1>`);
   H.push(`<div style="color:#888;font-size:13px">${dateRange}</div>`);
-  H.push(`<div style="margin-top:8px;font-weight:600;color:${res.salaryWeek ? "#1a7f37" : "#666"}">${res.salaryWeek ? "✅ Salary week — paycheck lands in this window" : "— No salary this window"}</div>`);
+  H.push(`<div style="margin-top:8px;font-weight:600;color:${res.salaryWeek ? "#1a7f37" : "#666"}">${res.salaryWeek ? "✅ Salary week — paycheck lands this week" : `— Not a salary week${res.nextPaycheck ? ` <span style="font-weight:400;color:#999">(next paycheck ${res.nextPaycheck})</span>` : ""}`}</div>`);
   if (res.moves.length) {
     H.push(`<div style="margin-top:14px;padding:12px 14px;background:#fff4f4;border-left:4px solid #d64545;border-radius:4px">`);
     H.push(`<strong style="color:#b02a2a">⚠️ Action needed</strong><ul style="margin:6px 0 0;padding-left:18px">${res.moves.map(li).join("")}</ul></div>`);
@@ -71,6 +74,10 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   H.push(`<table style="border-collapse:collapse;width:100%;font-size:13px"><tbody>`);
   res.bills.forEach((b) => H.push(`<tr><td style="padding:2px 8px 2px 0;color:#666;white-space:nowrap">${b.date}</td><td style="padding:2px 8px;text-align:right;color:#b02a2a;white-space:nowrap">${money(b.amount)}</td><td style="padding:2px 6px"><span style="font-size:11px;color:#999">${b.onCard ? "card" : "cash"}</span></td><td style="padding:2px 0">${b.description}</td></tr>`));
   H.push(`</tbody></table>`);
+  if (res.transfers.length) {
+    H.push(h2(`Internal transfers <span style="font-weight:400;color:#999;font-size:12px">(own accounts — not income/bills)</span>`));
+    H.push(`<ul style="margin:0;padding-left:18px">${res.transfers.map((t) => li(`${t.date} &nbsp; ${money(t.amount)} &nbsp; ${t.description}`)).join("")}</ul>`);
+  }
   if (res.statementsDue.length) {
     H.push(h2("Card statements due"));
     H.push(`<ul style="margin:0;padding-left:18px">${res.statementsDue.map((s) => { const id = cardId(s.card); const nm = id ? `<a href="${acctUrl(id)}" style="color:#1e2d4a">${s.card}</a>` : s.card; return li(`${nm}: ~<strong>${money(s.approxAmount)}</strong> due ${s.dueDate}`); }).join("")}</ul>`);

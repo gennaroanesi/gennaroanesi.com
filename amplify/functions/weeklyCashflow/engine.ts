@@ -76,9 +76,10 @@ function advance(iso: string, cadence: string, anchorDay: number): string {
   return iso;
 }
 
+interface Occurrence { id: string; date: string; amount: number; type: string; description: string; accountId: string | null }
+
 /** Occurrences of a recurring rule with date in [fromIso, toIso], rolled forward from its (possibly stale) anchor. */
-export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: string):
-  Array<{ date: string; amount: number; type: string; description: string; accountId: string | null }> {
+export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: string): Occurrence[] {
   if (rec.active === false) return [];
   const anchor = rec.nextDate || rec.startDate;
   if (!anchor) return [];
@@ -86,14 +87,49 @@ export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: stri
   let cur = anchor;
   let guard = 0;
   while (cur < fromIso && guard++ < 2000) cur = advance(cur, rec.cadence, anchorDay);
-  const out: Array<{ date: string; amount: number; type: string; description: string; accountId: string | null }> = [];
+  const out: Occurrence[] = [];
   guard = 0;
   while (cur <= toIso && guard++ < 400) {
     if (rec.endDate && cur > rec.endDate) break;
-    out.push({ date: cur, amount: rec.amount, type: rec.type, description: rec.description, accountId: rec.accountId ?? null });
+    out.push({ id: rec.id, date: cur, amount: rec.amount, type: rec.type, description: rec.description, accountId: rec.accountId ?? null });
     cur = advance(cur, rec.cadence, anchorDay);
   }
   return out;
+}
+
+const STOP_WORDS = new Set(["from", "with", "into", "your", "this", "that", "payment", "monthly", "auto"]);
+function meaningfulWords(s: string): string[] {
+  return (s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !STOP_WORDS.has(w));
+}
+
+/**
+ * Recurring IDs that form an internal-transfer pair — an INCOME rule and an
+ * EXPENSE rule of equal magnitude + same cadence that share a meaningful
+ * description word (e.g. "Savings" ↔ "Savings from Salary"). These move money
+ * between the user's own accounts and should not count as income OR bills.
+ */
+export function transferRuleIds(recs: Recurring[]): Set<string> {
+  const ids = new Set<string>();
+  // Explicit transfer type (if/when the recurring model gains one) — always wins.
+  for (const r of recs) {
+    if (r.active !== false && (r.type === "TRANSFER" || r.type === "INTERNAL_TRANSFER")) ids.add(r.id);
+  }
+  // Heuristic pairing fallback for the two-rule INCOME/EXPENSE convention.
+  const incomes = recs.filter((r) => r.type === "INCOME" && r.active !== false);
+  const expenses = recs.filter((r) => r.type === "EXPENSE" && r.active !== false);
+  for (const inc of incomes) {
+    const incWords = new Set(meaningfulWords(inc.description));
+    if (incWords.size === 0) continue;
+    for (const exp of expenses) {
+      if (Math.abs(Math.abs(inc.amount) - Math.abs(exp.amount)) > 0.005) continue;
+      if (inc.cadence !== exp.cadence) continue;
+      if (meaningfulWords(exp.description).some((w) => incWords.has(w))) {
+        ids.add(inc.id); ids.add(exp.id);
+        break;
+      }
+    }
+  }
+  return ids;
 }
 
 // ── Result types ────────────────────────────────────────────────────────────────
@@ -103,8 +139,10 @@ export interface CashflowResult {
   horizonIso: string;
   buffer: number;
   salaryWeek: boolean;
+  nextPaycheck: string | null;   // date of the next paycheck in the window, if any
   incomeEvents: Array<{ date: string; amount: number; description: string }>;
   bills: Array<{ date: string; amount: number; description: string; accountName: string; onCard: boolean }>;
+  transfers: Array<{ date: string; amount: number; description: string; accountName: string }>;
   balances: {
     checking: Array<{ id: string; name: string; balance: number }>;
     savings: Array<{ id: string; name: string; balance: number }>;
@@ -136,16 +174,31 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
   // All recurring occurrences in the window.
   const occ = recurrings.flatMap((r) => occurrencesInWindow(r, today, horizonIso));
 
-  // Income + salary detection.
+  // Internal transfers (e.g. "Savings" ↔ "Savings from Salary") are booked as
+  // INCOME/EXPENSE recurring but move money between the user's own accounts —
+  // exclude them from income AND bills, and surface them separately. They still
+  // affect the per-account projection below (a savings sweep really does leave
+  // checking), so the projection stays accurate.
+  const xferIds = transferRuleIds(recurrings);
+
+  // Income + salary detection. `salaryWeek` means a paycheck lands in the next
+  // 7 days (THIS week) — not merely somewhere in the 2-week projection window.
+  // With a biweekly salary this correctly alternates week to week. The 07-31
+  // paycheck still shows under income + feeds the projection; it just doesn't
+  // make the *current* week a salary week.
+  const weekEndIso = addDaysIso(today, 7);
   const incomeEvents = occ
-    .filter((o) => o.amount > 0 || o.type === "INCOME")
+    .filter((o) => (o.amount > 0 || o.type === "INCOME") && !xferIds.has(o.id))
     .map((o) => ({ date: o.date, amount: o.amount, description: o.description }))
     .sort((a, b) => a.date.localeCompare(b.date));
-  const salaryWeek = incomeEvents.some((e) => /salary|paycheck|payroll|meta/i.test(e.description));
+  const isSalary = (desc: string) => /salary|paycheck|payroll|meta/i.test(desc);
+  const salaryEvents = incomeEvents.filter((e) => isSalary(e.description));
+  const salaryWeek = salaryEvents.some((e) => e.date < weekEndIso);
+  const nextPaycheck = salaryEvents[0]?.date ?? null;
 
-  // Bills = expense occurrences in window, tagged with account + whether it hits a card.
+  // Bills = expense occurrences in window (excluding transfers), tagged with account.
   const bills = occ
-    .filter((o) => o.amount < 0 || o.type === "EXPENSE")
+    .filter((o) => (o.amount < 0 || o.type === "EXPENSE") && !xferIds.has(o.id))
     .map((o) => {
       const acc = o.accountId ? acctById.get(o.accountId) : undefined;
       return {
@@ -153,6 +206,15 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
         accountName: acc?.name ?? "—",
         onCard: acc?.type === "CREDIT",
       };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Transfers between own accounts — shown for transparency, one row per outflow.
+  const transfers = occ
+    .filter((o) => xferIds.has(o.id) && o.amount < 0)
+    .map((o) => {
+      const acc = o.accountId ? acctById.get(o.accountId) : undefined;
+      return { date: o.date, amount: o.amount, description: o.description, accountName: acc?.name ?? "—" };
     })
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -230,7 +292,7 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
   }
 
   return {
-    todayIso: today, horizonIso, buffer, salaryWeek, incomeEvents, bills,
+    todayIso: today, horizonIso, buffer, salaryWeek, nextPaycheck, incomeEvents, bills, transfers,
     balances: {
       checking: checking.map((a) => ({ id: a.id, name: a.name, balance: a.currentBalance ?? 0 })),
       savings: savings.map((a) => ({ id: a.id, name: a.name, balance: a.currentBalance ?? 0 })),
