@@ -498,31 +498,29 @@ async function main() {
   }
 
   // ── Balance diffs ────────────────────────────────────────────────────
-  // SimpleFIN's `balance` is authoritative for standard cash/debt accounts.
-  // Skipped for BROKERAGE + RETIREMENT because SF reports CASH balance there
-  // (holdings live separately), and:
-  //   - BROKERAGE.currentBalance per the schema comment is meant to be cash
-  //     alone with holdings layered via financeHoldingLot — but users often
-  //     store total value; without knowing which semantic each account uses,
-  //     safer to leave alone.
-  //   - RETIREMENT.currentBalance is typically total value (no per-lot
-  //     tracking), so overwriting with SF's cash-only figure would wipe out
-  //     the invested portion.
-  // Runs on every pull, not just when new txs land. Skip < $0.01 drift.
-  const SKIP_BALANCE_TYPES = new Set(["BROKERAGE", "RETIREMENT"]);
+  // SimpleFIN's `balance` is the TOTAL account value. For plain cash/debt
+  // accounts that's exactly what currentBalance stores. For BROKERAGE/RETIREMENT
+  // the model keeps currentBalance as CASH ONLY (positions live in
+  // financeHolding), so we DERIVE cash = SF total − Σ(SF holding market values).
+  // That avoids double-counting positions (cash + holdings) in accountTotalValue.
+  // Runs every pull, not just when new txs land. Skip < $0.01 drift.
+  const INVESTED_TYPES = new Set(["BROKERAGE", "RETIREMENT"]);
   const balanceUpdates = [];
-  const skippedBalance = [];
   for (const sfAcc of accounts) {
     const finAcc = byId.get(sfAcc.id);
     if (!finAcc) continue;
-    if (SKIP_BALANCE_TYPES.has(finAcc.type)) {
-      skippedBalance.push({ finAcc, sfBalance: sfAcc.balance });
-      continue;
-    }
     const current = finAcc.currentBalance ?? 0;
-    const target = sfAcc.balance;
+    let target;
+    let derived = false;
+    if (INVESTED_TYPES.has(finAcc.type)) {
+      const posSum = (sfAcc.holdings || []).reduce((s, h) => s + (h.marketValue || 0), 0);
+      target = sfAcc.balance - posSum;   // implied cash sweep
+      derived = true;
+    } else {
+      target = sfAcc.balance;
+    }
     if (Math.abs(current - target) < 0.005) continue;
-    balanceUpdates.push({ finAcc, current, target });
+    balanceUpdates.push({ finAcc, current, target, derived });
   }
 
   if (balanceUpdates.length > 0) {
@@ -531,20 +529,13 @@ async function main() {
       const delta = u.target - u.current;
       const sign = delta >= 0 ? "+" : "";
       console.log(
-        `  ${u.finAcc.name.padEnd(50)}  ` +
+        `  ${u.finAcc.name.padEnd(40)}  ` +
         `${u.current.toFixed(2).padStart(12)}  →  ${u.target.toFixed(2).padStart(12)}  ` +
-        `(${sign}${delta.toFixed(2)})`
+        `(${sign}${delta.toFixed(2)})${u.derived ? "  [cash = SF total − positions]" : ""}`
       );
     }
   } else {
-    console.log("\nAll (non-investment) account balances already in sync with SimpleFIN.");
-  }
-
-  if (skippedBalance.length > 0) {
-    console.log(`\nSkipped balance update for ${skippedBalance.length} investment account(s) (SF reports cash-only):`);
-    for (const s of skippedBalance) {
-      console.log(`  ${s.finAcc.name.padEnd(50)}  SF cash: ${s.sfBalance.toFixed(2).padStart(12)}  (kept local currentBalance)`);
-    }
+    console.log("\nAll account balances already in sync with SimpleFIN.");
   }
 
   // ── Holdings (current positions) ─────────────────────────────────────
@@ -559,7 +550,7 @@ async function main() {
   for (const sfAcc of accounts) {
     const finAcc = byId.get(sfAcc.id);
     if (!finAcc) continue;
-    if (!SKIP_BALANCE_TYPES.has(finAcc.type)) continue; // BROKERAGE/RETIREMENT only
+    if (!INVESTED_TYPES.has(finAcc.type)) continue; // BROKERAGE/RETIREMENT only
     const desired  = desiredHoldingsFromSf(sfAcc);
     const existing = await fetchExistingHoldings(finAcc.id);
     const existingByTicker = new Map(existing.map((h) => [(h.ticker ?? "").toUpperCase(), h]));
@@ -644,7 +635,7 @@ async function main() {
       txNew:           summary?.txNew ?? 0,
       duplicates:      summary?.duplicates ?? 0,
       balanceUpdated:  !!balUpd,
-      balanceSkipped:  SKIP_BALANCE_TYPES.has(a.type),
+      balanceDerived:  INVESTED_TYPES.has(a.type),   // cash = SF total − positions
     };
     const input = {
       id:                        a.id,
