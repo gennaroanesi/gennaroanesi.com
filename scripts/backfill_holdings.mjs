@@ -85,11 +85,16 @@ async function main() {
   const invested = new Set(accounts.filter((a) => a.type === "BROKERAGE" || a.type === "RETIREMENT").map((a) => a.id));
   const acctById = new Map(accounts.map((a) => [a.id, a]));
   const existingKey = new Set(existing.map((h) => `${h.accountId}|${(h.ticker ?? "").toUpperCase()}`));
+  // Skip any account that already has holdings — it's been set up already (e.g.
+  // the Fidelity 401k, imported via a manual holding + price under a different
+  // ticker than its old lot). Backfill only seeds accounts starting from zero.
+  const accountsWithHoldings = new Set(existing.map((h) => h.accountId));
 
   // Aggregate vested lots per (accountId, ticker).
   const agg = new Map(); // key → { accountId, ticker, quantity, costBasis, hasCost, assetType }
   for (const l of lots) {
     if (!invested.has(l.accountId)) continue;
+    if (accountsWithHoldings.has(l.accountId)) continue; // already set up
     if (!isVested(l)) continue;
     const ticker = (l.ticker ?? "").trim().toUpperCase();
     if (!ticker) continue;
