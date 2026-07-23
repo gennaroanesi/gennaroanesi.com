@@ -15,6 +15,7 @@ import {
   SaveButton, EmptyState,
   listAll,
 } from "@/components/finance/_shared";
+import { NEGATIVE } from "@/lib/colors";
 import { mutate, reportError } from "@/components/common/mutate";
 
 type PanelState = { kind: "new" } | null;
@@ -221,7 +222,7 @@ export default function LoansPage() {
             <div className="flex items-baseline gap-3">
               <PageTitle>Loans</PageTitle>
               {loans.length > 0 && (
-                <span className="text-xl font-bold tabular-nums" style={{ color: "#ef4444" }}>
+                <span className="text-xl font-bold tabular-nums" style={{ color: NEGATIVE }}>
                   {fmtCurrency(-totalDebt)}
                 </span>
               )}
@@ -280,7 +281,7 @@ export default function LoansPage() {
                           <div className="flex justify-between text-xs tabular-nums">
                             <span>
                               <span className="text-gray-400 mr-1">Owed</span>
-                              <span className="font-semibold" style={{ color: "#ef4444" }}>{fmtCurrency(bal)}</span>
+                              <span className="font-semibold" style={{ color: NEGATIVE }}>{fmtCurrency(bal)}</span>
                             </span>
                             <span>
                               <span className="text-gray-400 mr-1">Paid</span>

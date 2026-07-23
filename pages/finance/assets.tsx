@@ -15,6 +15,7 @@ import {
   SaveButton, DeleteButton, EmptyState,
   listAll,
 } from "@/components/finance/_shared";
+import { NEGATIVE } from "@/lib/colors";
 
 type PanelState =
   | { kind: "new" }
@@ -149,7 +150,7 @@ export default function AssetsPage() {
               {activeAssets.length > 0 && (
                 <span
                   className="text-xl font-bold tabular-nums"
-                  style={{ color: total >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                  style={{ color: total >= 0 ? FINANCE_COLOR : NEGATIVE }}
                 >
                   {fmtCurrency(total)}
                 </span>
@@ -193,7 +194,7 @@ export default function AssetsPage() {
 
                           <span
                             className="text-xl font-bold tabular-nums"
-                            style={{ color: (asset.currentValue ?? 0) >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                            style={{ color: (asset.currentValue ?? 0) >= 0 ? FINANCE_COLOR : NEGATIVE }}
                           >
                             {fmtCurrency(asset.currentValue)}
                           </span>

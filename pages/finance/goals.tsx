@@ -19,6 +19,7 @@ import {
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState,
 } from "@/components/finance/_shared";
+import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 
 type PanelState =
   | { kind: "new" }
@@ -334,7 +335,7 @@ export default function GoalsPage() {
                         {isVolatile && (
                           <span
                             className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: "#f59e0b22", color: "#f59e0b" }}
+                            style={{ backgroundColor: withAlpha(WARNING, 0x22), color: WARNING }}
                             title="Funded by a brokerage or retirement account — allocation fluctuates with the market"
                           >
                             ≈
@@ -342,7 +343,7 @@ export default function GoalsPage() {
                         )}
                       </div>
                       {done
-                        ? <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ backgroundColor: "#22c55e22", color: "#22c55e" }}>Complete</span>
+                        ? <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full" style={{ backgroundColor: withAlpha(POSITIVE, 0x22), color: POSITIVE }}>Complete</span>
                         : <span className="text-xs font-bold tabular-nums" style={{ color }}>{Math.round(pct * 100)}%</span>
                       }
                     </div>
@@ -361,7 +362,7 @@ export default function GoalsPage() {
                             className="absolute top-0 h-full w-0.5"
                             style={{
                               left: `${pos * 100}%`,
-                              backgroundColor: hit ? "#22c55e" : "rgba(0,0,0,0.4)",
+                              backgroundColor: hit ? POSITIVE : "rgba(0,0,0,0.4)",
                             }}
                             title={`${m.label ? m.label + " — " : ""}${fmtCurrency(m.targetAmount)} by ${fmtDate(m.targetDate ?? "")}`}
                           />
@@ -391,8 +392,8 @@ export default function GoalsPage() {
                             status === "MISSED"  ? "✕" :
                                                    "◯";
                           const iconColor =
-                            status === "HIT"     ? "#22c55e" :
-                            status === "MISSED"  ? "#ef4444" :
+                            status === "HIT"     ? POSITIVE :
+                            status === "MISSED"  ? NEGATIVE :
                                                    "#9ca3af";
                           return (
                             <div key={m.id} className="flex items-center gap-2 text-[11px]">
@@ -676,8 +677,8 @@ export default function GoalsPage() {
                             )
                           : "PENDING";
                       const statusColor =
-                        status === "HIT"    ? "#22c55e" :
-                        status === "MISSED" ? "#ef4444" :
+                        status === "HIT"    ? POSITIVE :
+                        status === "MISSED" ? NEGATIVE :
                                               "#9ca3af";
                       return (
                         <div

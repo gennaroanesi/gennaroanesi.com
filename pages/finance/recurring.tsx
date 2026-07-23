@@ -16,6 +16,7 @@ import {
   findMatchingTransactionsForRule, applyRecurringMatch,
   type Cadence,
 } from "@/components/finance/_shared";
+import { withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, useTableControls,
 } from "@/components/common/table";
@@ -451,7 +452,7 @@ export default function RecurringPage() {
               <button
                 onClick={() => openMatch(r)}
                 className="text-[10px] px-2 py-0.5 rounded border transition-colors"
-                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                 title={`${matchCount} candidate transaction${matchCount === 1 ? "" : "s"} to link`}
               >
                 Match ({matchCount})
@@ -461,7 +462,7 @@ export default function RecurringPage() {
               onClick={() => handlePostNow(r)}
               disabled={saving}
               className="text-[10px] px-2 py-0.5 rounded border transition-colors"
-              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+              style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
               title="Post one occurrence now"
             >
               Post
@@ -875,7 +876,7 @@ export default function RecurringPage() {
                               ? ""
                               : "border-gray-200 dark:border-darkBorder hover:border-gray-300 dark:hover:border-gray-500",
                           ].join(" ")}
-                          style={checked ? { borderColor: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "14" } : undefined}
+                          style={checked ? { borderColor: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x14) } : undefined}
                           title={reasons.join(" · ")}
                         >
                           <input
@@ -891,7 +892,7 @@ export default function RecurringPage() {
                           </div>
                           <span
                             className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
-                            style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                            style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
                           >
                             {Math.round(score)}
                           </span>

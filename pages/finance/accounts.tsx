@@ -17,6 +17,7 @@ import {
   listAll,
   type AccountType,
 } from "@/components/finance/_shared";
+import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
@@ -198,7 +199,7 @@ export default function AccountsPage() {
             disabled={busy}
             title={fav ? "Unstar — remove from dashboard" : "Star — pin to dashboard"}
             className="text-lg leading-none transition-opacity disabled:opacity-30"
-            style={{ color: fav ? "#f59e0b" : "#9ca3af" }}
+            style={{ color: fav ? WARNING : "#9ca3af" }}
           >
             {fav ? "★" : "☆"}
           </button>
@@ -269,7 +270,7 @@ export default function AccountsPage() {
       mobileHidden: true,
       render: (r) => {
         if (r.utilization == null) return <span className="text-gray-400">—</span>;
-        const color = r.utilization > 0.7 ? "#ef4444" : r.utilization > 0.3 ? "#f59e0b" : FINANCE_COLOR;
+        const color = r.utilization > 0.7 ? NEGATIVE : r.utilization > 0.3 ? WARNING : FINANCE_COLOR;
         return (
           <div className="flex items-center justify-end gap-2">
             <div className="h-1 w-16 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
@@ -367,7 +368,7 @@ export default function AccountsPage() {
             <button
               onClick={openNewAcc}
               className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+              style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
             >
               + New Account
             </button>
@@ -536,7 +537,7 @@ export default function AccountsPage() {
               <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
                 <input type="checkbox" checked={accDraft.favorite ?? false}
                   onChange={(e) => setAccDraft((d) => ({ ...d, favorite: e.target.checked }))} />
-                <span className="mr-1" style={{ color: "#f59e0b" }}>★</span> Favorite
+                <span className="mr-1" style={{ color: WARNING }}>★</span> Favorite
                 <span className="text-[10px] text-gray-400">(pin to dashboard)</span>
               </label>
 

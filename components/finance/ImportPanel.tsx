@@ -13,6 +13,7 @@ import {
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
+import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { inferCategory } from "@/components/finance/categories";
 import { mutate, reportError } from "@/components/common/mutate";
 import { SlideOverPanel } from "@/components/common/ui";
@@ -58,14 +59,14 @@ const SCHWAB_ACTION_COLOR: Record<SchwabAction, string> = {
   BANK_INTEREST:        "#06b6d4",
   BANK_TRANSFER:        "#94a3b8",
   MONEYLINK_TRANSFER:   "#94a3b8",
-  BUY:                  "#10b981",
-  SELL:                 "#f59e0b",
-  REINVEST_SHARES:      "#10b981",
+  BUY:                  FINANCE_COLOR,
+  SELL:                 WARNING,
+  REINVEST_SHARES:      FINANCE_COLOR,
   REINVEST_DIVIDEND:    "#06b6d4",
   QUAL_DIV_REINVEST:    "#06b6d4",
   QUALIFIED_DIVIDEND:   "#06b6d4",
   STOCK_PLAN_ACTIVITY:  "#a855f7",
-  UNKNOWN:              "#ef4444",
+  UNKNOWN:              NEGATIVE,
 };
 
 export function ImportPanel(props: ImportPanelProps) {
@@ -562,7 +563,7 @@ export function ImportPanel(props: ImportPanelProps) {
           <label className={labelCls}>CSV File</label>
           <input ref={fileRef} type="file" accept=".csv,text/csv"
             className="text-sm text-gray-600 dark:text-gray-300 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:cursor-pointer"
-            style={{ ["--file-bg" as any]: FINANCE_COLOR + "22" }}
+            style={{ ["--file-bg" as any]: withAlpha(FINANCE_COLOR, 0x22) }}
             onChange={handleFileChange} />
         </div>
 

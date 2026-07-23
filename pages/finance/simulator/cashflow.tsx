@@ -9,6 +9,7 @@ import {
   FINANCE_COLOR,
   fmtCurrency, todayIso, amountColor,
 } from "@/components/finance/_shared";
+import { WARNING, NEGATIVE, withAlpha } from "@/lib/colors";
 
 // ── Types & persistence ─────────────────────────────────────────────────────
 // UI-only simulator: nothing touches finance models. State is mirrored to S3
@@ -475,7 +476,7 @@ export default function CashflowSimulatorPage() {
                   focus(newId, "amount");
                 }}
                 className="text-[11px] font-semibold px-2 py-1 rounded border transition-colors"
-                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
               >
                 + Add row
               </button>
@@ -546,8 +547,8 @@ function SyncStatusChip({
     loading:      { label: "Loading…",     color: "#9ca3af", pulse: true },
     saving:       { label: "Saving…",      color: "#9ca3af", pulse: true },
     synced:       { label: "✓ Synced",     color: FINANCE_COLOR },
-    "local-only": { label: "⚠ Local only", color: "#f59e0b" },
-    error:        { label: "× Error",      color: "#ef4444" },
+    "local-only": { label: "⚠ Local only", color: WARNING },
+    error:        { label: "× Error",      color: NEGATIVE },
   };
   const c = config[status];
   const tooltip = lastSavedAt && status === "synced"

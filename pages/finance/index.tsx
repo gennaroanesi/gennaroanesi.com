@@ -21,6 +21,7 @@ import {
   listAll,
   type Cadence,
 } from "@/components/finance/_shared";
+import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { Sparkline } from "@/components/common/sparkline";
 import { Card, Badge } from "@/components/common/ui";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
@@ -612,7 +613,7 @@ export default function FinanceDashboard() {
                     <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Net Worth</h2>
                     <span
                       className="text-2xl font-bold tabular-nums"
-                      style={{ color: netWorth >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                      style={{ color: netWorth >= 0 ? FINANCE_COLOR : NEGATIVE }}
                     >
                       {fmtCurrency(netWorth)}
                     </span>
@@ -644,7 +645,7 @@ export default function FinanceDashboard() {
                       const invested = isInvestedAccount(acc.type);
                       const positionsValue = invested ? totalValue - (acc.currentBalance ?? 0) : 0;
                       const series = balanceSeriesByAccount.get(acc.id) ?? [];
-                      const sparkColor = totalValue >= 0 ? FINANCE_COLOR : "#ef4444";
+                      const sparkColor = totalValue >= 0 ? FINANCE_COLOR : NEGATIVE;
                       const proj = eoyProjectionByAccount.get(acc.id);
                       const ttz  = timeToZeroByAccount.get(acc.id);
                       return (
@@ -670,7 +671,7 @@ export default function FinanceDashboard() {
                                 width={80}
                                 height={24}
                                 stroke={sparkColor}
-                                fill={sparkColor + "22"}
+                                fill={withAlpha(sparkColor, 0x22)}
                                 title={`${series.length}-day balance trend`}
                               />
                             )}
@@ -782,7 +783,7 @@ export default function FinanceDashboard() {
                           {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 && (() => {
                             const owed = Math.max(0, -(acc.currentBalance ?? 0));
                             const util = Math.min(1, owed / (acc.creditLimit ?? 1));
-                            const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
+                            const color = util > 0.7 ? NEGATIVE : util > 0.3 ? WARNING : FINANCE_COLOR;
                             return (
                               <div className="flex flex-col gap-1">
                                 <div className="h-1 w-full rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
@@ -820,7 +821,7 @@ export default function FinanceDashboard() {
                   <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium">Assets</h2>
                   <span
                     className="text-lg font-bold tabular-nums"
-                    style={{ color: assetsTotal >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                    style={{ color: assetsTotal >= 0 ? FINANCE_COLOR : NEGATIVE }}
                   >
                     {fmtCurrency(assetsTotal)}
                   </span>
@@ -850,7 +851,7 @@ export default function FinanceDashboard() {
                       </div>
                       <span
                         className="text-xl font-bold tabular-nums"
-                        style={{ color: (asset.currentValue ?? 0) >= 0 ? FINANCE_COLOR : "#ef4444" }}
+                        style={{ color: (asset.currentValue ?? 0) >= 0 ? FINANCE_COLOR : NEGATIVE }}
                       >
                         {fmtCurrency(asset.currentValue)}
                       </span>
@@ -858,7 +859,7 @@ export default function FinanceDashboard() {
                         <div className="flex flex-col gap-0.5 pt-1 border-t border-gray-100 dark:border-gray-700 mt-0.5">
                           <p className="text-[11px] text-gray-400 tabular-nums flex justify-between gap-2">
                             <span>Owed</span>
-                            <span className="font-semibold" style={{ color: "#ef4444" }}>{fmtCurrency(owed)}</span>
+                            <span className="font-semibold" style={{ color: NEGATIVE }}>{fmtCurrency(owed)}</span>
                           </p>
                           <p className="text-[11px] text-gray-400 tabular-nums flex justify-between gap-2">
                             <span>Equity</span>
@@ -928,7 +929,7 @@ export default function FinanceDashboard() {
                   return (
                     <span key={accId}
                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border"
-                      style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}
+                      style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x18), color: FINANCE_COLOR, borderColor: withAlpha(FINANCE_COLOR, 0x55) }}
                     >
                       {acc.name}: {fmtCurrency(accountTotalValue(acc, holdings, quoteMap))}
                       <button
@@ -959,11 +960,11 @@ export default function FinanceDashboard() {
                 <div className="flex gap-4 mb-3 text-sm">
                   <span>
                     <span className="text-gray-400 text-xs mr-1">Income</span>
-                    <span className="font-semibold tabular-nums" style={{ color: "#22c55e" }}>{fmtCurrency(upcomingIncome)}</span>
+                    <span className="font-semibold tabular-nums" style={{ color: POSITIVE }}>{fmtCurrency(upcomingIncome)}</span>
                   </span>
                   <span>
                     <span className="text-gray-400 text-xs mr-1">Expenses</span>
-                    <span className="font-semibold tabular-nums" style={{ color: "#ef4444" }}>{fmtCurrency(Math.abs(upcomingExpense))}</span>
+                    <span className="font-semibold tabular-nums" style={{ color: NEGATIVE }}>{fmtCurrency(Math.abs(upcomingExpense))}</span>
                   </span>
                   <span>
                     <span className="text-gray-400 text-xs mr-1">Net</span>
@@ -1047,7 +1048,7 @@ export default function FinanceDashboard() {
                     title="Cash on mapped accounts that no goal has absorbed — click to manage accounts"
                   >
                     Unallocated:{" "}
-                    <span className="tabular-nums font-semibold" style={{ color: "#f59e0b" }}>
+                    <span className="tabular-nums font-semibold" style={{ color: WARNING }}>
                       {fmtCurrency(unallocatedSummary.total)}
                     </span>
                     {" "}across {unallocatedSummary.accountCount} account{unallocatedSummary.accountCount === 1 ? "" : "s"}
@@ -1193,9 +1194,9 @@ export default function FinanceDashboard() {
                     const ytdPct       = Math.min(1, k.ytd401k / k.irsLimit);
                     const projectedPct = Math.min(1, k.projected401k / k.irsLimit);
                     const paceColor =
-                      k.paceLabel === "MAXED"   ? "#10b981"
+                      k.paceLabel === "MAXED"   ? FINANCE_COLOR
                         : k.paceLabel === "ON_PACE" ? FINANCE_COLOR
-                        :                             "#f59e0b";
+                        :                             WARNING;
                     return (
                       <div key={k.person} className="flex flex-col gap-2">
                         <div className="flex items-baseline justify-between">

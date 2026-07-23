@@ -19,6 +19,7 @@ import {
   type AccountRecord,
   type SpendGroupRecord,
 } from "@/components/finance/_shared";
+import { NEGATIVE, withAlpha } from "@/lib/colors";
 import { effectiveCategory } from "@/components/finance/categories";
 import { SlideOverPanel, PageTitle, PageLoading, Card } from "@/components/common/ui";
 
@@ -189,7 +190,7 @@ export default function SpendGroupsPage() {
             <button
               onClick={openNew}
               className="rounded-lg px-3 py-2 text-sm font-medium"
-              style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+              style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
             >
               + Add group
             </button>
@@ -234,14 +235,14 @@ export default function SpendGroupsPage() {
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="text-lg font-bold" style={{ color: amountColor(-s.actual) }}>{fmtCurrency(s.actual)}</span>
                         {hasBudget && (
-                          <span className="text-xs" style={{ color: over ? "#ef4444" : "#9ca3af" }}>
+                          <span className="text-xs" style={{ color: over ? NEGATIVE : "#9ca3af" }}>
                             of {fmtCurrency(g.budget)} · {over ? `${fmtCurrency(-remaining)} over` : `${fmtCurrency(remaining)} left`}
                           </span>
                         )}
                       </div>
                       {hasBudget && (
                         <div className="h-1.5 rounded-full bg-gray-100 dark:bg-white/10 mt-1.5 overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: over ? "#ef4444" : FINANCE_COLOR }} />
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: over ? NEGATIVE : FINANCE_COLOR }} />
                         </div>
                       )}
                     </div>
@@ -253,7 +254,7 @@ export default function SpendGroupsPage() {
                           <div key={c.category} className="flex items-center gap-2">
                             <span className="text-[11px] text-gray-500 dark:text-gray-400 w-28 truncate">{c.category}</span>
                             <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-white/10 overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${(c.amount / maxCat) * 100}%`, backgroundColor: "#ef4444" }} />
+                              <div className="h-full rounded-full" style={{ width: `${(c.amount / maxCat) * 100}%`, backgroundColor: NEGATIVE }} />
                             </div>
                             <span className="text-[11px] text-gray-500 dark:text-gray-400 w-16 text-right tabular-nums">{fmtCurrency(c.amount)}</span>
                           </div>

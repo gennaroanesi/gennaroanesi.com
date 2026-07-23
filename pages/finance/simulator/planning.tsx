@@ -10,6 +10,7 @@ import {
   fmtCurrency,
   amountColor,
 } from "@/components/finance/_shared";
+import { WARNING, NEGATIVE, withAlpha } from "@/lib/colors";
 import {
   defaultPlanScenario,
   projectYear,
@@ -202,7 +203,7 @@ export default function PlanningSimulatorPage() {
               <button
                 onClick={() => setShowConfig((v) => !v)}
                 className="text-[11px] font-semibold px-2 py-1 rounded border transition-colors"
-                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                 title={showConfig ? "Collapse configuration to focus on the values table" : "Show configuration cards"}
               >
                 {showConfig ? "▾ Hide configuration" : "▸ Show configuration"}
@@ -326,7 +327,7 @@ function SalaryCard({ scenario, update }: {
           <button
             onClick={addJump}
             className="self-start text-[11px] font-semibold px-2 py-1 rounded border transition-colors"
-            style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+            style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
           >
             + Add jump
           </button>
@@ -557,7 +558,7 @@ function SpendCard({ scenario, update }: {
       <button
         onClick={addCategory}
         className="mt-3 text-[11px] font-semibold px-2 py-1 rounded border transition-colors"
-        style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+        style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
       >
         + Add category
       </button>
@@ -879,8 +880,8 @@ function SyncStatusChip({ status, lastSavedAt }: { status: S3SyncStatus; lastSav
     loading:      { label: "Loading…",     color: "#9ca3af", pulse: true },
     saving:       { label: "Saving…",      color: "#9ca3af", pulse: true },
     synced:       { label: "✓ Synced",     color: FINANCE_COLOR },
-    "local-only": { label: "⚠ Local only", color: "#f59e0b" },
-    error:        { label: "× Error",      color: "#ef4444" },
+    "local-only": { label: "⚠ Local only", color: WARNING },
+    error:        { label: "× Error",      color: NEGATIVE },
   };
   const c = config[status];
   const tooltip = lastSavedAt && status === "synced"

@@ -16,6 +16,7 @@ import {
   isTradeType, realizedGain,
   listAll,
 } from "@/components/finance/_shared";
+import { WARNING, withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
@@ -301,7 +302,7 @@ export default function TransactionsPage() {
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
               {trade && (
-                <Badge color={t.type === "BUY" ? "#10b981" : "#f59e0b"} size="xs">
+                <Badge color={t.type === "BUY" ? FINANCE_COLOR : WARNING} size="xs">
                   {t.type}
                 </Badge>
               )}
@@ -469,7 +470,7 @@ export default function TransactionsPage() {
                   <a key={acc.id}
                     href={`/finance/accounts/${acc.id}`}
                     className="px-3 py-1 rounded-full text-xs font-semibold transition-opacity hover:opacity-80 border"
-                    style={{ backgroundColor: FINANCE_COLOR + "18", color: FINANCE_COLOR, borderColor: FINANCE_COLOR + "55" }}>
+                    style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x18), color: FINANCE_COLOR, borderColor: withAlpha(FINANCE_COLOR, 0x55) }}>
                     {acc.name}:
                     {acc.type === "CREDIT" && (acc.creditLimit ?? 0) > 0 ? (() => {
                       const owed = Math.max(0, -(acc.currentBalance ?? 0));
@@ -486,7 +487,7 @@ export default function TransactionsPage() {
                     )}
                     {showSurplus && (
                       <span className="ml-1 tabular-nums font-medium"
-                        style={{ color: "#f59e0b", opacity: 0.9 }}
+                        style={{ color: WARNING, opacity: 0.9 }}
                         title={`${fmtCurrency(surplus, acc.currency ?? "USD")} not allocated to any goal`}>
                         · +{fmtCurrency(surplus, acc.currency ?? "USD")}
                       </span>
@@ -599,7 +600,7 @@ export default function TransactionsPage() {
                 disabled={!bulkCategory.trim() || savingCats}
                 onClick={async () => { await saveCategory([...selected], bulkCategory); setBulkCategory(""); setSelected(new Set()); }}
                 className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
-                style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
               >
                 {savingCats ? "Applying…" : "Set category"}
               </button>
@@ -620,7 +621,7 @@ export default function TransactionsPage() {
                     disabled={!bulkGroup || savingCats}
                     onClick={async () => { await saveGroup([...selected], bulkGroup === "__none__" ? null : bulkGroup); setBulkGroup(""); setSelected(new Set()); }}
                     className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
-                    style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                    style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
                   >
                     {savingCats ? "Applying…" : "Set group"}
                   </button>
@@ -645,7 +646,7 @@ export default function TransactionsPage() {
                     disabled={!bulkRecurringId || savingCats}
                     onClick={async () => { await saveRecurring([...selected], bulkRecurringId === "__none__" ? null : bulkRecurringId); setBulkRecurringId(""); setSelected(new Set()); }}
                     className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
-                    style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                    style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
                   >
                     {savingCats ? "Applying…" : "Link"}
                   </button>

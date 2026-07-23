@@ -12,6 +12,7 @@ import {
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
+import { withAlpha } from "@/lib/colors";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 import { SlideOverPanel } from "@/components/common/ui";
 import { mutate, reportError } from "@/components/common/mutate";
@@ -907,7 +908,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
                         </p>
                       </div>
                       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                        style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}>
+                        style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}>
                         {Math.round(score)}
                       </span>
                     </button>

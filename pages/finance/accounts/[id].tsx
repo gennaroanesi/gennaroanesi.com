@@ -17,6 +17,7 @@ import {
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
   listAll, refreshAllQuotes,
 } from "@/components/finance/_shared";
+import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls, SortIcon,
 } from "@/components/common/table";
@@ -265,7 +266,7 @@ export default function AccountDetailPage() {
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
               {trade && (
-                <Badge color={t.type === "BUY" ? "#10b981" : "#f59e0b"} size="xs">
+                <Badge color={t.type === "BUY" ? FINANCE_COLOR : WARNING} size="xs">
                   {t.type}
                 </Badge>
               )}
@@ -616,7 +617,7 @@ export default function AccountDetailPage() {
                   </span>
                 )}
                 {account.favorite && (
-                  <span className="text-base" style={{ color: "#f59e0b" }} title="Pinned to dashboard">★</span>
+                  <span className="text-base" style={{ color: WARNING }} title="Pinned to dashboard">★</span>
                 )}
                 {account.active === false && (
                   <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-gray-200 dark:bg-gray-600 text-gray-500">
@@ -628,7 +629,7 @@ export default function AccountDetailPage() {
                 <button
                   onClick={openEditAcc}
                   className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                  style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                 >
                   Edit account
                 </button>
@@ -641,7 +642,7 @@ export default function AccountDetailPage() {
                       onClick={handleRefreshPrices}
                       disabled={refreshing || tickers.length === 0}
                       className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors disabled:opacity-50"
-                      style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                      style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                     >
                       {refreshing ? "Refreshing…" : "Refresh prices"}
                     </button>
@@ -706,7 +707,7 @@ export default function AccountDetailPage() {
                   <button
                     onClick={() => setPanel({ kind: "new-tx", defaultType: "BUY" })}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors hover:opacity-80"
-                    style={{ borderColor: "#10b98188", color: "#10b981" }}
+                    style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                     title="Record a purchase: creates a transaction + a new lot"
                   >
                     + Buy
@@ -714,7 +715,7 @@ export default function AccountDetailPage() {
                   <button
                     onClick={() => setPanel({ kind: "new-tx", defaultType: "SELL" })}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors hover:opacity-80"
-                    style={{ borderColor: "#f59e0b88", color: "#f59e0b" }}
+                    style={{ borderColor: withAlpha(WARNING, 0x88), color: WARNING }}
                     title="Record a sale: creates a transaction + consumes lots"
                   >
                     + Sell
@@ -722,7 +723,7 @@ export default function AccountDetailPage() {
                   <button
                     onClick={openNewLot}
                     className="text-xs font-semibold px-3 py-1 rounded border transition-colors"
-                    style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                    style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                     title="Add a lot directly without creating a transaction (RSU vesting, manual fix-ups)"
                   >
                     + Add lot
@@ -784,7 +785,7 @@ export default function AccountDetailPage() {
                                       {isManual && (
                                         <span
                                           className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
-                                          style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
+                                          style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
                                           title="Manually overridden price — refreshes skip this ticker"
                                         >
                                           Manual
@@ -916,7 +917,7 @@ export default function AccountDetailPage() {
                 <button
                   onClick={() => setPanel({ kind: "import" })}
                   className="px-2 py-1 rounded text-xs font-semibold border transition-colors"
-                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                  style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                   title="Import a bank CSV into this account"
                 >
                   Import CSV
@@ -924,7 +925,7 @@ export default function AccountDetailPage() {
                 <button
                   onClick={() => setPanel({ kind: "new-tx" })}
                   className="px-2 py-1 rounded text-xs font-semibold border transition-colors"
-                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                  style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                 >
                   + Transaction
                 </button>
@@ -1192,7 +1193,7 @@ export default function AccountDetailPage() {
                           {(accDraft.creditLimit ?? 0) > 0 && (accDraft.currentBalance ?? 0) < 0 && (() => {
                             const owed = -(accDraft.currentBalance ?? 0);
                             const util = Math.min(1, owed / (accDraft.creditLimit ?? 1));
-                            const color = util > 0.7 ? "#ef4444" : util > 0.3 ? "#f59e0b" : FINANCE_COLOR;
+                            const color = util > 0.7 ? NEGATIVE : util > 0.3 ? WARNING : FINANCE_COLOR;
                             return (
                               <p className="text-[10px] mt-1" style={{ color }}>
                                 {Math.round(util * 100)}% utilization · {fmtCurrency((accDraft.creditLimit ?? 0) - owed)} available
@@ -1267,7 +1268,7 @@ export default function AccountDetailPage() {
                     <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
                       <input type="checkbox" checked={accDraft.favorite ?? false}
                         onChange={(e) => setAccDraft((d) => ({ ...d, favorite: e.target.checked }))} />
-                      <span className="mr-1" style={{ color: "#f59e0b" }}>★</span> Favorite
+                      <span className="mr-1" style={{ color: WARNING }}>★</span> Favorite
                       <span className="text-[10px] text-gray-400">(pin to dashboard)</span>
                     </label>
 

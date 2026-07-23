@@ -8,8 +8,8 @@
 import React from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
-import { INPUT_BASE, LABEL_CLASS } from "@/components/common/ui";
-import { FINANCE_ACCENT } from "@/lib/colors";
+import { INPUT_BASE, LABEL_CLASS, Badge } from "@/components/common/ui";
+import { FINANCE_ACCENT, POSITIVE, NEGATIVE, WARNING } from "@/lib/colors";
 
 // Pure finance math lives in finance-core (no React/client) so the
 // financeSnapshots Lambda and the review page can import it too. We import the
@@ -1731,14 +1731,14 @@ export function importHash(date: string, amount: number, description: string): s
 // ── Colors ────────────────────────────────────────────────────────────────────
 
 export function amountColor(amount: number): string {
-  return amount >= 0 ? "#22c55e" : "#ef4444";
+  return amount >= 0 ? POSITIVE : NEGATIVE;
 }
 
 export function goalPctColor(pct: number): string {
-  if (pct >= 1)    return "#22c55e";
+  if (pct >= 1)    return POSITIVE;
   if (pct >= 0.6)  return FINANCE_COLOR;
-  if (pct >= 0.3)  return "#f59e0b";
-  return "#ef4444";
+  if (pct >= 0.3)  return WARNING;
+  return NEGATIVE;
 }
 
 // ── Shared CSS ────────────────────────────────────────────────────────────────
@@ -1819,15 +1819,9 @@ export function AccountBadge({ type }: { type: string | null | undefined }) {
 export function StatusBadge({ status }: { status: string | null | undefined }) {
   const isPosted = status === "POSTED";
   return (
-    <span
-      className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
-      style={{
-        backgroundColor: isPosted ? "#22c55e22" : "#f59e0b22",
-        color:           isPosted ? "#22c55e"   : "#f59e0b",
-      }}
-    >
+    <Badge color={isPosted ? POSITIVE : WARNING}>
       {isPosted ? "Posted" : "Pending"}
-    </span>
+    </Badge>
   );
 }
 

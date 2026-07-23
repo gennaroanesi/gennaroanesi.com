@@ -15,6 +15,7 @@ import {
   SaveButton, DeleteButton,
   listAll,
 } from "@/components/finance/_shared";
+import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
@@ -163,7 +164,7 @@ export default function LoanDetailPage() {
       mobileHidden: true,
       render: (p) => (
         <span className="text-xs text-gray-400">
-          {p.isCorrection    ? <span style={{ color: "#f59e0b" }}>correction</span> :
+          {p.isCorrection    ? <span style={{ color: WARNING }}>correction</span> :
            p.isExtraPayment  ? <span style={{ color: FINANCE_COLOR }}>extra</span>  :
            p.sequenceNumber  ? `#${p.sequenceNumber}` : "—"}
         </span>
@@ -922,7 +923,7 @@ export default function LoanDetailPage() {
                 <button
                   onClick={openExtra}
                   className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                  style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                 >
                   + Extra payment
                 </button>
@@ -939,7 +940,7 @@ export default function LoanDetailPage() {
             <div className="flex items-baseline gap-6 flex-wrap">
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Owed</p>
-                <p className="text-2xl font-bold tabular-nums" style={{ color: "#ef4444" }}>
+                <p className="text-2xl font-bold tabular-nums" style={{ color: NEGATIVE }}>
                   {fmtCurrency(loan.currentBalance)}
                 </p>
               </div>
@@ -1008,7 +1009,7 @@ export default function LoanDetailPage() {
                       ? "Never (interest exceeds pmt)"
                       : `→ ${fmtDate(recalc.scenarios.currentPace.payoffDate)} · ${recalc.scenarios.currentPace.months}mo · ${fmtCurrency(recalc.scenarios.currentPace.totalInterest)} interest`
                   }
-                  accent={recalc.scenarios.currentPace.underPaying ? "#ef4444" : FINANCE_COLOR}
+                  accent={recalc.scenarios.currentPace.underPaying ? NEGATIVE : FINANCE_COLOR}
                 />
                 {/* Original term */}
                 <ScenarioTile
@@ -1088,7 +1089,7 @@ export default function LoanDetailPage() {
                   <p className="text-gray-400">Drift</p>
                   <p
                     className="font-semibold tabular-nums"
-                    style={{ color: cachedVsLenderDrift > 0 ? "#ef4444" : "#22c55e" }}
+                    style={{ color: cachedVsLenderDrift > 0 ? NEGATIVE : POSITIVE }}
                   >
                     {fmtCurrency(cachedVsLenderDrift, "USD", true)}
                   </p>
@@ -1096,7 +1097,7 @@ export default function LoanDetailPage() {
                 <button
                   onClick={() => openCorrection(cachedVsLenderDrift)}
                   className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors"
-                  style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                  style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                 >
                   Add correction
                 </button>
@@ -1183,7 +1184,7 @@ export default function LoanDetailPage() {
                         <button
                           onClick={(e) => { e.stopPropagation(); openPost(p); }}
                           className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
-                          style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                          style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                         >
                           Post
                         </button>
@@ -1382,7 +1383,7 @@ export default function LoanDetailPage() {
                             onClick={applyAutoCalc}
                             disabled={!canAuto}
                             className="px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors disabled:opacity-40"
-                            style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                            style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                           >
                             Auto-split
                           </button>
@@ -1459,8 +1460,8 @@ export default function LoanDetailPage() {
                       <div
                         className="rounded-lg border px-3 py-2 flex items-center justify-between text-xs"
                         style={{
-                          borderColor:     matches ? "#22c55e55" : "#f59e0b55",
-                          backgroundColor: matches ? "#22c55e11" : "#f59e0b11",
+                          borderColor:     matches ? withAlpha(POSITIVE, 0x55) : withAlpha(WARNING, 0x55),
+                          backgroundColor: matches ? withAlpha(POSITIVE, 0x11) : withAlpha(WARNING, 0x11),
                         }}
                       >
                         <span className="text-gray-500 dark:text-gray-400">
@@ -1468,7 +1469,7 @@ export default function LoanDetailPage() {
                         </span>
                         <span
                           className="tabular-nums font-semibold"
-                          style={{ color: matches ? "#22c55e" : "#f59e0b" }}
+                          style={{ color: matches ? POSITIVE : WARNING }}
                         >
                           {fmtCurrency(sum)}
                           {!matches && (

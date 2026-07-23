@@ -14,6 +14,7 @@ import {
   PAYCHECK_PERSONS, PAYCHECK_PERSON_LABELS,
   type PaycheckRecord, type AttachmentRecord, type PaycheckPerson, type PaycheckLineItem,
 } from "@/components/finance/_shared";
+import { withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
@@ -605,7 +606,7 @@ export default function PaychecksPage() {
                     onClick={onPickFile}
                     disabled={parseStatus === "uploading" || parseStatus === "parsing"}
                     className="w-full py-1.5 rounded-lg text-xs font-semibold border transition-colors hover:bg-gray-50 dark:hover:bg-white/5 disabled:opacity-50"
-                    style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+                    style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
                   >
                     {parseStatus === "uploading" ? "Uploading…" :
                      parseStatus === "parsing"   ? "Extracting fields…" :
@@ -733,7 +734,7 @@ function FilterPill({
       onClick={onClick}
       className="px-2 py-0.5 rounded-full transition-colors"
       style={{
-        backgroundColor: active ? FINANCE_COLOR + "22" : "transparent",
+        backgroundColor: active ? withAlpha(FINANCE_COLOR, 0x22) : "transparent",
         color:           active ? FINANCE_COLOR : undefined,
         border:          active ? `1px solid ${FINANCE_COLOR}66` : "1px solid transparent",
       }}

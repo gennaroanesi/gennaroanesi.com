@@ -14,6 +14,7 @@ import {
   SaveButton,
   listAll, refreshAllQuotes,
 } from "@/components/finance/_shared";
+import { withAlpha } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
@@ -277,7 +278,7 @@ export default function PricesPage() {
             <button
               onClick={() => openEdit(r.ticker)}
               className="text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors"
-              style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR }}
+              style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
             >
               {manual ? "Edit" : "Override"}
             </button>
@@ -339,7 +340,7 @@ export default function PricesPage() {
                 onClick={handleRefreshAll}
                 disabled={refreshing || allTickers.length === 0}
                 className="px-3 py-1.5 rounded text-xs font-semibold border transition-colors disabled:opacity-50"
-                style={{ borderColor: FINANCE_COLOR + "88", color: FINANCE_COLOR, backgroundColor: FINANCE_COLOR + "18" }}
+                style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
               >
                 {refreshing ? "Refreshing…" : "Refresh all"}
               </button>
