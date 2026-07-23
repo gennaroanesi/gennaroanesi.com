@@ -13,7 +13,7 @@
 
     { "pattern": "/us treas tax|treas tax pymt|irs |tax pmt|franchise tax|property tax|dept of revenue|treasury|turbotax|h&r block|tax prep/i", "category": "Taxes" },
     { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b|withdrawal \\d/i", "category": "Cash/ATM" },
-    { "pattern": "/overdraft|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|renewal member|foreign transaction fee/i", "category": "Fees" },
+    { "pattern": "/overdraft fee|overdraft charge|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|renewal member|foreign transaction fee/i", "category": "Fees" },
 
     { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium|briteco|jewelers[- _]?mutual|trupanion/i", "category": "Insurance" },
 
