@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
-import { PageTitle, PageLoading } from "@/components/common/ui";
+import { PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import { useRouter } from "next/router";
 import {
   ItemRecord,
@@ -513,12 +513,9 @@ export default function AmmoPage() {
               >
                 Log Use
               </button>
-              <button
-                onClick={() => openNew()}
-                className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-              >
+              <PrimaryButton onClick={() => openNew()}>
                 + Add Ammo
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 

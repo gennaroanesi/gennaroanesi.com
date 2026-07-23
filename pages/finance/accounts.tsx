@@ -19,7 +19,7 @@ import {
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 
 /**
  * Dedicated Accounts page. The dashboard only shows favorited accounts; this is
@@ -379,12 +379,9 @@ export default function AccountsPage() {
         ) : accounts.length === 0 ? (
           <div className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-8 text-center">
             <p className="text-sm text-gray-400 mb-3">No accounts yet.</p>
-            <button
-              onClick={openNewAcc}
-              className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-            >
+            <PrimaryButton onClick={openNewAcc}>
               + Create your first account
-            </button>
+            </PrimaryButton>
           </div>
         ) : (
           <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">

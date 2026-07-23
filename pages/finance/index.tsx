@@ -22,6 +22,7 @@ import {
   type Cadence,
 } from "@/components/finance/_shared";
 import { Sparkline } from "@/components/common/sparkline";
+import { Card } from "@/components/common/ui";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
@@ -1119,7 +1120,7 @@ export default function FinanceDashboard() {
                   Full breakdown →
                 </a>
               </div>
-              <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-4">
+              <Card>
                 {taxOutlook.entries.some((e) => e.stale) && (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 mb-2">
                     Latest paycheck &gt; 30 days old — projection may be stale.
@@ -1173,7 +1174,7 @@ export default function FinanceDashboard() {
                     </div>
                   )}
                 </div>
-              </div>
+              </Card>
             </section>
           )}
 
@@ -1186,7 +1187,7 @@ export default function FinanceDashboard() {
                   Tax outlook →
                 </a>
               </div>
-              <div className="rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-4">
+              <Card>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {k401Progress.map((k) => {
                     // Fill ratios (each clamped to [0,1] for the visual). The
@@ -1283,7 +1284,7 @@ export default function FinanceDashboard() {
                     );
                   })}
                 </div>
-              </div>
+              </Card>
             </section>
           )}
 

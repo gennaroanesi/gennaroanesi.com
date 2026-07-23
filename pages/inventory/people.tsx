@@ -4,7 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import { inputCls, labelCls, SaveButton, DeleteButton } from "@/components/inventory/_shared";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 
 const client = generateClient<Schema>();
 
@@ -152,10 +152,9 @@ export default function PeoplePage() {
               <PageTitle>People</PageTitle>
               <p className="text-sm text-gray-400 mt-0.5">Contacts who receive notifications</p>
             </div>
-            <button onClick={openNew}
-              className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
+            <PrimaryButton onClick={openNew}>
               + Add Person
-            </button>
+            </PrimaryButton>
           </div>
 
           {loading ? (

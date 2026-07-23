@@ -23,6 +23,7 @@ import {
   SortIcon,
   useTableControls as _useTableControls,
 } from "@/components/common/table";
+import { PrimaryButton } from "@/components/common/ui";
 
 export type { ColDef, SortDir } from "@/components/common/table";
 export { FilterTypeahead, TableControls } from "@/components/common/table";
@@ -550,10 +551,9 @@ export function EmptyState({
           ))}
         </div>
       ) : (
-        <button onClick={onAdd}
-          className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
+        <PrimaryButton onClick={onAdd}>
           + Add {label}
-        </button>
+        </PrimaryButton>
       )}
     </div>
   );

@@ -5,7 +5,7 @@ import DefaultLayout from "@/layouts/default";
 import { generateClient } from "aws-amplify/data";
 import { uploadData, remove as s3Remove } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton, SecondaryButton } from "@/components/common/ui";
 
 type HomeCategory = Schema["homeCategory"]["type"];
 type HomeMedia    = Schema["homeMedia"]["type"];
@@ -339,13 +339,12 @@ export default function AdminHomepagePage() {
             </div>
             <div className="flex items-center gap-2">
               {categories.length === 0 && !loading && (
-                <button
+                <SecondaryButton
                   onClick={handleSeedDefaults}
                   disabled={seeding}
-                  className="px-3 py-1.5 rounded text-xs font-semibold border border-amber-400/60 text-amber-400 hover:bg-amber-400/10 transition-colors disabled:opacity-50"
                 >
                   {seeding ? "Seeding…" : `Seed ${DEFAULTS.length} defaults`}
-                </button>
+                </SecondaryButton>
               )}
               <button
                 onClick={() => bulkInputRef.current?.click()}
@@ -363,12 +362,9 @@ export default function AdminHomepagePage() {
                 onChange={handleBulkImport}
                 className="hidden"
               />
-              <button
-                onClick={openNewCat}
-                className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-              >
+              <PrimaryButton onClick={openNewCat}>
                 + New category
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 

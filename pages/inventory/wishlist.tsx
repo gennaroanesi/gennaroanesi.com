@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
-import { PageTitle, PageLoading } from "@/components/common/ui";
+import { PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import NextLink from "next/link";
 import {
   ItemRecord, Category, CATEGORY_CONFIG,
@@ -87,12 +87,9 @@ export default function WishlistPage() {
 
         <div className="flex items-center justify-between mb-4">
           <PageTitle>Wishlist</PageTitle>
-          <button
-            onClick={() => setShowPicker(true)}
-            className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-          >
+          <PrimaryButton onClick={() => setShowPicker(true)}>
             + Add to wishlist
-          </button>
+          </PrimaryButton>
         </div>
 
         <div className="flex flex-col sm:flex-row flex-wrap gap-2 mb-4">
@@ -127,12 +124,9 @@ export default function WishlistPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               Your wishlist is empty.
             </p>
-            <button
-              onClick={() => setShowPicker(true)}
-              className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-            >
+            <PrimaryButton onClick={() => setShowPicker(true)}>
               + Add to wishlist
-            </button>
+            </PrimaryButton>
           </div>
         ) : (
           <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">

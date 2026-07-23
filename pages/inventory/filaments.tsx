@@ -16,7 +16,7 @@ import {
   FilamentColorDots, ColorDot, resolveFilamentColor,
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 
 const client = generateClient<Schema>();
 
@@ -247,10 +247,9 @@ export default function FilamentsPage() {
         <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
             <PageTitle>Filaments</PageTitle>
-            <button onClick={() => openNew()}
-              className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
+            <PrimaryButton onClick={() => openNew()}>
               + Add Filament
-            </button>
+            </PrimaryButton>
           </div>
 
           <div className="mb-4">

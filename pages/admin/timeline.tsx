@@ -6,7 +6,7 @@ import { generateClient } from "aws-amplify/data";
 import { uploadData, remove as s3Remove } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
 import { MarkdownText } from "@/components/common/MarkdownText";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton, SecondaryButton } from "@/components/common/ui";
 
 type Category = "aviation" | "dev" | "work" | "life";
 type Entry = Schema["timelineEntry"]["type"];
@@ -310,21 +310,17 @@ export default function AdminTimelinePage() {
             </div>
             <div className="flex items-center gap-2">
               {entries.length === 0 && !loading && (
-                <button
+                <SecondaryButton
                   onClick={handleSeedDefaults}
                   disabled={seeding}
-                  className="px-3 py-1.5 rounded text-xs font-semibold border border-amber-400/60 text-amber-400 hover:bg-amber-400/10 transition-colors disabled:opacity-50"
                   title="One-time: import the defaults into the DB"
                 >
                   {seeding ? "Seeding…" : `Seed ${DEFAULTS.length} defaults`}
-                </button>
+                </SecondaryButton>
               )}
-              <button
-                onClick={openNew}
-                className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-              >
+              <PrimaryButton onClick={openNew}>
                 + New entry
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 

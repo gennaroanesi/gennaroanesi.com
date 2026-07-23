@@ -77,6 +77,24 @@ export function SlideOverPanel({
   );
 }
 
+// ── Buttons ───────────────────────────────────────────────────────────────────
+// The filled accent CTA (`bg-purple text-rose dark:bg-rose dark:text-purple`)
+// inlined ~10× as "+ Add X" / submit buttons, and the amber outline secondary.
+// Standardizes padding on py-2 / py-1.5 (a couple of primary call sites used
+// py-1.5 — normalized to py-2 for consistency). Both accept native <button>
+// props (onClick, disabled, type, children) and an extra className.
+export const PRIMARY_BTN_CLASS =
+  "px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 disabled:opacity-50 transition-opacity";
+export const SECONDARY_BTN_CLASS =
+  "px-3 py-1.5 rounded text-xs font-semibold border border-amber-400/60 text-amber-400 hover:bg-amber-400/10 disabled:opacity-50 transition-colors";
+
+export function PrimaryButton({ className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button className={`${PRIMARY_BTN_CLASS} ${className}`} {...props} />;
+}
+export function SecondaryButton({ className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button className={`${SECONDARY_BTN_CLASS} ${className}`} {...props} />;
+}
+
 // ── Badge / pill ──────────────────────────────────────────────────────────────
 // The colored `rounded-full` pill (`bg = color+alpha`) reimplemented ~12× and as
 // AccountBadge/StatusBadge/CategoryBadge. `uppercase` matches the finance chips;

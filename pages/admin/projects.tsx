@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { GetStaticProps, NextPage } from "next";
 import NextLink from "next/link";
-import { PageTitle, PageLoading } from "@/components/common/ui";
+import { PageTitle, PageLoading, PrimaryButton, SecondaryButton } from "@/components/common/ui";
 import fs from "fs";
 import path from "path";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
@@ -226,21 +226,17 @@ const AdminProjectsPage: NextPage<Props> = ({ seedFiles }) => {
             </div>
             <div className="flex items-center gap-2">
               {writeups.length === 0 && !loading && seedFiles.length > 0 && (
-                <button
+                <SecondaryButton
                   onClick={handleSeedDefaults}
                   disabled={seeding}
-                  className="px-3 py-1.5 rounded text-xs font-semibold border border-amber-400/60 text-amber-400 hover:bg-amber-400/10 transition-colors disabled:opacity-50"
                   title="One-time: import the .md files into the DB"
                 >
                   {seeding ? "Seeding…" : `Seed ${seedFiles.length} defaults`}
-                </button>
+                </SecondaryButton>
               )}
-              <button
-                onClick={openNew}
-                className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-              >
+              <PrimaryButton onClick={openNew}>
                 + New writeup
-              </button>
+              </PrimaryButton>
             </div>
           </div>
 

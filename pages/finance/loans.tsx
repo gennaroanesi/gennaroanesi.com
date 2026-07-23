@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import {
   client,
   AccountRecord, LoanRecord, LoanPaymentRecord, AssetRecord,
@@ -222,12 +222,9 @@ export default function LoansPage() {
                 </span>
               )}
             </div>
-            <button
-              onClick={openNew}
-              className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
-            >
+            <PrimaryButton onClick={openNew}>
               + New Loan
-            </button>
+            </PrimaryButton>
           </div>
 
           {loading ? (
