@@ -15,7 +15,7 @@ import {
 import { withAlpha } from "@/lib/colors";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 import { SlideOverPanel } from "@/components/common/ui";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import { parseLineItems, type LineItem } from "@/components/finance/categories";
 
 /**
@@ -191,15 +191,15 @@ export function TransactionPanel(props: TransactionPanelProps) {
 
     if (isTradeType(txType)) {
       if (!txDraft.ticker || !txDraft.quantity || txDraft.quantity <= 0) {
-        alert("Ticker and quantity are required for BUY/SELL.");
+        notifyError("Ticker and quantity are required for BUY/SELL.");
         return;
       }
       if (priceNum <= 0 && mode === "create") {
-        alert("Price per share is required for BUY/SELL.");
+        notifyError("Price per share is required for BUY/SELL.");
         return;
       }
       if (txType === "SELL" && mode === "create" && sellLotPicks.length === 0) {
-        alert("Pick at least one lot to sell from.");
+        notifyError("Pick at least one lot to sell from.");
         return;
       }
     } else if (txDraft.amount == null) {
@@ -254,7 +254,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
             return s + (l?.quantity ?? 0);
           }, 0);
           if (totalAvail + 1e-6 < sellQty) {
-            alert(`Selected lots only have ${totalAvail.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh — short ${(sellQty - totalAvail).toLocaleString("en-US", { maximumFractionDigits: 4 })}.`);
+            notifyError(`Selected lots only have ${totalAvail.toLocaleString("en-US", { maximumFractionDigits: 4 })} sh — short ${(sellQty - totalAvail).toLocaleString("en-US", { maximumFractionDigits: 4 })}.`);
             setSaving(false);
             return;
           }
@@ -930,6 +930,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
           />
         </div>
         <SaveButton saving={saving} onSave={handleSave}
+          disabled={!txDraft.accountId || !txDraft.date}
           label={mode === "create" ? "Add Transaction" : "Save"} />
         {mode === "edit" && (
           <DeleteButton saving={saving} onDelete={handleDelete} />

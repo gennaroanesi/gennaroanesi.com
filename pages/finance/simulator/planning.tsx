@@ -11,6 +11,7 @@ import {
   amountColor,
 } from "@/components/finance/_shared";
 import { WARNING, NEGATIVE, withAlpha } from "@/lib/colors";
+import { notifyError } from "@/components/common/mutate";
 import {
   defaultPlanScenario,
   projectYear,
@@ -98,7 +99,7 @@ export default function PlanningSimulatorPage() {
 
   const deleteScenario = useCallback((id: string) => {
     if (scenarios.length <= 1) {
-      alert("Can't delete the last scenario — clear its data instead.");
+      notifyError("Can't delete the last scenario — clear its data instead.");
       return;
     }
     const s = scenarios.find((x) => x.id === id);

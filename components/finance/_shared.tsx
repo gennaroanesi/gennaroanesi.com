@@ -1751,13 +1751,13 @@ export const labelCls = LABEL_CLASS;
 // ── SaveButton ────────────────────────────────────────────────────────────────
 
 export function SaveButton({
-  saving, onSave, label = "Save",
-}: { saving: boolean; onSave: () => void; label?: string }) {
+  saving, onSave, label = "Save", disabled = false,
+}: { saving: boolean; onSave: () => void; label?: string; disabled?: boolean }) {
   return (
     <button
       onClick={onSave}
-      disabled={saving}
-      className="w-full py-2 rounded-lg text-sm font-semibold disabled:opacity-50 transition-opacity hover:opacity-90"
+      disabled={saving || disabled}
+      className="w-full py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-opacity hover:opacity-90"
       style={{ backgroundColor: FINANCE_COLOR, color: "#fff" }}
     >
       {saving ? "Saving…" : label}

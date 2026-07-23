@@ -10,6 +10,7 @@ import {
   fmtCurrency, todayIso, amountColor,
 } from "@/components/finance/_shared";
 import { WARNING, NEGATIVE, withAlpha } from "@/lib/colors";
+import { notifyError } from "@/components/common/mutate";
 
 // ── Types & persistence ─────────────────────────────────────────────────────
 // UI-only simulator: nothing touches finance models. State is mirrored to S3
@@ -174,7 +175,7 @@ export default function CashflowSimulatorPage() {
 
   const deleteCashflow = useCallback((id: string) => {
     if (cashflows.length <= 1) {
-      alert("Can't delete the last cashflow — reset it instead.");
+      notifyError("Can't delete the last cashflow — reset it instead.");
       return;
     }
     const c = cashflows.find((x) => x.id === id);

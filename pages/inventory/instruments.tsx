@@ -426,7 +426,7 @@ export default function InstrumentsPage() {
                 existingKeys={(panel.kind === "edit" ? panel.item.imageKeys : []) ?? []}
               />
 
-              <SaveButton saving={saving} onSave={handleSave}
+              <SaveButton saving={saving} onSave={handleSave} disabled={!itemDraft.name?.trim()}
                 label={panel.kind === "new" ? "Create Instrument" : "Save"} />
               {panel.kind === "edit" && <DeleteButton saving={saving} onDelete={handleDelete} />}
           </SlideOverPanel>

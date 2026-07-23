@@ -54,3 +54,17 @@ export function reportError(err: unknown, action = "Action"): void {
 export function notifySuccess(title: string, description?: string): void {
   addToast({ title, description, color: "success" });
 }
+
+/**
+ * Danger toast for validation / business-rule messages that aren't thrown
+ * errors (e.g. "Name is required", "Pick at least one lot"). Replaces blocking
+ * alert() calls for non-confirmation feedback.
+ */
+export function notifyError(title: string, description?: string): void {
+  addToast({ title, description, color: "danger" });
+}
+
+/** Amber toast for softer, non-blocking warnings. */
+export function notifyWarning(title: string, description?: string): void {
+  addToast({ title, description, color: "warning" });
+}

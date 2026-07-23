@@ -347,6 +347,7 @@ export default function AssetsPage() {
               </label>
 
               <SaveButton saving={saving} onSave={handleSave}
+                disabled={!draft.name?.trim() || draft.currentValue == null}
                 label={panel.kind === "new" ? "Create Asset" : "Save"} />
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.asset)} />

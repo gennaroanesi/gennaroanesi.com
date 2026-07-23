@@ -730,6 +730,7 @@ export default function GoalsPage() {
                   onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} />
               </div>
               <SaveButton saving={saving} onSave={handleSave}
+                disabled={!draft.name?.trim() || draft.targetAmount == null}
                 label={panel.kind === "new" ? "Create Goal" : "Save"} />
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.goal)} />

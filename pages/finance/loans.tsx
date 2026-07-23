@@ -16,7 +16,7 @@ import {
   listAll,
 } from "@/components/finance/_shared";
 import { NEGATIVE } from "@/lib/colors";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 
 type PanelState = { kind: "new" } | null;
 
@@ -123,10 +123,10 @@ export default function LoansPage() {
     const principal = Number(draft.originalPrincipal);
     const rate      = Number(draft.interestRatePct) / 100;
     const months    = Number(draft.termMonths);
-    if (!isFinite(principal) || principal <= 0) { alert("Enter a valid principal"); return; }
-    if (!isFinite(rate) || rate < 0) { alert("Enter a valid interest rate"); return; }
-    if (!isFinite(months) || months <= 0) { alert("Enter a valid term"); return; }
-    if (!draft.startDate || !draft.firstPaymentDate) { alert("Enter start and first payment dates"); return; }
+    if (!isFinite(principal) || principal <= 0) { notifyError("Enter a valid principal"); return; }
+    if (!isFinite(rate) || rate < 0) { notifyError("Enter a valid interest rate"); return; }
+    if (!isFinite(months) || months <= 0) { notifyError("Enter a valid term"); return; }
+    if (!draft.startDate || !draft.firstPaymentDate) { notifyError("Enter start and first payment dates"); return; }
 
     setSaving(true);
     try {
@@ -488,6 +488,7 @@ export default function LoansPage() {
 
               <SaveButton
                 saving={saving}
+                disabled={!draft.name.trim()}
                 onSave={handleCreate}
                 label={saving ? "Generating schedule…" : `Create Loan${draft.termMonths ? ` (${draft.termMonths} payments)` : ""}`}
               />

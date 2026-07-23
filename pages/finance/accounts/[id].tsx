@@ -1110,6 +1110,7 @@ export default function AccountDetailPage() {
                       onChange={(e) => setLotDraft((d) => ({ ...d, notes: e.target.value }))} />
                   </div>
                   <SaveButton saving={saving} onSave={handleSaveLot}
+                    disabled={!lotDraft.ticker?.trim() || lotDraft.quantity == null}
                     label={panel.kind === "new-lot" ? "Add Lot" : "Save"} />
                   {panel.kind === "edit-lot" && (
                     <DeleteButton saving={saving} onDelete={() => handleDeleteLot(panel.lot)} />
@@ -1363,7 +1364,7 @@ export default function AccountDetailPage() {
                         parentId={account.id}
                       />
                     </div>
-                    <SaveButton saving={saving} onSave={handleSaveAcc} label="Save" />
+                    <SaveButton saving={saving} onSave={handleSaveAcc} disabled={!accDraft.name?.trim()} label="Save" />
                     <DeleteButton saving={saving} onDelete={handleDeleteAcc} />
                   </div>
                 </>

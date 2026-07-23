@@ -425,7 +425,8 @@ export default function PricesPage() {
                 </div>
               </div>
 
-              <SaveButton saving={saving} onSave={saveOverride} label="Save Override" />
+              <SaveButton saving={saving} onSave={saveOverride} label="Save Override"
+                disabled={!isFinite(Number(edit.price)) || Number(edit.price) <= 0} />
           </SlideOverPanel>
         )}
       </div>

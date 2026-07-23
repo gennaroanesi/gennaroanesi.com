@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client,
   AccountRecord, HoldingRecord, TickerQuoteRecord,
@@ -106,7 +106,7 @@ export default function AccountsPage() {
       setAccounts((prev) => prev.map((a) => a.id === acc.id ? { ...a, favorite: next } : a));
     } catch (err: any) {
       console.error("[accounts] toggle favorite failed:", err);
-      alert(`Failed to update favorite: ${err?.message ?? String(err)}`);
+      notifyError(`Failed to update favorite: ${err?.message ?? String(err)}`);
     } finally {
       setBusyId(null);
     }
@@ -549,6 +549,7 @@ export default function AccountsPage() {
 
               <SaveButton
                 saving={saving}
+                disabled={!accDraft.name?.trim()}
                 onSave={handleSaveAcc}
                 label={panelMode === "new" ? "Create Account" : "Save"}
               />

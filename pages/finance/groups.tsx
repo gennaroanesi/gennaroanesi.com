@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client,
   listAll,
@@ -103,7 +103,7 @@ export default function SpendGroupsPage() {
   function openEdit(g: SpendGroupRecord) { setDraft({ ...g }); setPanel({ kind: "edit", group: g }); }
 
   async function handleSave() {
-    if (!draft.name) { alert("Name is required"); return; }
+    if (!draft.name) { notifyError("Name is required"); return; }
     setSaving(true);
     try {
       const payload = {
@@ -152,13 +152,13 @@ export default function SpendGroupsPage() {
 
   // Tag every untagged outflow within the group's date window to this group.
   async function autoAssign(group: SpendGroupRecord) {
-    if (!group.startDate || !group.endDate) { alert("Set a start and end date on the group first."); return; }
+    if (!group.startDate || !group.endDate) { notifyError("Set a start and end date on the group first."); return; }
     const candidates = txs.filter((t) => {
       if ((t as any).spendGroupId) return false;
       if (!t.date || t.date < group.startDate! || t.date > group.endDate!) return false;
       return outflowAmount(t) != null;
     });
-    if (candidates.length === 0) { alert("No untagged spending found in that date range."); return; }
+    if (candidates.length === 0) { notifyError("No untagged spending found in that date range."); return; }
     if (!confirm(`Tag ${candidates.length} transaction(s) between ${fmtDate(group.startDate)} and ${fmtDate(group.endDate)} to "${group.name}"?`)) return;
     setSaving(true);
     try {
@@ -284,7 +284,7 @@ export default function SpendGroupsPage() {
                 {panel.kind === "edit" ? (
                   <DeleteButton onDelete={() => handleDelete(panel.group)} saving={saving} />
                 ) : <span />}
-                <SaveButton onSave={handleSave} saving={saving} />
+                <SaveButton onSave={handleSave} saving={saving} disabled={!draft.name} />
               </div>
             }
           >

@@ -293,7 +293,7 @@ export default function ThresholdsPage() {
                 </span>
               </div>
 
-              <SaveButton saving={saving} onSave={handleSave}
+              <SaveButton saving={saving} onSave={handleSave} disabled={!draft.caliber.trim() || !draft.minRounds || !draft.personId}
                 label={panel.kind === "new" ? "Create Threshold" : "Save"} />
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.threshold)} />

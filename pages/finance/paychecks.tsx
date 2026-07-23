@@ -3,7 +3,7 @@ import NextLink from "next/link";
 import { uploadData, getUrl } from "aws-amplify/storage";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client,
   FINANCE_COLOR,
@@ -287,7 +287,7 @@ export default function PaychecksPage() {
 
   const handleSave = useCallback(async () => {
     if (!draft.person || !draft.payDate || draft.gross == null || draft.net == null) {
-      alert("Person, pay date, gross and net are required.");
+      notifyError("Person, pay date, gross and net are required.");
       return;
     }
     setSaving(true);
@@ -405,7 +405,7 @@ export default function PaychecksPage() {
       window.open(url.toString(), "_blank", "noopener,noreferrer");
     } catch (e) {
       console.warn("[paychecks] getUrl failed", e);
-      alert("Could not generate a download link for this PDF.");
+      notifyError("Could not generate a download link for this PDF.");
     }
   }, []);
 
@@ -710,7 +710,8 @@ export default function PaychecksPage() {
                 />
               </div>
 
-              <SaveButton saving={saving} onSave={handleSave} />
+              <SaveButton saving={saving} onSave={handleSave}
+                disabled={!draft.person || !draft.payDate || draft.gross == null || draft.net == null} />
               {panel.kind === "edit" && (
                 <div className="mt-2">
                   <DeleteButton saving={saving} onDelete={handleDelete} />

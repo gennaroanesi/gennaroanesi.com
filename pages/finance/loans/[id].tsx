@@ -20,7 +20,7 @@ import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
 import { AttachmentsSection } from "@/components/common/AttachmentsSection";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 
 // Side panel state — for posting, editing, or logging an extra payment
 type PanelState =
@@ -371,7 +371,7 @@ export default function LoanDetailPage() {
     const { date, totalAmount, principal, interest, escrow, fees, notes, createCheckingTx } = values;
 
     if (createCheckingTx && !checkingAccountId) {
-      alert("Pick a paying account above the scheduled table, or uncheck \"Also debit checking\" on the panel.");
+      notifyError("Pick a paying account above the scheduled table, or uncheck \"Also debit checking\" on the panel.");
       return null;
     }
 
@@ -466,11 +466,11 @@ export default function LoanDetailPage() {
 
     if (panel.kind === "correction") {
       // Correction is principal-only
-      if (!isFinite(prin) || prin === 0) { alert("Enter a non-zero correction amount"); return; }
+      if (!isFinite(prin) || prin === 0) { notifyError("Enter a non-zero correction amount"); return; }
     } else {
-      if (!isFinite(total) || total < 0) { alert("Enter a valid total"); return; }
-      if (!isFinite(prin)  || prin  < 0) { alert("Enter a valid principal"); return; }
-      if (!isFinite(intr)  || intr  < 0) { alert("Enter a valid interest"); return; }
+      if (!isFinite(total) || total < 0) { notifyError("Enter a valid total"); return; }
+      if (!isFinite(prin)  || prin  < 0) { notifyError("Enter a valid principal"); return; }
+      if (!isFinite(intr)  || intr  < 0) { notifyError("Enter a valid interest"); return; }
       // Sanity-check the split vs total (allow small escrow/fees delta)
       const escAmt  = draft.escrow === "" ? 0 : Number(draft.escrow);
       const feesAmt = draft.fees   === "" ? 0 : Number(draft.fees);
@@ -560,7 +560,7 @@ export default function LoanDetailPage() {
         // create the checking-side debit when the toggle is on.
         if (!loan || !account) return;
         if (draft.createCheckingTx && !checkingAccountId) {
-          alert("Pick a paying account, or uncheck \"Also debit checking\".");
+          notifyError("Pick a paying account, or uncheck \"Also debit checking\".");
           return;
         }
 
@@ -812,7 +812,7 @@ export default function LoanDetailPage() {
 
   async function handleSaveLoanMeta() {
     if (!loan || !account) return;
-    if (!loanMetaDraft.name.trim()) { alert("Name is required"); return; }
+    if (!loanMetaDraft.name.trim()) { notifyError("Name is required"); return; }
     setSaving(true);
     try {
       // 1. Update the ledger account's name (that's what renders in the UI header)
@@ -1326,7 +1326,7 @@ export default function LoanDetailPage() {
                     />
                   </div>
 
-                  <SaveButton saving={saving} onSave={handleSaveLoanMeta} label="Save" />
+                  <SaveButton saving={saving} onSave={handleSaveLoanMeta} disabled={!loanMetaDraft.name.trim()} label="Save" />
                 </>
               ) : (
                 // ── Payment / correction forms (original body) ─────────────────

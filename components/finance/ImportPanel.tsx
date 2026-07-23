@@ -15,7 +15,7 @@ import {
 } from "@/components/finance/_shared";
 import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { inferCategory } from "@/components/finance/categories";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import { SlideOverPanel } from "@/components/common/ui";
 import {
   parseSchwabActivityCsv, labelForSchwabAction,
@@ -269,7 +269,10 @@ export function ImportPanel(props: ImportPanelProps) {
     onSetAccounts(accs);
 
     if (errors.length > 0) {
-      alert(`Imported ${created.length} rows with ${errors.length} error${errors.length === 1 ? "" : "s"}:\n\n${errors.slice(0, 10).join("\n")}${errors.length > 10 ? `\n…and ${errors.length - 10} more (see console)` : ""}`);
+      notifyError(
+        `Imported ${created.length} rows with ${errors.length} error${errors.length === 1 ? "" : "s"}`,
+        `${errors.slice(0, 10).join("\n")}${errors.length > 10 ? `\n…and ${errors.length - 10} more (see console)` : ""}`,
+      );
     }
   }
 
@@ -470,7 +473,10 @@ export function ImportPanel(props: ImportPanelProps) {
     onSetAccounts(freshAccs);
 
     if (errors.length > 0) {
-      alert(`Imported ${created.length} rows with ${errors.length} error${errors.length === 1 ? "" : "s"}:\n\n${errors.slice(0, 10).join("\n")}${errors.length > 10 ? `\n…and ${errors.length - 10} more (see console)` : ""}`);
+      notifyError(
+        `Imported ${created.length} rows with ${errors.length} error${errors.length === 1 ? "" : "s"}`,
+        `${errors.slice(0, 10).join("\n")}${errors.length > 10 ? `\n…and ${errors.length - 10} more (see console)` : ""}`,
+      );
     }
   }
 
@@ -769,6 +775,7 @@ export function ImportPanel(props: ImportPanelProps) {
             </div>
 
             <SaveButton saving={saving} onSave={handleImport}
+              disabled={!importAccountId}
               label={
                 importDeleteRange
                   ? `Replace ${inRangeExistingTx.length} with ${selectedCount}`

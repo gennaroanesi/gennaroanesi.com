@@ -810,6 +810,7 @@ export default function RecurringPage() {
               )}
 
               <SaveButton saving={saving} onSave={handleSave}
+                disabled={Object.keys(validateDraft(draft)).length > 0}
                 label={panel.kind === "new" ? "Create Recurring" : "Save"} />
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.rec)} />

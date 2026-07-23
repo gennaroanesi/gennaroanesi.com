@@ -1008,6 +1008,7 @@ export default function AmmoPage() {
                   <SaveButton
                     saving={saving}
                     onSave={handleSave}
+                    disabled={!itemDraft.name?.trim() || !ammoDraft.caliber?.trim()}
                     label={panel.kind === "new" ? "Create Ammo" : "Save"}
                   />
                   {panel.kind === "edit" && (

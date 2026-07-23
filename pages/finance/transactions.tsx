@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import { PageTitle, PageLoading, Badge } from "@/components/common/ui";
-import { mutate, reportError } from "@/components/common/mutate";
+import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client,
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
@@ -420,7 +420,7 @@ export default function TransactionsPage() {
       setTransactions((prev) => prev.filter((t) => !ids.includes(t.id) || failedSet.has(t.id)));
       setSelected(failedSet);
       if (failed.length > 0) {
-        alert(`Deleted ${ids.length - failed.length}. ${failed.length} failed — see console.`);
+        notifyError(`Deleted ${ids.length - failed.length}.`, `${failed.length} failed — see console.`);
       }
     } finally {
       setDeletingBulk(false);

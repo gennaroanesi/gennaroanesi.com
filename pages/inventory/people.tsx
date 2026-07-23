@@ -341,7 +341,7 @@ export default function PeoplePage() {
                 );
               })()}
 
-              <SaveButton saving={saving} onSave={handleSave}
+              <SaveButton saving={saving} onSave={handleSave} disabled={!draft.name.trim()}
                 label={panel.kind === "new" ? "Create Person" : "Save"} />
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.person)} />

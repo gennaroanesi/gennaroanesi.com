@@ -383,15 +383,15 @@ export function CategoryBadge({ category }: { category: string }) {
 // ── SaveButton ────────────────────────────────────────────────────────────────
 
 export function SaveButton({
-  saving, onSave, label = "Save",
+  saving, onSave, label = "Save", disabled = false,
 }: {
-  saving: boolean; onSave: () => void; label?: string;
+  saving: boolean; onSave: () => void; label?: string; disabled?: boolean;
 }) {
   return (
     <button
       onClick={onSave}
-      disabled={saving}
-      className="w-full py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 disabled:opacity-50 transition-opacity"
+      disabled={saving || disabled}
+      className="w-full py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
     >
       {saving ? "Saving…" : label}
     </button>

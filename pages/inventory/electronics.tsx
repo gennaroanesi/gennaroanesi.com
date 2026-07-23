@@ -407,7 +407,7 @@ export default function ElectronicsPage() {
                 existingKeys={(panel.kind === "edit" ? panel.item.imageKeys : []) ?? []}
               />
 
-              <SaveButton saving={saving} onSave={handleSave}
+              <SaveButton saving={saving} onSave={handleSave} disabled={!itemDraft.name?.trim()}
                 label={panel.kind === "new" ? "Create Electronics Item" : "Save"} />
               {panel.kind === "edit" && <DeleteButton saving={saving} onDelete={handleDelete} />}
           </SlideOverPanel>
