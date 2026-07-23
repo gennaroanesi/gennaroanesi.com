@@ -25,6 +25,7 @@ import { gennaroAgent } from "./functions/gennaroAgent/resource";
 import { financeSnapshots } from "./functions/financeSnapshots/resource";
 import { weeklyCashflow } from "./functions/weeklyCashflow/resource";
 import { parsePaycheckPdf } from "./functions/parsePaycheckPdf/resource";
+import { simplefinSync } from "./functions/simplefinSync/resource";
 
 const backend = defineBackend({
   auth,
@@ -36,6 +37,7 @@ const backend = defineBackend({
   financeSnapshots,
   weeklyCashflow,
   parsePaycheckPdf,
+  simplefinSync,
   //storage,
 });
 
@@ -382,6 +384,38 @@ new Rule(backend.stack, "WeeklyCashflowMondayRule", {
   description: "Monday morning cashflow briefing email",
   schedule: Schedule.cron({ minute: "0", hour: "12", weekDay: "MON" }),
   targets: [new LambdaFunctionTarget(cashflowFn)],
+});
+
+// ── simplefinSync cron + secret ──────────────────────────────────────────────
+// Pulls balances/transactions/holdings from SimpleFIN for every mapped
+// financeAccount and writes a financeSyncLog audit row. Model access is granted
+// via schema-level allow.resource(simplefinSync) in data/resource.ts.
+//
+// The SimpleFIN access URL (a long-lived credentialed URL — treat as a secret)
+// is stored in Secrets Manager and injected as SIMPLEFIN_ACCESS_URL. Create it
+// once in the target account:
+//   aws secretsmanager create-secret --name gennaroanesi/simplefin \
+//     --secret-string '{"accessUrl":"https://<user>:<pass>@bridge.simplefin.org/simplefin"}'
+const simplefinFn = backend.simplefinSync.resources.lambda as LambdaFunction;
+const simplefinSecret = Secret.fromSecretNameV2(
+  backend.stack,
+  "SimplefinSecret",
+  "gennaroanesi/simplefin",
+);
+simplefinSecret.grantRead(simplefinFn);
+simplefinFn.addEnvironment(
+  "SIMPLEFIN_ACCESS_URL",
+  simplefinSecret.secretValueFromJson("accessUrl").unsafeUnwrap(),
+);
+
+// 3×/day at 09:00 / 17:00 / 00:00 UTC ≈ 4 AM / 12 PM / 7 PM America/Chicago
+// during CDT. We tolerate the 1-hour DST skew (like financeSnapshots) instead
+// of running timezone-aware schedules — the 14-day dedup window means an hour
+// of drift changes nothing.
+new Rule(backend.stack, "SimplefinSyncRule", {
+  description: "3×/day SimpleFIN balance + transaction sync",
+  schedule: Schedule.cron({ minute: "0", hour: "9,17,0" }),
+  targets: [new LambdaFunctionTarget(simplefinFn)],
 });
 
 // ── transcribeAudio infrastructure ──────────────────────────────────────────

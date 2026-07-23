@@ -3,6 +3,7 @@ import { sendNotification } from "../functions/sendNotification/resource";
 import { gennaroAgent } from "../functions/gennaroAgent/resource";
 import { financeSnapshots } from "../functions/financeSnapshots/resource";
 import { weeklyCashflow } from "../functions/weeklyCashflow/resource";
+import { simplefinSync } from "../functions/simplefinSync/resource";
 import { parsePaycheckPdf } from "../functions/parsePaycheckPdf/resource";
 
 const schema = a.schema({
@@ -795,6 +796,41 @@ const schema = a.schema({
     .secondaryIndexes((index) => [index("accountId"), index("ticker")])
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── SimpleFIN sync log ──────────────────────────────────────────────────────
+  // One row per SimpleFIN sync run (scheduled or manual). The durable audit
+  // trail of "what we pulled from SimpleFIN and what we changed", complementing
+  // the ephemeral CloudWatch logs. Written by the simplefinSync Lambda; admins
+  // read. The *Json fields follow the repo's AWSJSON-via-string pattern.
+  financeSyncLog: a
+    .model({
+      startedAt:       a.datetime().required(),
+      finishedAt:      a.datetime(),
+      trigger:         a.enum(["CRON", "MANUAL"]),
+      status:          a.enum(["OK", "PARTIAL", "ERROR", "DRY_RUN"]),
+      windowFrom:      a.date(),    // YYYY-MM-DD lookback start
+      windowTo:        a.date(),    // YYYY-MM-DD lookback end
+      accountsChecked: a.integer(),
+      txPulled:        a.integer(), // rows SimpleFIN returned in the window
+      txInserted:      a.integer(), // new rows written
+      txDuplicate:     a.integer(), // skipped as already-imported
+      txFailed:        a.integer(),
+      balancesUpdated: a.integer(),
+      holdingsChanged: a.integer(), // creates + updates + deletes
+      errorCount:      a.integer(),
+      durationMs:      a.integer(),
+      // perAccount: [{ accountId, name, txTotal, txNew, duplicates,
+      //   balanceBefore, balanceAfter, holdingCreates, holdingUpdates,
+      //   holdingDeletes }]
+      perAccountJson:   a.string(),
+      // pulled: raw SimpleFIN summary [{ sfId, name, balance, txCount }]
+      pulledJson:       a.string(),
+      // errors: string[] (our write failures)
+      errorsJson:       a.string(),
+      // bridgeErrors: string[] (SimpleFIN body.errors)
+      bridgeErrorsJson: a.string(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Ticker Quote ───────────────────────────────────────────────────────────
   // Last known market price per ticker. Single row per ticker (PK = ticker).
   // Refresh loop upserts these; lot records join in memory for market value.
@@ -1193,6 +1229,7 @@ const schema = a.schema({
   allow.resource(gennaroAgent),
   allow.resource(financeSnapshots),
   allow.resource(weeklyCashflow),
+  allow.resource(simplefinSync),
 ]);
 
 export type Schema = ClientSchema<typeof schema>;
