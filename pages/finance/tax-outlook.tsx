@@ -3,6 +3,7 @@ import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import FinanceLayout from "@/layouts/finance";
+import { PageTitle, PageLoading } from "@/components/common/ui";
 import {
   client,
   FINANCE_COLOR,
@@ -333,7 +334,7 @@ export default function TaxOutlookPage() {
         {/* Header */}
         <div className="flex items-baseline justify-between mb-5 gap-2 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">Tax Outlook</h1>
+            <PageTitle>Tax Outlook</PageTitle>
             <p className="text-xs text-gray-400 mt-0.5">
               {PLAN_TAX_YEAR_LABEL} · projected from each person's latest paycheck YTD columns.
               {!isCurrentYear && " · validation view (past year)"}
@@ -353,7 +354,7 @@ export default function TaxOutlookPage() {
           </div>
         </div>
 
-        {loading && <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>}
+        {loading && <PageLoading />}
 
         {!loading && byPerson.length === 0 && (
           <div className="rounded-lg border border-gray-200 dark:border-darkBorder p-8 text-center">

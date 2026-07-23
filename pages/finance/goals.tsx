@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 import {
   client,
   GoalRecord, MilestoneRecord, MilestoneStatus,
@@ -270,14 +270,14 @@ export default function GoalsPage() {
           </div>
 
           <div className="flex items-center justify-between mb-6 gap-2">
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">Savings Goals</h1>
+            <PageTitle>Savings Goals</PageTitle>
             <button onClick={openNew} className="px-4 py-1.5 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
               + New Goal
             </button>
           </div>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : goals.length === 0 ? (
             <EmptyState label="savings goals" onAdd={openNew} />
           ) : (

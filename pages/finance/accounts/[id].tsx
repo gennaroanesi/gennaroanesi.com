@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
+import { PageTitle } from "@/components/common/ui";
 import {
   client,
   AccountRecord, TransactionRecord, HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
@@ -606,7 +607,7 @@ export default function AccountDetailPage() {
             </div>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-purple dark:text-rose">{account.name}</h1>
+                <PageTitle>{account.name}</PageTitle>
                 <AccountBadge type={account.type} />
                 {retirementLabel && (
                   <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">

@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
+import { PageTitle, PageLoading } from "@/components/common/ui";
 import NextLink from "next/link";
 import {
   ItemRecord, Category, CATEGORY_CONFIG,
@@ -85,7 +86,7 @@ export default function WishlistPage() {
       <div className="px-3 py-4 md:px-6 md:py-6 overflow-auto h-full">
 
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-purple dark:text-rose">Wishlist</h1>
+          <PageTitle>Wishlist</PageTitle>
           <button
             onClick={() => setShowPicker(true)}
             className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity"
@@ -120,7 +121,7 @@ export default function WishlistPage() {
         </div>
 
         {loading ? (
-          <div className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</div>
+          <PageLoading />
         ) : filtered.length === 0 ? (
           <div className="rounded-lg border border-dashed border-gray-300 dark:border-darkBorder py-16 text-center">
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">

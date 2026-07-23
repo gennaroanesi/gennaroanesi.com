@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 import {
   client,
   HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
@@ -322,7 +322,7 @@ export default function PricesPage() {
 
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Prices</h1>
+              <PageTitle>Prices</PageTitle>
               {allTickers.length > 0 && (
                 <span className="text-sm text-gray-400 tabular-nums">
                   {allTickers.length} ticker{allTickers.length === 1 ? "" : "s"}
@@ -352,7 +352,7 @@ export default function PricesPage() {
           </p>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : allTickers.length === 0 ? (
             <div className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-8 text-center">
               <p className="text-sm text-gray-400">

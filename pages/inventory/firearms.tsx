@@ -15,7 +15,7 @@ import {
   useTableControls, TableControls,
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 
 const client = generateClient<Schema>();
 
@@ -216,7 +216,7 @@ export default function FirearmsPage() {
         {/* ── Table ───────────────────────────────────────────────────── */}
         <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">Firearms</h1>
+            <PageTitle>Firearms</PageTitle>
             <button onClick={() => openNew()}
               className="px-4 py-2 rounded text-sm font-semibold bg-purple text-rose dark:bg-rose dark:text-purple hover:opacity-90 transition-opacity">
               + Add Firearm
@@ -228,7 +228,7 @@ export default function FirearmsPage() {
           </div>
 
           {loading ? (
-            <div className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</div>
+            <PageLoading />
           ) : items.length === 0 ? (
             <EmptyState label="Firearm" onAdd={openNew} />
           ) : (

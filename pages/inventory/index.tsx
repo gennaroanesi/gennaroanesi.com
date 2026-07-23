@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
+import { PageTitle, PageLoading } from "@/components/common/ui";
 import NextLink from "next/link";
 import {
   ItemRecord, FirearmRecord, AmmoRecord, FilamentRecord, InstrumentRecord, PhotographyRecord, ElectronicRecord,
@@ -191,7 +192,7 @@ export default function InventoryPage() {
 
         {/* ── Header ────────────────────────────────────────────────────── */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-purple dark:text-rose">Inventory</h1>
+          <PageTitle>Inventory</PageTitle>
         </div>
 
         {/* ── Summary cards ─────────────────────────────────────────────── */}
@@ -266,7 +267,7 @@ export default function InventoryPage() {
 
         {/* ── Table ─────────────────────────────────────────────────────── */}
         {loading ? (
-          <div className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</div>
+          <PageLoading />
         ) : filtered.length === 0 ? (
           <EmptyState label="items" onAdd={() => {}} showCategoryLinks />
         ) : (

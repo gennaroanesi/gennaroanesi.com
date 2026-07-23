@@ -19,7 +19,7 @@ import {
   type SpendGroupRecord,
 } from "@/components/finance/_shared";
 import { effectiveCategory } from "@/components/finance/categories";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, Card } from "@/components/common/ui";
 
 const KINDS = ["TRIP", "PROJECT", "EVENT", "OTHER"] as const;
 type Kind = (typeof KINDS)[number];
@@ -176,7 +176,7 @@ export default function SpendGroupsPage() {
         <div className="flex-1 min-w-0 overflow-y-auto px-4 py-5 md:px-8">
           <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Groups</h1>
+              <PageTitle>Groups</PageTitle>
               <p className="text-xs text-gray-400 mt-0.5">Trips, projects &amp; events — spending grouped across categories.</p>
             </div>
             <button
@@ -188,7 +188,7 @@ export default function SpendGroupsPage() {
             </button>
           </div>
 
-          {loading && <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>}
+          {loading && <PageLoading />}
 
           {!loading && groups.length === 0 && (
             <div className="mt-6">
@@ -206,7 +206,7 @@ export default function SpendGroupsPage() {
                 const remaining = hasBudget ? (g.budget as number) - s.actual : 0;
                 const maxCat = Math.max(1, ...s.byCategory.map((c) => c.amount));
                 return (
-                  <div key={g.id} className="rounded-lg border border-gray-200 dark:border-darkBorder p-4 bg-white dark:bg-darkSurface">
+                  <Card key={g.id}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -259,7 +259,7 @@ export default function SpendGroupsPage() {
                         Auto-tag spending in date range
                       </button>
                     )}
-                  </div>
+                  </Card>
                 );
               })}
             </div>

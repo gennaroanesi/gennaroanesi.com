@@ -50,7 +50,7 @@ import {
   type CategoryBucket,
   type AccountBucket,
 } from "@/components/finance/review";
-import { CARD_CLASS } from "@/components/common/ui";
+import { CARD_CLASS, PageTitle, PageLoading } from "@/components/common/ui";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const INCOME_COLOR = "#22c55e";
@@ -348,7 +348,7 @@ export default function ReviewPage() {
         {/* Header + period selector */}
         <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">Review</h1>
+            <PageTitle>Review</PageTitle>
             <p className="text-xs text-gray-400 mt-0.5">{range.label} · income, spending, investments &amp; goals</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -423,7 +423,7 @@ export default function ReviewPage() {
 
         {/* Scrollable body */}
         <div className="px-4 md:px-8 py-5">
-        {loading && <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>}
+        {loading && <PageLoading />}
 
         {!loading && (
           <>

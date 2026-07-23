@@ -15,7 +15,7 @@ import {
   useTableControls, TableControls,
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageLoading } from "@/components/common/ui";
 
 const client = generateClient<Schema>();
 
@@ -268,7 +268,7 @@ export default function ElectronicsPage() {
           )}
 
           {loading ? (
-            <div className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</div>
+            <PageLoading />
           ) : items.length === 0 ? (
             <EmptyState label="Electronics" onAdd={openNew} />
           ) : (

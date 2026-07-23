@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { GetStaticProps, NextPage } from "next";
 import NextLink from "next/link";
+import { PageTitle, PageLoading } from "@/components/common/ui";
 import fs from "fs";
 import path from "path";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
@@ -218,7 +219,7 @@ const AdminProjectsPage: NextPage<Props> = ({ seedFiles }) => {
 
           <div className="flex items-center justify-between mb-5 gap-2 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Project Writeups</h1>
+              <PageTitle>Project Writeups</PageTitle>
               <p className="text-xs text-gray-400 mt-0.5">
                 Long-form articles served at <code className="font-mono">/projects/&lt;slug&gt;</code>.
               </p>
@@ -244,7 +245,7 @@ const AdminProjectsPage: NextPage<Props> = ({ seedFiles }) => {
           </div>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : sorted.length === 0 ? (
             <div className="rounded-xl border border-gray-200 dark:border-darkBorder p-8 text-center">
               <p className="text-sm text-gray-400">No project writeups yet.</p>

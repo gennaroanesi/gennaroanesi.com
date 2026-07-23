@@ -5,7 +5,7 @@ import DefaultLayout from "@/layouts/default";
 import { generateClient } from "aws-amplify/data";
 import { uploadData, remove as s3Remove } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 
 type HomeCategory = Schema["homeCategory"]["type"];
 type HomeMedia    = Schema["homeMedia"]["type"];
@@ -332,7 +332,7 @@ export default function AdminHomepagePage() {
 
           <div className="flex items-center justify-between mb-5 gap-2 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Home Page</h1>
+              <PageTitle>Home Page</PageTitle>
               <p className="text-xs text-gray-400 mt-0.5">
                 Categories and media for the carousel at <code className="font-mono">/</code>.
               </p>
@@ -373,7 +373,7 @@ export default function AdminHomepagePage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : sortedCats.length === 0 ? (
             <div className="rounded-xl border border-gray-200 dark:border-darkBorder p-8 text-center">
               <p className="text-sm text-gray-400">No categories yet.</p>

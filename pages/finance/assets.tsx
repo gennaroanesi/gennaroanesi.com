@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 import {
   client,
   AssetRecord, LoanRecord,
@@ -140,7 +140,7 @@ export default function AssetsPage() {
 
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Assets</h1>
+              <PageTitle>Assets</PageTitle>
               {activeAssets.length > 0 && (
                 <span
                   className="text-xl font-bold tabular-nums"
@@ -159,7 +159,7 @@ export default function AssetsPage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : activeAssets.length === 0 && inactiveAssets.length === 0 ? (
             <EmptyState label="assets" onAdd={openNew} />
           ) : (

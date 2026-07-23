@@ -4,7 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import { inputCls, labelCls, SaveButton, DeleteButton, CaliberInput } from "@/components/inventory/_shared";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 
 const client = generateClient<Schema>();
 
@@ -131,7 +131,7 @@ export default function ThresholdsPage() {
         <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Ammo Thresholds</h1>
+              <PageTitle>Ammo Thresholds</PageTitle>
               <p className="text-sm text-gray-400 mt-0.5">Get notified when a caliber runs low</p>
             </div>
             <button onClick={openNew}
@@ -148,7 +148,7 @@ export default function ThresholdsPage() {
           )}
 
           {loading ? (
-            <div className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</div>
+            <PageLoading />
           ) : thresholds.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 gap-4 text-gray-400">
               <p className="text-sm">No thresholds yet.</p>

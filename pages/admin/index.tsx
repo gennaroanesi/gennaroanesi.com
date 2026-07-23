@@ -4,6 +4,7 @@ import React, {
 import { useRouter } from "next/router";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import DefaultLayout from "@/layouts/default";
+import { PageLoading } from "@/components/common/ui";
 import {
   client, listAll, fmtDate,
 } from "@/components/finance/_shared";
@@ -402,7 +403,7 @@ export default function AdminHomePage() {
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 md:px-6 py-4">
             {loadingMsgs ? (
-              <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+              <PageLoading />
             ) : messages.length === 0 ? (
               <EmptyChat accent={AGENT_ACCENT} />
             ) : (

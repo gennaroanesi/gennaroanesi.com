@@ -6,7 +6,7 @@ import { generateClient } from "aws-amplify/data";
 import { uploadData, remove as s3Remove } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
 import { MarkdownText } from "@/components/common/MarkdownText";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 
 type Category = "aviation" | "dev" | "work" | "life";
 type Entry = Schema["timelineEntry"]["type"];
@@ -303,7 +303,7 @@ export default function AdminTimelinePage() {
 
           <div className="flex items-center justify-between mb-5 gap-2 flex-wrap">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Manage Timeline</h1>
+              <PageTitle>Manage Timeline</PageTitle>
               <p className="text-xs text-gray-400 mt-0.5">
                 Entries + attached media for the public /timeline page.
               </p>
@@ -329,7 +329,7 @@ export default function AdminTimelinePage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : sorted.length === 0 ? (
             <div className="rounded-xl border border-gray-200 dark:border-darkBorder p-8 text-center">
               <p className="text-sm text-gray-400">No timeline entries yet.</p>

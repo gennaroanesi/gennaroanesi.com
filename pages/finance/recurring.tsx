@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 import {
   client,
   AccountRecord, RecurringRecord, TransactionRecord,
@@ -528,7 +528,7 @@ export default function RecurringPage() {
 
           <div className="flex items-center justify-between mb-4 gap-2">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Recurring</h1>
+              <PageTitle>Recurring</PageTitle>
               {active.length > 0 && (
                 <p className="text-xs text-gray-400 mt-0.5">
                   Monthly net: <span className="font-semibold tabular-nums" style={{ color: amountColor(monthlyNet) }}>{fmtCurrency(monthlyNet, "USD", true)}</span>
@@ -541,7 +541,7 @@ export default function RecurringPage() {
           </div>
 
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : recurrings.length === 0 ? (
             <EmptyState label="recurring transactions" onAdd={openNew} />
           ) : (

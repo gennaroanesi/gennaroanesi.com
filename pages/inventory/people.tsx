@@ -4,7 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import { inputCls, labelCls, SaveButton, DeleteButton } from "@/components/inventory/_shared";
-import { SlideOverPanel } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 
 const client = generateClient<Schema>();
 
@@ -149,7 +149,7 @@ export default function PeoplePage() {
         <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">People</h1>
+              <PageTitle>People</PageTitle>
               <p className="text-sm text-gray-400 mt-0.5">Contacts who receive notifications</p>
             </div>
             <button onClick={openNew}
@@ -159,7 +159,7 @@ export default function PeoplePage() {
           </div>
 
           {loading ? (
-            <div className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</div>
+            <PageLoading />
           ) : people.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 gap-4 text-gray-400">
               <p className="text-sm">No people yet.</p>

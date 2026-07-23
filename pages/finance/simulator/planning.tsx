@@ -3,6 +3,7 @@ import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useS3JsonState, type S3SyncStatus } from "@/hooks/useS3JsonState";
 import FinanceLayout from "@/layouts/finance";
+import { PageTitle } from "@/components/common/ui";
 import SimulatorTabs from "@/components/finance/SimulatorTabs";
 import {
   FINANCE_COLOR,
@@ -150,7 +151,7 @@ export default function PlanningSimulatorPage() {
 
           <div className="flex items-baseline justify-between gap-3 flex-wrap mb-4">
             <div>
-              <h1 className="text-2xl font-bold text-purple dark:text-rose">Long-term Planning</h1>
+              <PageTitle>Long-term Planning</PageTitle>
               <p className="text-xs text-gray-400 mt-0.5">
                 Multi-year salary trajectory + paycheck math + spending. Macro view —
                 pure scratchpad, no transactions touched. Withholding uses {PLAN_TAX_YEAR_LABEL}.

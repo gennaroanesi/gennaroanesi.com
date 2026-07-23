@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
+import { PageTitle, PageLoading } from "@/components/common/ui";
 import {
   client,
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
@@ -449,7 +450,7 @@ export default function TransactionsPage() {
 
           {/* Header */}
           <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">Transactions</h1>
+            <PageTitle>Transactions</PageTitle>
             <p className="text-[11px] text-gray-400">
               Create + import from each account&apos;s page.
             </p>
@@ -664,7 +665,7 @@ export default function TransactionsPage() {
 
           {/* Table */}
           {loading ? (
-            <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+            <PageLoading />
           ) : filtered.length === 0 ? (
             <EmptyState label="transactions" />
           ) : (

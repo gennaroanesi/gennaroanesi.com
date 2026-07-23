@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
+import { PageTitle, PageLoading } from "@/components/common/ui";
 import { useRouter } from "next/router";
 import {
   ItemRecord,
@@ -499,9 +500,7 @@ export default function AmmoPage() {
         {/* ── Main ────────────────────────────────────────────────────── */}
         <div className="flex-1 px-3 py-4 md:px-6 md:py-6 overflow-auto">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">
-              Ammunition
-            </h1>
+            <PageTitle>Ammunition</PageTitle>
             <div className="flex gap-2">
               <button
                 onClick={() => openLogUse()}
@@ -557,9 +556,7 @@ export default function AmmoPage() {
           )}
 
           {loading ? (
-            <div className="text-sm text-gray-400 animate-pulse py-12 text-center">
-              Loading…
-            </div>
+            <PageLoading />
           ) : items.length === 0 ? (
             <EmptyState label="Ammo" onAdd={openNew} />
           ) : (
