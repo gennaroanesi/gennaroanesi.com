@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
+import { SlideOverPanel } from "@/components/common/ui";
 import {
   client,
   GoalRecord, MilestoneRecord, MilestoneStatus,
@@ -454,14 +455,10 @@ export default function GoalsPage() {
 
         {/* ── Side panel ─────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-              <h2 className="text-base font-semibold dark:text-rose text-purple">
-                {panel.kind === "new" ? "New Goal" : draft.name}
-              </h2>
-              <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+          <SlideOverPanel
+            title={panel.kind === "new" ? "New Goal" : draft.name}
+            onClose={() => setPanel(null)}
+          >
               <div>
                 <label className={labelCls}>Name *</label>
                 <input type="text" className={inputCls} placeholder="Emergency fund, House down payment…"
@@ -734,8 +731,7 @@ export default function GoalsPage() {
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.goal)} />
               )}
-            </div>
-          </div>
+          </SlideOverPanel>
         )}
       </div>
     </FinanceLayout>

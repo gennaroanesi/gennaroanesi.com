@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
+import { SlideOverPanel } from "@/components/common/ui";
 import {
   client,
   AccountRecord, LoanRecord, LoanPaymentRecord, AssetRecord, TransactionRecord,
@@ -1254,18 +1255,15 @@ export default function LoanDetailPage() {
 
         {/* ── Side panel ───────────────────────────────────────────────── */}
         {panel && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-              <h2 className="text-base font-semibold dark:text-rose text-purple">
-                {panel.kind === "post"          ? `Post Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
+          <SlideOverPanel
+            title={
+                panel.kind === "post"          ? `Post Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
                  panel.kind === "edit-posted"   ? `Edit Payment${(panel.payment.sequenceNumber ? ` #${panel.payment.sequenceNumber}` : "")}` :
                  panel.kind === "extra"         ? "Extra Payment" :
                  panel.kind === "edit-loan"     ? "Edit Loan" :
                                                   "Balance Correction"}
-              </h2>
-              <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+            onClose={() => setPanel(null)}
+          >
               {panel.kind === "edit-loan" ? (
                 // ── Edit loan metadata form ───────────────────────────────
                 // Principal / rate / term / start date are deliberately omitted —
@@ -1546,8 +1544,7 @@ export default function LoanDetailPage() {
               )}
                 </>
               )}
-            </div>
-          </div>
+          </SlideOverPanel>
         )}
       </div>
     </FinanceLayout>

@@ -14,6 +14,7 @@ import {
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import { inferCategory } from "@/components/finance/categories";
+import { SlideOverPanel } from "@/components/common/ui";
 import {
   parseSchwabActivityCsv, labelForSchwabAction,
   type SchwabRow, type SchwabAction,
@@ -515,12 +516,11 @@ export function ImportPanel(props: ImportPanelProps) {
     : inRangeBank.filter((r) => r.selected && !r.duplicate).length;
 
   return (
-    <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-[28rem] border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-        <h2 className="text-base font-semibold dark:text-rose text-purple">Import CSV</h2>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-      </div>
-      <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+    <SlideOverPanel
+      title="Import CSV"
+      onClose={onClose}
+      width="md:w-[28rem]"
+    >
         <p className="text-xs text-gray-400">
           {mode === "schwab"
             ? "Drop a Schwab activity CSV (Accounts → History → Transactions). Trades create lots and consume FIFO; dividends + interest become INCOME; transfers become EXPENSE; RSU vests create lots with no cost basis."
@@ -756,7 +756,6 @@ export function ImportPanel(props: ImportPanelProps) {
               } />
           </>
         )}
-      </div>
-    </div>
+    </SlideOverPanel>
   );
 }

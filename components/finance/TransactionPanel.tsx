@@ -13,6 +13,7 @@ import {
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
+import { SlideOverPanel } from "@/components/common/ui";
 import { parseLineItems, type LineItem } from "@/components/finance/categories";
 
 /**
@@ -423,14 +424,10 @@ export function TransactionPanel(props: TransactionPanelProps) {
   const isEditingTrade = isEditing && editingTx ? isTradeType(editingTx.type as any) : false;
 
   return (
-    <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-        <h2 className="text-base font-semibold dark:text-rose text-purple">
-          {mode === "create" ? "New Transaction" : "Edit Transaction"}
-        </h2>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-      </div>
-      <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+    <SlideOverPanel
+      title={mode === "create" ? "New Transaction" : "Edit Transaction"}
+      onClose={onClose}
+    >
         <div>
           <label className={labelCls}>Account *</label>
           <select
@@ -916,7 +913,6 @@ export function TransactionPanel(props: TransactionPanelProps) {
         {mode === "edit" && (
           <DeleteButton saving={saving} onDelete={handleDelete} />
         )}
-      </div>
-    </div>
+    </SlideOverPanel>
   );
 }
