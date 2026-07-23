@@ -15,6 +15,7 @@ import {
   SaveButton, EmptyState,
   listAll,
 } from "@/components/finance/_shared";
+import { mutate, reportError } from "@/components/common/mutate";
 
 type PanelState = { kind: "new" } | null;
 
@@ -129,42 +130,46 @@ export default function LoansPage() {
     setSaving(true);
     try {
       // 1. Create the ledger account (LOAN type, negative balance = money owed)
-      const { data: newAcc, errors: accErr } = await client.models.financeAccount.create({
+      const newAcc = await mutate(client.models.financeAccount.create({
         name:           draft.name.trim(),
         type:           "LOAN" as any,
         currentBalance: -principal,
         currency:       "USD",
         notes:          null,
         active:         true,
-      });
-      if (accErr?.length || !newAcc) throw new Error(accErr?.[0]?.message ?? "Failed to create account");
+      }));
+      if (!newAcc) throw new Error("Failed to create account");
 
-      // 2. Create the loan metadata record
-      const { data: newLoan, errors: loanErr } = await client.models.financeLoan.create({
-        accountId:         newAcc.id,
-        loanType:          draft.loanType as any,
-        originalPrincipal: principal,
-        currentBalance:    principal,
-        interestRate:      rate,
-        termMonths:        months,
-        startDate:         draft.startDate,
-        firstPaymentDate:  draft.firstPaymentDate,
-        paymentStrategy:   draft.paymentStrategy as any,
-        assetId:           draft.assetId  || null,
-        escrowAccountId:   draft.escrowAccountId || null,
-        lender:            draft.lender.trim() || null,
-        notes:             draft.notes.trim() || null,
-      });
-      if (loanErr?.length || !newLoan) {
-        // Roll back the account we just created
-        await client.models.financeAccount.delete({ id: newAcc.id });
-        throw new Error(loanErr?.[0]?.message ?? "Failed to create loan");
+      // 2. Create the loan metadata record. On failure, roll back the account
+      //    we just created so we don't leave an orphan ledger account behind.
+      let newLoan;
+      try {
+        newLoan = await mutate(client.models.financeLoan.create({
+          accountId:         newAcc.id,
+          loanType:          draft.loanType as any,
+          originalPrincipal: principal,
+          currentBalance:    principal,
+          interestRate:      rate,
+          termMonths:        months,
+          startDate:         draft.startDate,
+          firstPaymentDate:  draft.firstPaymentDate,
+          paymentStrategy:   draft.paymentStrategy as any,
+          assetId:           draft.assetId  || null,
+          escrowAccountId:   draft.escrowAccountId || null,
+          lender:            draft.lender.trim() || null,
+          notes:             draft.notes.trim() || null,
+        }));
+      } catch (loanErr) {
+        // Roll back the account we just created (best-effort)
+        await client.models.financeAccount.delete({ id: newAcc.id }).catch(() => {});
+        throw loanErr;
       }
+      if (!newLoan) throw new Error("Failed to create loan");
 
       // 3. Generate the full amortization schedule and write each row
       const schedule = amortize(principal, rate, months, draft.firstPaymentDate);
       for (const row of schedule) {
-        await client.models.financeLoanPayment.create({
+        await mutate(client.models.financeLoanPayment.create({
           loanId:         newLoan.id,
           status:         "SCHEDULED" as any,
           date:           row.date,
@@ -179,14 +184,13 @@ export default function LoansPage() {
           transactionId:  null,
           loanTransactionId: null,
           notes:          null,
-        });
+        }));
       }
 
       // Navigate to the detail page
       router.push(`/finance/loans/${newLoan.id}`);
     } catch (err: any) {
-      console.error("[loans] create failed:", err);
-      alert(`Failed to create loan: ${err?.message ?? String(err)}`);
+      reportError(err, "Create loan");
     } finally {
       setSaving(false);
     }

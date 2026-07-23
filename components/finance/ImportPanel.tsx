@@ -14,6 +14,7 @@ import {
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import { inferCategory } from "@/components/finance/categories";
+import { mutate, reportError } from "@/components/common/mutate";
 import { SlideOverPanel } from "@/components/common/ui";
 import {
   parseSchwabActivityCsv, labelForSchwabAction,
@@ -149,7 +150,7 @@ export function ImportPanel(props: ImportPanelProps) {
     const acc = accounts.find((a) => a.id === accountId);
     if (acc) {
       const newBal = (acc.currentBalance ?? 0) + delta;
-      await client.models.financeAccount.update({ id: accountId, currentBalance: newBal });
+      await mutate(client.models.financeAccount.update({ id: accountId, currentBalance: newBal }));
       onSetAccounts((p) => p.map((a) => a.id === accountId ? { ...a, currentBalance: newBal } : a));
     }
   }
@@ -216,46 +217,59 @@ export function ImportPanel(props: ImportPanelProps) {
     const deletedIds = new Set<string>();
     if (importDeleteRange) {
       for (const tx of inRangeExistingTx) {
-        await client.models.financeTransaction.delete({ id: tx.id });
+        await mutate(client.models.financeTransaction.delete({ id: tx.id }));
         deletedDelta -= tx.amount ?? 0;
         deletedIds.add(tx.id);
       }
     }
 
     const created: TransactionRecord[] = [];
+    const errors:  string[] = [];
+    // Track the delta from rows that actually persisted (not the intended set)
+    // so a mid-loop failure can't skew the balance adjustment.
+    let insertedDelta = 0;
     for (const row of toImport) {
       const amt: number  = effectiveAmount(row.amount);
       const type: TxType = amt >= 0 ? "INCOME" : "EXPENSE";
-      const { data: tx } = await client.models.financeTransaction.create({
-        accountId:   importAccountId,
-        amount:      amt,
-        type:        type as any,
-        category:    row.category || inferCategory({ description: row.description, type, amount: amt }) || null,
-        description: row.description,
-        date:        row.date,
-        status:      "POSTED" as any,
-        goalId:      null,
-        toAccountId: null,
-        importHash:  row.hash,
-      });
-      if (tx) {
-        const candidates = findRecurringMatches(tx, recurrings);
-        if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
-          await applyRecurringMatch(client, tx, candidates[0].rule);
-          created.push({ ...tx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord);
-        } else {
-          created.push(tx);
+      try {
+        const tx = await mutate(client.models.financeTransaction.create({
+          accountId:   importAccountId,
+          amount:      amt,
+          type:        type as any,
+          category:    row.category || inferCategory({ description: row.description, type, amount: amt }) || null,
+          description: row.description,
+          date:        row.date,
+          status:      "POSTED" as any,
+          goalId:      null,
+          toAccountId: null,
+          importHash:  row.hash,
+        }));
+        if (tx) {
+          insertedDelta += amt;
+          const candidates = findRecurringMatches(tx, recurrings);
+          if (candidates[0] && candidates[0].score >= RECURRING_MATCH_AUTO_THRESHOLD) {
+            await applyRecurringMatch(client, tx, candidates[0].rule);
+            created.push({ ...tx, recurringId: candidates[0].rule.id } as unknown as TransactionRecord);
+          } else {
+            created.push(tx);
+          }
         }
+      } catch (e: any) {
+        console.error("[bank-import] row failed", row, e);
+        errors.push(`${row.date} ${row.description}: ${e?.message ?? String(e)}`);
       }
     }
 
-    const insertedDelta = toImport.reduce((s, r) => s + effectiveAmount(r.amount), 0);
-    const netDelta      = deletedDelta + insertedDelta;
+    const netDelta = deletedDelta + insertedDelta;
     if (netDelta !== 0) await adjustBalance(importAccountId, netDelta);
 
     onSetTransactions((p) => [...created, ...p.filter((t) => !deletedIds.has(t.id))]);
     const accs = await listAll(client.models.financeAccount);
     onSetAccounts(accs);
+
+    if (errors.length > 0) {
+      alert(`Imported ${created.length} rows with ${errors.length} error${errors.length === 1 ? "" : "s"}:\n\n${errors.slice(0, 10).join("\n")}${errors.length > 10 ? `\n…and ${errors.length - 10} more (see console)` : ""}`);
+    }
   }
 
   // ── Schwab commit (per-action dispatch) ────────────────────────────────
@@ -272,7 +286,7 @@ export function ImportPanel(props: ImportPanelProps) {
     const deletedIds = new Set<string>();
     if (importDeleteRange) {
       for (const tx of inRangeExistingTx) {
-        await client.models.financeTransaction.delete({ id: tx.id });
+        await mutate(client.models.financeTransaction.delete({ id: tx.id }));
         deletedDelta -= tx.amount ?? 0;
         deletedIds.add(tx.id);
       }
@@ -294,7 +308,7 @@ export function ImportPanel(props: ImportPanelProps) {
         if (row.action === "BANK_INTEREST" || row.action === "QUALIFIED_DIVIDEND" || row.action === "REINVEST_DIVIDEND" || row.action === "QUAL_DIV_REINVEST") {
           const amount = row.amount ?? 0;
           const category = row.action === "BANK_INTEREST" ? "Interest" : "Dividends";
-          const { data: tx } = await client.models.financeTransaction.create({
+          const tx = await mutate(client.models.financeTransaction.create({
             accountId:   importAccountId,
             amount,
             type:        "INCOME" as any,
@@ -306,12 +320,12 @@ export function ImportPanel(props: ImportPanelProps) {
             toAccountId: null,
             importHash:  row.hash,
             ticker:      row.symbol || null,
-          });
+          }));
           if (tx) created.push(tx);
           netInserted += amount;
         } else if (row.action === "BANK_TRANSFER" || row.action === "MONEYLINK_TRANSFER") {
           const amount = row.amount ?? 0;
-          const { data: tx } = await client.models.financeTransaction.create({
+          const tx = await mutate(client.models.financeTransaction.create({
             accountId:   importAccountId,
             amount,
             type:        "EXPENSE" as any,
@@ -322,7 +336,7 @@ export function ImportPanel(props: ImportPanelProps) {
             goalId:      null,
             toAccountId: null,
             importHash:  row.hash,
-          });
+          }));
           if (tx) created.push(tx);
           netInserted += amount;
         } else if (row.action === "BUY" || row.action === "REINVEST_SHARES") {
@@ -331,7 +345,7 @@ export function ImportPanel(props: ImportPanelProps) {
           const fees  = row.fees     ?? 0;
           const amount = row.amount ?? -(qty * price + fees);
           const basis  = Math.abs(amount) || (qty * price + fees) || null;
-          const { data: lot } = await client.models.financeHoldingLot.create({
+          const lot = await mutate(client.models.financeHoldingLot.create({
             accountId:    importAccountId,
             ticker:       row.symbol,
             assetType:    "STOCK" as any,
@@ -340,8 +354,8 @@ export function ImportPanel(props: ImportPanelProps) {
             purchaseDate: row.date,
             isVested:     true,
             notes:        row.action === "REINVEST_SHARES" ? "Reinvested dividend" : null,
-          });
-          const { data: tx } = await client.models.financeTransaction.create({
+          }));
+          const tx = await mutate(client.models.financeTransaction.create({
             accountId:   importAccountId,
             amount,
             type:        "BUY" as any,
@@ -357,7 +371,7 @@ export function ImportPanel(props: ImportPanelProps) {
             price:       price || null,
             fees:        fees > 0 ? fees : null,
             lotId:       lot?.id ?? null,
-          } as any);
+          } as any));
           if (tx) created.push(tx);
           if (lot) { newLots.push(lot); runningLots.push(lot); }
           netInserted += amount;
@@ -389,17 +403,17 @@ export function ImportPanel(props: ImportPanelProps) {
             remaining   -= takeQty;
             const leftover = lotQty - takeQty;
             if (leftover < 1e-6) {
-              await client.models.financeHoldingLot.delete({ id: lot.id });
+              await mutate(client.models.financeHoldingLot.delete({ id: lot.id }));
               const idx = runningLots.findIndex((l) => l.id === lot.id);
               if (idx >= 0) runningLots.splice(idx, 1);
             } else {
               const newCost = lot.costBasis != null ? lot.costBasis - consumed : null;
-              await client.models.financeHoldingLot.update({ id: lot.id, quantity: leftover, costBasis: newCost });
+              await mutate(client.models.financeHoldingLot.update({ id: lot.id, quantity: leftover, costBasis: newCost }));
               const idx = runningLots.findIndex((l) => l.id === lot.id);
               if (idx >= 0) runningLots[idx] = { ...runningLots[idx], quantity: leftover, costBasis: newCost ?? null };
             }
           }
-          const { data: tx } = await client.models.financeTransaction.create({
+          const tx = await mutate(client.models.financeTransaction.create({
             accountId:         importAccountId,
             amount,
             type:              "SELL" as any,
@@ -417,13 +431,13 @@ export function ImportPanel(props: ImportPanelProps) {
             lotId:             breakdown[0]?.lotId ?? null,
             consumedCostBasis: runningCost || null,
             lotConsumptions:   breakdown.length > 0 ? JSON.stringify(breakdown) : null,
-          } as any);
+          } as any));
           if (tx) created.push(tx);
           netInserted += amount;
         } else if (row.action === "STOCK_PLAN_ACTIVITY") {
           const qty = row.quantity ?? 0;
           if (qty <= 0) continue;
-          const { data: lot } = await client.models.financeHoldingLot.create({
+          const lot = await mutate(client.models.financeHoldingLot.create({
             accountId:    importAccountId,
             ticker:       row.symbol,
             assetType:    "STOCK" as any,
@@ -432,7 +446,7 @@ export function ImportPanel(props: ImportPanelProps) {
             purchaseDate: row.date,
             isVested:     true,
             notes:        "RSU vest — fill in cost basis from 1099-B",
-          });
+          }));
           if (lot) { newLots.push(lot); runningLots.push(lot); }
         }
       } catch (e: any) {
@@ -466,6 +480,11 @@ export function ImportPanel(props: ImportPanelProps) {
       if (mode === "schwab") await commitSchwab();
       else                   await commitBank();
       onClose();
+    } catch (e) {
+      // A create/delete/balance write failed and propagated out of the commit
+      // loop — surface it so the user knows the import did not fully apply
+      // (rows already written stay; the panel stays open to retry).
+      reportError(e, "Import");
     } finally {
       setSaving(false);
     }

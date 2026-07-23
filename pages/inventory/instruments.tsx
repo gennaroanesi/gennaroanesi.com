@@ -16,6 +16,7 @@ import {
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -110,7 +111,7 @@ export default function InstrumentsPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newItem, errors } = await client.models.inventoryItem.create({
+        const newItem = await mutate(client.models.inventoryItem.create({
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
           description:   itemDraft.description  ?? null,
@@ -123,9 +124,9 @@ export default function InstrumentsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        if (errors || !newItem) return;
-        const { data: newInstrument } = await client.models.inventoryInstrument.create({
+        }));
+        if (!newItem) return;
+        const newInstrument = await mutate(client.models.inventoryInstrument.create({
           itemId:       newItem.id,
           type:         (instrumentDraft.type ?? "OTHER") as any,
           color:        instrumentDraft.color        ?? null,
@@ -134,17 +135,17 @@ export default function InstrumentsPage() {
           bodyMaterial: instrumentDraft.bodyMaterial  ?? null,
           finish:       instrumentDraft.finish        ?? null,
           parts:        partsDraft.filter((p) => p.name.trim()) as any,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({ id: newItem.id, imageKeys });
+          await mutate(client.models.inventoryItem.update({ id: newItem.id, imageKeys }));
         }
         if (newInstrument) {
           setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
           setDetails((prev) => new Map(prev).set(newItem.id, newInstrument));
         }
       } else if (panel?.kind === "edit") {
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id:            panel.item.id,
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
@@ -157,8 +158,8 @@ export default function InstrumentsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        await client.models.inventoryInstrument.update({
+        }));
+        await mutate(client.models.inventoryInstrument.update({
           id:           panel.instrument.id,
           type:         (instrumentDraft.type ?? "OTHER") as any,
           color:        instrumentDraft.color        ?? null,
@@ -167,15 +168,17 @@ export default function InstrumentsPage() {
           bodyMaterial: instrumentDraft.bodyMaterial  ?? null,
           finish:       instrumentDraft.finish        ?? null,
           parts:        partsDraft.filter((p) => p.name.trim()) as any,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
-        await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
+        await mutate(client.models.inventoryItem.update({ id: panel.item.id, imageKeys }));
         const updatedItem       = { ...panel.item,       ...itemDraft, imageKeys }       as ItemRecord;
         const updatedInstrument = { ...panel.instrument, ...instrumentDraft } as InstrumentRecord;
         setItems((prev)   => prev.map((i) => i.id === updatedItem.id ? updatedItem : i));
         setDetails((prev) => new Map(prev).set(updatedItem.id, updatedInstrument));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -186,11 +189,13 @@ export default function InstrumentsPage() {
     if (!confirm("Delete this instrument record?")) return;
     setSaving(true);
     try {
-      await client.models.inventoryInstrument.delete({ id: panel.instrument.id });
-      await client.models.inventoryItem.delete({ id: panel.item.id });
+      await mutate(client.models.inventoryInstrument.delete({ id: panel.instrument.id }));
+      await mutate(client.models.inventoryItem.delete({ id: panel.item.id }));
       setItems((prev)   => prev.filter((i) => i.id !== panel.item.id));
       setDetails((prev) => { const m = new Map(prev); m.delete(panel.item.id); return m; });
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

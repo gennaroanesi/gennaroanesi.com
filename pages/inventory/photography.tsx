@@ -16,6 +16,7 @@ import {
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageLoading } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -100,7 +101,7 @@ export default function PhotographyPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newItem, errors } = await client.models.inventoryItem.create({
+        const newItem = await mutate(client.models.inventoryItem.create({
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
           description:   itemDraft.description  ?? null,
@@ -113,9 +114,9 @@ export default function PhotographyPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        if (errors || !newItem) return;
-        const { data: newPhoto } = await client.models.inventoryPhotography.create({
+        }));
+        if (!newItem) return;
+        const newPhoto = await mutate(client.models.inventoryPhotography.create({
           itemId:            newItem.id,
           type:              (photoDraft.type ?? "OTHER") as any,
           serialNumber:      photoDraft.serialNumber     ?? null,
@@ -128,17 +129,17 @@ export default function PhotographyPage() {
           weightG:           photoDraft.weightG          ?? null,
           maxFlightTimeMin:  photoDraft.maxFlightTimeMin ?? null,
           subC250g:          photoDraft.subC250g         ?? null,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({ id: newItem.id, imageKeys });
+          await mutate(client.models.inventoryItem.update({ id: newItem.id, imageKeys }));
         }
         if (newPhoto) {
           setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
           setDetails((prev) => new Map(prev).set(newItem.id, newPhoto));
         }
       } else if (panel?.kind === "edit") {
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id:            panel.item.id,
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
@@ -151,8 +152,8 @@ export default function PhotographyPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        await client.models.inventoryPhotography.update({
+        }));
+        await mutate(client.models.inventoryPhotography.update({
           id:                panel.photo.id,
           type:              (photoDraft.type ?? "OTHER") as any,
           serialNumber:      photoDraft.serialNumber     ?? null,
@@ -165,15 +166,17 @@ export default function PhotographyPage() {
           weightG:           photoDraft.weightG          ?? null,
           maxFlightTimeMin:  photoDraft.maxFlightTimeMin ?? null,
           subC250g:          photoDraft.subC250g         ?? null,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
-        await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
+        await mutate(client.models.inventoryItem.update({ id: panel.item.id, imageKeys }));
         const updatedItem  = { ...panel.item,  ...itemDraft,  imageKeys } as ItemRecord;
         const updatedPhoto = { ...panel.photo, ...photoDraft }           as PhotographyRecord;
         setItems((prev)   => prev.map((i) => i.id === updatedItem.id ? updatedItem : i));
         setDetails((prev) => new Map(prev).set(updatedItem.id, updatedPhoto));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -184,11 +187,13 @@ export default function PhotographyPage() {
     if (!confirm("Delete this photography record?")) return;
     setSaving(true);
     try {
-      await client.models.inventoryPhotography.delete({ id: panel.photo.id });
-      await client.models.inventoryItem.delete({ id: panel.item.id });
+      await mutate(client.models.inventoryPhotography.delete({ id: panel.photo.id }));
+      await mutate(client.models.inventoryItem.delete({ id: panel.item.id }));
       setItems((prev)   => prev.filter((i) => i.id !== panel.item.id));
       setDetails((prev) => { const m = new Map(prev); m.delete(panel.item.id); return m; });
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

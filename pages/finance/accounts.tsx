@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
+import { mutate, reportError } from "@/components/common/mutate";
 import {
   client,
   AccountRecord, HoldingRecord, TickerQuoteRecord,
@@ -100,7 +101,7 @@ export default function AccountsPage() {
     setBusyId(acc.id);
     try {
       const next = !(acc.favorite ?? false);
-      await client.models.financeAccount.update({ id: acc.id, favorite: next });
+      await mutate(client.models.financeAccount.update({ id: acc.id, favorite: next }));
       setAccounts((prev) => prev.map((a) => a.id === acc.id ? { ...a, favorite: next } : a));
     } catch (err: any) {
       console.error("[accounts] toggle favorite failed:", err);
@@ -148,14 +149,16 @@ export default function AccountsPage() {
       };
 
       if (panelMode === "new") {
-        const { data: newAcc } = await client.models.financeAccount.create(payload);
+        const newAcc = await mutate(client.models.financeAccount.create(payload));
         if (newAcc) setAccounts((p) => [...p, newAcc]);
       } else if (panelMode && typeof panelMode === "object" && panelMode.kind === "edit") {
         const id = panelMode.id;
-        await client.models.financeAccount.update({ id, ...payload });
+        await mutate(client.models.financeAccount.update({ id, ...payload }));
         setAccounts((p) => p.map((a) => a.id === id ? { ...a, ...payload } as AccountRecord : a));
       }
       setPanelMode(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -168,9 +171,11 @@ export default function AccountsPage() {
     if (!confirm(`Delete account "${target?.name ?? id}"? Transactions on this account will not be deleted.`)) return;
     setSaving(true);
     try {
-      await client.models.financeAccount.delete({ id });
+      await mutate(client.models.financeAccount.delete({ id }));
       setAccounts((p) => p.filter((a) => a.id !== id));
       setPanelMode(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

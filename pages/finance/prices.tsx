@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import { SlideOverPanel, PageTitle, PageLoading, Badge } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 import {
   client,
   HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
@@ -129,15 +130,17 @@ export default function PricesPage() {
       };
       const existing = quoteByTicker.get(edit.ticker);
       if (existing) {
-        await client.models.financeTickerQuote.update(payload);
+        await mutate(client.models.financeTickerQuote.update(payload));
       } else {
-        await client.models.financeTickerQuote.create(payload);
+        await mutate(client.models.financeTickerQuote.create(payload));
       }
       setQuotes((prev) => {
         const without = prev.filter((q) => (q.ticker ?? "").toUpperCase() !== edit.ticker);
         return [...without, { ...payload } as TickerQuoteRecord];
       });
       setEdit(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -150,13 +153,13 @@ export default function PricesPage() {
     setSaving(true);
     try {
       // Flip source back to yahoo. Price is left in place as a starting value; next refresh will overwrite.
-      await client.models.financeTickerQuote.update({
+      await mutate(client.models.financeTickerQuote.update({
         ticker,
         price:     existing.price ?? 0,
         currency:  existing.currency ?? "USD",
         fetchedAt: existing.fetchedAt ?? new Date().toISOString(),
         source:    "yahoo",
-      });
+      }));
       setQuotes((prev) =>
         prev.map((q) =>
           (q.ticker ?? "").toUpperCase() === ticker
@@ -164,6 +167,8 @@ export default function PricesPage() {
             : q,
         ),
       );
+    } catch (e) {
+      reportError(e, "Clear");
     } finally {
       setSaving(false);
     }

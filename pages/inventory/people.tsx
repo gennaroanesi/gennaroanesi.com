@@ -5,6 +5,7 @@ import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import { inputCls, labelCls, SaveButton, DeleteButton } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -83,26 +84,28 @@ export default function PeoplePage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newP } = await client.models.notificationPerson.create({
+        const newP = await mutate(client.models.notificationPerson.create({
           name:             draft.name,
           phone:            draft.phone || null,
           email:            draft.email || null,
           preferredChannel: draft.preferredChannel as any,
           active:           draft.active,
-        });
+        }));
         if (newP) setPeople((prev) => [newP, ...prev]);
       } else if (panel?.kind === "edit") {
-        const { data: updated } = await client.models.notificationPerson.update({
+        const updated = await mutate(client.models.notificationPerson.update({
           id:               panel.person.id,
           name:             draft.name,
           phone:            draft.phone || null,
           email:            draft.email || null,
           preferredChannel: draft.preferredChannel as any,
           active:           draft.active,
-        });
+        }));
         if (updated) setPeople((prev) => prev.map((p) => p.id === updated.id ? updated : p));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -132,9 +135,11 @@ export default function PeoplePage() {
     if (!confirm(`Delete ${person.name}?`)) return;
     setSaving(true);
     try {
-      await client.models.notificationPerson.delete({ id: person.id });
+      await mutate(client.models.notificationPerson.delete({ id: person.id }));
       setPeople((prev) => prev.filter((p) => p.id !== person.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

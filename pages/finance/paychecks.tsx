@@ -3,6 +3,7 @@ import NextLink from "next/link";
 import { uploadData, getUrl } from "aws-amplify/storage";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
+import { mutate, reportError } from "@/components/common/mutate";
 import {
   client,
   FINANCE_COLOR,
@@ -306,16 +307,12 @@ export default function PaychecksPage() {
 
       let saved: PaycheckRecord | null = null;
       if (panel?.kind === "edit") {
-        const { data, errors } = await client.models.financePaycheck.update({
+        saved = await mutate(client.models.financePaycheck.update({
           ...payload,
           id: panel.rec.id,
-        });
-        if (errors?.length) throw new Error(errors[0].message ?? "Update failed");
-        saved = data ?? null;
+        }));
       } else {
-        const { data, errors } = await client.models.financePaycheck.create(payload);
-        if (errors?.length) throw new Error(errors[0].message ?? "Create failed");
-        saved = data ?? null;
+        saved = await mutate(client.models.financePaycheck.create(payload));
       }
       if (!saved) throw new Error("Save returned no record");
 
@@ -323,21 +320,20 @@ export default function PaychecksPage() {
       // attachment model so future "show original PDF" flows work the same
       // way as transaction / loan attachments.
       if (saved && draft.pendingAttachment) {
-        await client.models.attachment.create({
+        await mutate(client.models.attachment.create({
           parentType:  "PAYCHECK" as any,
           parentId:    saved.id,
           s3Key:       draft.pendingAttachment.s3Key,
           filename:    draft.pendingAttachment.filename,
           contentType: draft.pendingAttachment.contentType,
           sizeBytes:   draft.pendingAttachment.sizeBytes,
-        });
+        }));
       }
 
       await fetchData();
       closePanel();
     } catch (err) {
-      console.error("[paychecks] save failed", err);
-      alert(err instanceof Error ? err.message : "Save failed");
+      reportError(err, "Save");
     } finally {
       setSaving(false);
     }
@@ -352,11 +348,13 @@ export default function PaychecksPage() {
       // itself is left in place — orphan-cleanup is a separate concern.
       const atts = attachmentsById.get(panel.rec.id) ?? [];
       await Promise.all(atts.map((a) =>
-        client.models.attachment.delete({ id: a.id }),
+        mutate(client.models.attachment.delete({ id: a.id })),
       ));
-      await client.models.financePaycheck.delete({ id: panel.rec.id });
+      await mutate(client.models.financePaycheck.delete({ id: panel.rec.id }));
       await fetchData();
       closePanel();
+    } catch (err) {
+      reportError(err, "Delete");
     } finally {
       setSaving(false);
     }

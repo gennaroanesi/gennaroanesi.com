@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
+import { mutate, reportError } from "@/components/common/mutate";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton, Badge } from "@/components/common/ui";
 import {
   client,
@@ -73,7 +74,7 @@ export default function AssetsPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newAsset } = await client.models.financeAsset.create({
+        const newAsset = await mutate(client.models.financeAsset.create({
           name:          draft.name!,
           type:          (draft.type ?? "OTHER") as any,
           purchaseValue: draft.purchaseValue ?? null,
@@ -81,10 +82,10 @@ export default function AssetsPage() {
           purchaseDate:  draft.purchaseDate ?? null,
           notes:         draft.notes ?? null,
           active:        draft.active ?? true,
-        });
+        }));
         if (newAsset) setAssets((p) => [...p, newAsset]);
       } else if (panel?.kind === "edit") {
-        await client.models.financeAsset.update({
+        await mutate(client.models.financeAsset.update({
           id:            panel.asset.id,
           name:          draft.name!,
           type:          (draft.type ?? "OTHER") as any,
@@ -93,10 +94,12 @@ export default function AssetsPage() {
           purchaseDate:  draft.purchaseDate ?? null,
           notes:         draft.notes ?? null,
           active:        draft.active ?? true,
-        });
+        }));
         setAssets((p) => p.map((a) => a.id === panel.asset.id ? { ...a, ...draft } as AssetRecord : a));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -106,9 +109,11 @@ export default function AssetsPage() {
     if (!confirm(`Delete asset "${asset.name}"?\n\nTip: you can also mark it inactive (below) to keep it in history.`)) return;
     setSaving(true);
     try {
-      await client.models.financeAsset.delete({ id: asset.id });
+      await mutate(client.models.financeAsset.delete({ id: asset.id }));
       setAssets((p) => p.filter((a) => a.id !== asset.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

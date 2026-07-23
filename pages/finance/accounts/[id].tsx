@@ -21,6 +21,7 @@ import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls, SortIcon,
 } from "@/components/common/table";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
+import { mutate, reportError } from "@/components/common/mutate";
 import { TransactionPanel } from "@/components/finance/TransactionPanel";
 import { ImportPanel } from "@/components/finance/ImportPanel";
 import type { TxType } from "@/components/finance/_shared";
@@ -348,7 +349,7 @@ export default function AccountDetailPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new-lot") {
-        const { data: newLot } = await client.models.financeHoldingLot.create({
+        const newLot = await mutate(client.models.financeHoldingLot.create({
           accountId,
           ticker,
           assetType:    (lotDraft.assetType ?? "STOCK") as any,
@@ -358,10 +359,10 @@ export default function AccountDetailPage() {
           notes:        lotDraft.notes ?? null,
           isVested:     lotDraft.isVested ?? true,
           vestDate:     lotDraft.vestDate ?? null,
-        });
+        }));
         if (newLot) setLots((p) => [...p, newLot]);
       } else if (panel?.kind === "edit-lot") {
-        await client.models.financeHoldingLot.update({
+        await mutate(client.models.financeHoldingLot.update({
           id:           panel.lot.id,
           ticker,
           assetType:    (lotDraft.assetType ?? "STOCK") as any,
@@ -371,10 +372,12 @@ export default function AccountDetailPage() {
           notes:        lotDraft.notes ?? null,
           isVested:     lotDraft.isVested ?? true,
           vestDate:     lotDraft.vestDate ?? null,
-        });
+        }));
         setLots((p) => p.map((l) => l.id === panel.lot.id ? { ...l, ...lotDraft, ticker } as HoldingLotRecord : l));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -384,9 +387,11 @@ export default function AccountDetailPage() {
     if (!confirm(`Delete this lot of ${lot.ticker}?`)) return;
     setSaving(true);
     try {
-      await client.models.financeHoldingLot.delete({ id: lot.id });
+      await mutate(client.models.financeHoldingLot.delete({ id: lot.id }));
       setLots((p) => p.filter((l) => l.id !== lot.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
@@ -430,13 +435,15 @@ export default function AccountDetailPage() {
         simplefinAccountId:  accDraft.simplefinAccountId ?? null,
         ...(balanceChanged ? { balanceUpdatedAt: nowIso } : {}),
       };
-      await client.models.financeAccount.update(payload);
+      await mutate(client.models.financeAccount.update(payload));
       setAccount((a) => a ? {
         ...a,
         ...accDraft,
         ...(balanceChanged ? { balanceUpdatedAt: nowIso } : {}),
       } as AccountRecord : a);
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -448,9 +455,11 @@ export default function AccountDetailPage() {
     setSaving(true);
     try {
       await deleteAttachmentsFor("ACCOUNT", account.id);
-      await client.models.financeAccount.delete({ id: account.id });
+      await mutate(client.models.financeAccount.delete({ id: account.id }));
       // Leaving the detail page; send user back to accounts index
       router.push("/finance/accounts");
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
@@ -467,14 +476,12 @@ export default function AccountDetailPage() {
       const existing = mappings.filter((m) => m.accountId === account.id);
       const maxPriority = existing.reduce((max, m) => Math.max(max, m.priority ?? 100), 0);
       const newPriority = existing.length === 0 ? 100 : maxPriority + 10;
-      const { data: created, errors } = await client.models.financeGoalFundingSource.create({
+      const created = await mutate(client.models.financeGoalFundingSource.create({
         accountId: account.id, goalId, priority: newPriority,
-      });
-      if (errors?.length) throw new Error(errors[0].message);
+      }));
       if (created) setMappings((p) => [...p, created]);
     } catch (err: any) {
-      console.error("[mapping:add]", err);
-      alert(`Failed to add: ${err?.message ?? String(err)}`);
+      reportError(err, "Add funding source");
     } finally {
       setMappingBusyId(null);
     }
@@ -483,11 +490,10 @@ export default function AccountDetailPage() {
   async function handleRemoveMapping(mappingId: string) {
     setMappingBusyId(mappingId);
     try {
-      await client.models.financeGoalFundingSource.delete({ id: mappingId });
+      await mutate(client.models.financeGoalFundingSource.delete({ id: mappingId }));
       setMappings((p) => p.filter((m) => m.id !== mappingId));
     } catch (err: any) {
-      console.error("[mapping:remove]", err);
-      alert(`Failed to remove: ${err?.message ?? String(err)}`);
+      reportError(err, "Remove funding source");
     } finally {
       setMappingBusyId(null);
     }
@@ -516,12 +522,11 @@ export default function AccountDetailPage() {
         return m;
       }));
       await Promise.all([
-        client.models.financeGoalFundingSource.update({ id: a.id, priority: priorityB }),
-        client.models.financeGoalFundingSource.update({ id: b.id, priority: priorityA }),
+        mutate(client.models.financeGoalFundingSource.update({ id: a.id, priority: priorityB })),
+        mutate(client.models.financeGoalFundingSource.update({ id: b.id, priority: priorityA })),
       ]);
     } catch (err: any) {
-      console.error("[mapping:reorder]", err);
-      alert(`Failed to reorder: ${err?.message ?? String(err)}`);
+      reportError(err, "Reorder funding source");
       const fresh = await listAll(client.models.financeGoalFundingSource);
       setMappings(fresh);
     } finally {

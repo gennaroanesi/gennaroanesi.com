@@ -5,6 +5,7 @@ import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import { inputCls, labelCls, SaveButton, DeleteButton, CaliberInput } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -79,24 +80,26 @@ export default function ThresholdsPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newT } = await client.models.ammoThreshold.create({
+        const newT = await mutate(client.models.ammoThreshold.create({
           caliber:   draft.caliber,
           minRounds: draft.minRounds as number,
           personId:  draft.personId,
           enabled:   draft.enabled,
-        });
+        }));
         if (newT) setThresholds((prev) => [newT, ...prev]);
       } else if (panel?.kind === "edit") {
-        const { data: updated } = await client.models.ammoThreshold.update({
+        const updated = await mutate(client.models.ammoThreshold.update({
           id:        panel.threshold.id,
           caliber:   draft.caliber,
           minRounds: draft.minRounds as number,
           personId:  draft.personId,
           enabled:   draft.enabled,
-        });
+        }));
         if (updated) setThresholds((prev) => prev.map((t) => t.id === updated.id ? updated : t));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -106,20 +109,26 @@ export default function ThresholdsPage() {
     if (!confirm(`Delete threshold for ${t.caliber}?`)) return;
     setSaving(true);
     try {
-      await client.models.ammoThreshold.delete({ id: t.id });
+      await mutate(client.models.ammoThreshold.delete({ id: t.id }));
       setThresholds((prev) => prev.filter((x) => x.id !== t.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
   }
 
   async function toggleEnabled(t: Threshold) {
-    const { data: updated } = await client.models.ammoThreshold.update({
-      id:      t.id,
-      enabled: !t.enabled,
-    });
-    if (updated) setThresholds((prev) => prev.map((x) => x.id === updated.id ? updated : x));
+    try {
+      const updated = await mutate(client.models.ammoThreshold.update({
+        id:      t.id,
+        enabled: !t.enabled,
+      }));
+      if (updated) setThresholds((prev) => prev.map((x) => x.id === updated.id ? updated : x));
+    } catch (e) {
+      reportError(e, "Update");
+    }
   }
 
   if (authState !== "authenticated") return null;

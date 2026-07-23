@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
+import { mutate, reportError } from "@/components/common/mutate";
 import {
   client,
   listAll,
@@ -113,14 +114,16 @@ export default function SpendGroupsPage() {
         notes: draft.notes || null,
       };
       if (panel?.kind === "new") {
-        const { data } = await client.models.financeSpendGroup.create(payload as any);
+        const data = await mutate(client.models.financeSpendGroup.create(payload as any));
         if (data) setGroups((p) => [...p, data as SpendGroupRecord]);
       } else if (panel?.kind === "edit") {
         const id = panel.group.id;
-        await client.models.financeSpendGroup.update({ id, ...payload } as any);
+        await mutate(client.models.financeSpendGroup.update({ id, ...payload } as any));
         setGroups((p) => p.map((g) => (g.id === id ? ({ ...g, ...payload } as SpendGroupRecord) : g)));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -133,12 +136,14 @@ export default function SpendGroupsPage() {
     setSaving(true);
     try {
       for (const t of tagged) {
-        await client.models.financeTransaction.update({ id: t.id, spendGroupId: null } as any);
+        await mutate(client.models.financeTransaction.update({ id: t.id, spendGroupId: null } as any));
       }
-      await client.models.financeSpendGroup.delete({ id: group.id });
+      await mutate(client.models.financeSpendGroup.delete({ id: group.id }));
       setTxs((p) => p.map((t) => ((t as any).spendGroupId === group.id ? ({ ...t, spendGroupId: null } as TransactionRecord) : t)));
       setGroups((p) => p.filter((g) => g.id !== group.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
@@ -157,10 +162,12 @@ export default function SpendGroupsPage() {
     setSaving(true);
     try {
       for (const t of candidates) {
-        await client.models.financeTransaction.update({ id: t.id, spendGroupId: group.id } as any);
+        await mutate(client.models.financeTransaction.update({ id: t.id, spendGroupId: group.id } as any));
       }
       const ids = new Set(candidates.map((c) => c.id));
       setTxs((p) => p.map((t) => (ids.has(t.id) ? ({ ...t, spendGroupId: group.id } as TransactionRecord) : t)));
+    } catch (e) {
+      reportError(e, "Auto-tag");
     } finally {
       setSaving(false);
     }

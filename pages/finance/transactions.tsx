@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
 import { PageTitle, PageLoading, Badge } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 import {
   client,
   AccountRecord, TransactionRecord, GoalRecord, GoalFundingSourceRecord,
@@ -85,10 +86,12 @@ export default function TransactionsPage() {
     setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, category: value } as TransactionRecord) : t)));
     setSavingCats(true);
     try {
+      const failures: unknown[] = [];
       for (const id of ids) {
-        try { await client.models.financeTransaction.update({ id, category: value }); }
-        catch (e) { console.error("category update failed", id, e); }
+        try { await mutate(client.models.financeTransaction.update({ id, category: value })); }
+        catch (e) { console.error("category update failed", id, e); failures.push(e); }
       }
+      if (failures.length) reportError(failures[0], "Category update");
     } finally { setSavingCats(false); }
   }, []);
   const saveOne = useCallback((id: string, category: string) => { void saveCategory([id], category); }, [saveCategory]);
@@ -96,10 +99,12 @@ export default function TransactionsPage() {
     setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, spendGroupId: groupId } as TransactionRecord) : t)));
     setSavingCats(true);
     try {
+      const failures: unknown[] = [];
       for (const id of ids) {
-        try { await client.models.financeTransaction.update({ id, spendGroupId: groupId } as any); }
-        catch (e) { console.error("group update failed", id, e); }
+        try { await mutate(client.models.financeTransaction.update({ id, spendGroupId: groupId } as any)); }
+        catch (e) { console.error("group update failed", id, e); failures.push(e); }
       }
+      if (failures.length) reportError(failures[0], "Group update");
     } finally { setSavingCats(false); }
   }, []);
   // Bulk-link to a recurring rule (or unlink when recurringId is null).
@@ -109,10 +114,12 @@ export default function TransactionsPage() {
     setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, recurringId } as TransactionRecord) : t)));
     setSavingCats(true);
     try {
+      const failures: unknown[] = [];
       for (const id of ids) {
-        try { await client.models.financeTransaction.update({ id, recurringId }); }
-        catch (e) { console.error("recurring link update failed", id, e); }
+        try { await mutate(client.models.financeTransaction.update({ id, recurringId })); }
+        catch (e) { console.error("recurring link update failed", id, e); failures.push(e); }
       }
+      if (failures.length) reportError(failures[0], "Recurring link");
     } finally { setSavingCats(false); }
   }, []);
   const toggleSelect = useCallback((id: string) => {
@@ -402,7 +409,7 @@ export default function TransactionsPage() {
     try {
       for (const id of ids) {
         try {
-          await client.models.financeTransaction.delete({ id });
+          await mutate(client.models.financeTransaction.delete({ id }));
         } catch (e) {
           console.error("delete failed", id, e);
           failed.push(id);

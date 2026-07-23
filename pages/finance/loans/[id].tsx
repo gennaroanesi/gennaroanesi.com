@@ -19,6 +19,7 @@ import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
 import { AttachmentsSection } from "@/components/common/AttachmentsSection";
+import { mutate, reportError } from "@/components/common/mutate";
 
 // Side panel state — for posting, editing, or logging an extra payment
 type PanelState =
@@ -315,16 +316,16 @@ export default function LoanDetailPage() {
     const myPays = freshPays.filter((p) => p.loanId === loan.id);
     const newBal = computeLoanBalanceFromPayments(loan.originalPrincipal ?? 0, myPays);
 
-    await client.models.financeLoan.update({
+    await mutate(client.models.financeLoan.update({
       id:             loan.id,
       currentBalance: newBal,
-    });
+    }));
     // Also update the account ledger to match (−balance = owed)
     if (loan.accountId) {
-      await client.models.financeAccount.update({
+      await mutate(client.models.financeAccount.update({
         id:             loan.accountId,
         currentBalance: -newBal,
-      });
+      }));
     }
     setLoan((l) => l ? ({ ...l, currentBalance: newBal } as LoanRecord) : l);
     setAccount((a) => a ? ({ ...a, currentBalance: -newBal } as AccountRecord) : a);
@@ -376,7 +377,7 @@ export default function LoanDetailPage() {
     // 1. Optional: expense transaction on the paying account + balance update
     let checkingTx: { id: string } | null | undefined = null;
     if (createCheckingTx) {
-      const created = await client.models.financeTransaction.create({
+      checkingTx = await mutate(client.models.financeTransaction.create({
         accountId:   checkingAccountId,
         amount:      -totalAmount,
         type:        "EXPENSE" as any,
@@ -387,19 +388,18 @@ export default function LoanDetailPage() {
         goalId:      null,
         toAccountId: null,
         importHash:  null,
-      });
-      checkingTx = created.data;
+      }));
       const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
       if (chk) {
-        await client.models.financeAccount.update({
+        await mutate(client.models.financeAccount.update({
           id:             checkingAccountId,
           currentBalance: (chk.currentBalance ?? 0) - totalAmount,
-        });
+        }));
       }
     }
 
     // 2. Income transaction on loan account (principal reduces the debt)
-    const { data: loanTx } = await client.models.financeTransaction.create({
+    const loanTx = await mutate(client.models.financeTransaction.create({
       accountId:   account.id,
       amount:      principal,
       type:        "INCOME" as any,
@@ -410,7 +410,7 @@ export default function LoanDetailPage() {
       goalId:      null,
       toAccountId: null,
       importHash:  null,
-    });
+    }));
 
     // 3. Bump the loan account's cached balance toward zero by +principal.
     //    (Loan account balance is stored as a negative number; principal
@@ -418,10 +418,10 @@ export default function LoanDetailPage() {
     {
       const { data: la } = await client.models.financeAccount.get({ id: account.id });
       if (la) {
-        await client.models.financeAccount.update({
+        await mutate(client.models.financeAccount.update({
           id:             account.id,
           currentBalance: (la.currentBalance ?? 0) + principal,
-        });
+        }));
       }
     }
 
@@ -429,15 +429,15 @@ export default function LoanDetailPage() {
     {
       const { data: lr } = await client.models.financeLoan.get({ id: loan.id });
       if (lr) {
-        await client.models.financeLoan.update({
+        await mutate(client.models.financeLoan.update({
           id:             loan.id,
           currentBalance: (lr.currentBalance ?? 0) - principal,
-        });
+        }));
       }
     }
 
     // 5. Update the payment record: status POSTED + split + transaction FKs
-    const { data: updated } = await client.models.financeLoanPayment.update({
+    const updated = await mutate(client.models.financeLoanPayment.update({
       id:                 payment.id,
       status:             "POSTED" as any,
       date,
@@ -449,7 +449,7 @@ export default function LoanDetailPage() {
       notes:              notes ?? null,
       transactionId:      checkingTx?.id ?? null,
       loanTransactionId:  loanTx?.id ?? null,
-    });
+    }));
 
     return updated ?? null;
   }
@@ -512,34 +512,34 @@ export default function LoanDetailPage() {
             if (tx) {
               const { data: chk } = await client.models.financeAccount.get({ id: tx.accountId ?? "" });
               if (chk) {
-                await client.models.financeAccount.update({
+                await mutate(client.models.financeAccount.update({
                   id:             chk.id,
                   currentBalance: (chk.currentBalance ?? 0) - (tx.amount ?? 0),
-                });
+                }));
               }
             }
           } catch {}
-          await client.models.financeTransaction.delete({ id: old.transactionId });
+          await mutate(client.models.financeTransaction.delete({ id: old.transactionId }));
         }
         if (old.loanTransactionId) {
-          await client.models.financeTransaction.delete({ id: old.loanTransactionId });
+          await mutate(client.models.financeTransaction.delete({ id: old.loanTransactionId }));
         }
         // Reverse the old loan-side balance bumps so postPayment can reapply
         // cleanly with the (possibly different) new principal.
         if (account && (old.principal ?? 0) !== 0) {
           const { data: la } = await client.models.financeAccount.get({ id: account.id });
           if (la) {
-            await client.models.financeAccount.update({
+            await mutate(client.models.financeAccount.update({
               id:             account.id,
               currentBalance: (la.currentBalance ?? 0) - (old.principal ?? 0),
-            });
+            }));
           }
           const { data: lr } = await client.models.financeLoan.get({ id: loan!.id });
           if (lr) {
-            await client.models.financeLoan.update({
+            await mutate(client.models.financeLoan.update({
               id:             loan!.id,
               currentBalance: (lr.currentBalance ?? 0) + (old.principal ?? 0),
-            });
+            }));
           }
         }
 
@@ -565,7 +565,7 @@ export default function LoanDetailPage() {
 
         let checkingTx: { id: string } | null | undefined = null;
         if (draft.createCheckingTx) {
-          const created = await client.models.financeTransaction.create({
+          checkingTx = await mutate(client.models.financeTransaction.create({
             accountId:   checkingAccountId,
             amount:      -total,
             type:        "EXPENSE" as any,
@@ -574,18 +574,17 @@ export default function LoanDetailPage() {
             date:        draft.date,
             status:      "POSTED" as any,
             goalId: null, toAccountId: null, importHash: null,
-          });
-          checkingTx = created.data;
+          }));
           const { data: chk } = await client.models.financeAccount.get({ id: checkingAccountId });
           if (chk) {
-            await client.models.financeAccount.update({
+            await mutate(client.models.financeAccount.update({
               id:             checkingAccountId,
               currentBalance: (chk.currentBalance ?? 0) - total,
-            });
+            }));
           }
         }
 
-        const { data: loanTx } = await client.models.financeTransaction.create({
+        const loanTx = await mutate(client.models.financeTransaction.create({
           accountId:   account.id,
           amount:      prin,
           type:        "INCOME" as any,
@@ -594,30 +593,30 @@ export default function LoanDetailPage() {
           date:        draft.date,
           status:      "POSTED" as any,
           goalId: null, toAccountId: null, importHash: null,
-        });
+        }));
 
         // Bump loan account toward zero by +principal
         {
           const { data: la } = await client.models.financeAccount.get({ id: account.id });
           if (la) {
-            await client.models.financeAccount.update({
+            await mutate(client.models.financeAccount.update({
               id:             account.id,
               currentBalance: (la.currentBalance ?? 0) + prin,
-            });
+            }));
           }
         }
         // Bump loan record's cached balance by −principal
         {
           const { data: lr } = await client.models.financeLoan.get({ id: loan.id });
           if (lr) {
-            await client.models.financeLoan.update({
+            await mutate(client.models.financeLoan.update({
               id:             loan.id,
               currentBalance: (lr.currentBalance ?? 0) - prin,
-            });
+            }));
           }
         }
 
-        const { data: newPay } = await client.models.financeLoanPayment.create({
+        const newPay = await mutate(client.models.financeLoanPayment.create({
           loanId:           loan.id,
           status:           "POSTED" as any,
           date:             draft.date,
@@ -632,12 +631,12 @@ export default function LoanDetailPage() {
           transactionId:    checkingTx?.id ?? null,
           loanTransactionId: loanTx?.id ?? null,
           notes:            draft.notes.trim() || null,
-        });
+        }));
         if (newPay) setPayments((p) => [...p, newPay]);
       } else if (panel.kind === "correction") {
         // Correction: principal-only delta, no transactions
         if (!loan) return;
-        const { data: newPay } = await client.models.financeLoanPayment.create({
+        const newPay = await mutate(client.models.financeLoanPayment.create({
           loanId:           loan.id,
           status:           "POSTED" as any,
           date:             draft.date,
@@ -652,7 +651,7 @@ export default function LoanDetailPage() {
           transactionId:    null,
           loanTransactionId: null,
           notes:            (draft.notes.trim() || "Reconciliation correction"),
-        });
+        }));
         if (newPay) setPayments((p) => [...p, newPay]);
         setLenderBalance("");  // clear the banner input
       }
@@ -661,8 +660,7 @@ export default function LoanDetailPage() {
       await recalcCachedBalance();
       setPanel(null);
     } catch (err: any) {
-      console.error("[loan-payment] save failed:", err);
-      alert(`Failed: ${err?.message ?? String(err)}`);
+      reportError(err, "Save");
     } finally {
       setSaving(false);
     }
@@ -679,23 +677,25 @@ export default function LoanDetailPage() {
           if (tx) {
             const { data: chk } = await client.models.financeAccount.get({ id: tx.accountId ?? "" });
             if (chk) {
-              await client.models.financeAccount.update({
+              await mutate(client.models.financeAccount.update({
                 id:             chk.id,
                 // tx.amount is already negative for an expense; subtracting it reverses the effect
                 currentBalance: (chk.currentBalance ?? 0) - (tx.amount ?? 0),
-              });
+              }));
             }
           }
         } catch {}
-        try { await client.models.financeTransaction.delete({ id: payment.transactionId }); } catch {}
+        try { await mutate(client.models.financeTransaction.delete({ id: payment.transactionId })); } catch {}
       }
       if (payment.loanTransactionId) {
-        try { await client.models.financeTransaction.delete({ id: payment.loanTransactionId }); } catch {}
+        try { await mutate(client.models.financeTransaction.delete({ id: payment.loanTransactionId })); } catch {}
       }
-      await client.models.financeLoanPayment.delete({ id: payment.id });
+      await mutate(client.models.financeLoanPayment.delete({ id: payment.id }));
       setPayments((p) => p.filter((x) => x.id !== payment.id));
       await recalcCachedBalance();
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
@@ -731,8 +731,7 @@ export default function LoanDetailPage() {
       // Recompute cached loan + account balance after the batch
       await recalcCachedBalance();
     } catch (err: any) {
-      console.error("[bulk-post] failed:", err);
-      alert(`Bulk post failed: ${err?.message ?? String(err)}`);
+      reportError(err, "Bulk post");
     } finally {
       setSaving(false);
     }
@@ -816,19 +815,19 @@ export default function LoanDetailPage() {
     setSaving(true);
     try {
       // 1. Update the ledger account's name (that's what renders in the UI header)
-      await client.models.financeAccount.update({
+      await mutate(client.models.financeAccount.update({
         id:   account.id,
         name: loanMetaDraft.name.trim(),
-      });
+      }));
 
       // 2. Update the loan metadata
-      await client.models.financeLoan.update({
+      await mutate(client.models.financeLoan.update({
         id:              loan.id,
         lender:          loanMetaDraft.lender.trim() || null,
         assetId:         loanMetaDraft.assetId || null,
         escrowAccountId: loanMetaDraft.escrowAccountId || null,
         notes:           loanMetaDraft.notes.trim() || null,
-      });
+      }));
 
       // 3. Refresh local state
       setAccount((a) => a ? ({ ...a, name: loanMetaDraft.name.trim() } as AccountRecord) : a);
@@ -842,8 +841,7 @@ export default function LoanDetailPage() {
       setAsset(loanMetaDraft.assetId ? assets.find((a) => a.id === loanMetaDraft.assetId) ?? null : null);
       setPanel(null);
     } catch (err: any) {
-      console.error("[loan-edit] save failed:", err);
-      alert(`Failed: ${err?.message ?? String(err)}`);
+      reportError(err, "Save");
     } finally {
       setSaving(false);
     }

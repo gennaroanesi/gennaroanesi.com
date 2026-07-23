@@ -3,6 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
+import { mutate, reportError } from "@/components/common/mutate";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton, Badge } from "@/components/common/ui";
 import {
   client,
@@ -140,20 +141,20 @@ export default function GoalsPage() {
       let goalId: string;
 
       if (panel?.kind === "new") {
-        const { data: newGoal } = await client.models.financeSavingsGoal.create({
+        const newGoal = await mutate(client.models.financeSavingsGoal.create({
           name:          draft.name!,
           targetAmount:  draft.targetAmount!,
           currentAmount: draft.currentAmount ?? 0,
           targetDate:    draft.targetDate ?? null,
           notes:         draft.notes ?? null,
           expectedAnnualGrowth: draft.expectedAnnualGrowth ?? null,
-        });
+        }));
         if (!newGoal) throw new Error("Goal creation failed");
         goalId = newGoal.id;
         setGoals((p) => [...p, newGoal]);
       } else if (panel?.kind === "edit") {
         goalId = panel.goal.id;
-        await client.models.financeSavingsGoal.update({
+        await mutate(client.models.financeSavingsGoal.update({
           id:            goalId,
           name:          draft.name!,
           targetAmount:  draft.targetAmount!,
@@ -161,7 +162,7 @@ export default function GoalsPage() {
           targetDate:    draft.targetDate ?? null,
           notes:         draft.notes ?? null,
           expectedAnnualGrowth: draft.expectedAnnualGrowth ?? null,
-        });
+        }));
         setGoals((p) => p.map((g) => g.id === goalId ? { ...g, ...draft } as GoalRecord : g));
       } else {
         return;
@@ -170,7 +171,7 @@ export default function GoalsPage() {
       // ── Sync milestones ────────────────────────────────────────────────────
       // 1. Delete milestones the user removed
       for (const id of msDeleted) {
-        await client.models.financeGoalMilestone.delete({ id });
+        await mutate(client.models.financeGoalMilestone.delete({ id }));
       }
       // 2. Upsert the rest (skip rows missing required fields)
       const validDrafts = msDrafts.filter(
@@ -186,10 +187,10 @@ export default function GoalsPage() {
           notes:        m.notes?.trim() || null,
         };
         if (m.id) {
-          const { data } = await client.models.financeGoalMilestone.update({ id: m.id, ...payload });
+          const data = await mutate(client.models.financeGoalMilestone.update({ id: m.id, ...payload }));
           if (data) fresh.push(data);
         } else {
-          const { data } = await client.models.financeGoalMilestone.create(payload);
+          const data = await mutate(client.models.financeGoalMilestone.create(payload));
           if (data) fresh.push(data);
         }
       }
@@ -200,6 +201,8 @@ export default function GoalsPage() {
       });
 
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -215,12 +218,14 @@ export default function GoalsPage() {
     try {
       // Delete milestones first (preserve referential cleanliness)
       for (const m of ms) {
-        await client.models.financeGoalMilestone.delete({ id: m.id });
+        await mutate(client.models.financeGoalMilestone.delete({ id: m.id }));
       }
-      await client.models.financeSavingsGoal.delete({ id: goal.id });
+      await mutate(client.models.financeSavingsGoal.delete({ id: goal.id }));
       setMilestones((p) => p.filter((m) => m.goalId !== goal.id));
       setGoals((p) => p.filter((g) => g.id !== goal.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

@@ -4,6 +4,7 @@ import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
 import { PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 import { useRouter } from "next/router";
 import {
   ItemRecord,
@@ -77,10 +78,10 @@ async function directConsume(
   const newAvail = available - take;
   const shortfall = roundsToConsume - take;
 
-  await client.models.inventoryAmmo.update({
+  await mutate(client.models.inventoryAmmo.update({
     id: ammo.id,
     roundsAvailable: newAvail,
-  });
+  }));
 
   const updatedDetails = new Map(details);
   updatedDetails.set(targetItemId, { ...ammo, roundsAvailable: newAvail });
@@ -182,8 +183,8 @@ export default function AmmoPage() {
         (ammoDraft.quantity ?? 0) * (ammoDraft.roundsPerUnit ?? 1);
 
       if (panel?.kind === "new") {
-        const { data: newItem, errors } =
-          await client.models.inventoryItem.create({
+        const newItem =
+          await mutate(client.models.inventoryItem.create({
             name: itemDraft.name!,
             brand: itemDraft.brand ?? null,
             description: itemDraft.description ?? null,
@@ -196,9 +197,9 @@ export default function AmmoPage() {
             notes: itemDraft.notes ?? null,
             priceSold: itemDraft.priceSold ?? null,
             status: itemDraft.status ?? "OWNED",
-          });
-        if (errors || !newItem) return;
-        const { data: newAmmo } = await client.models.inventoryAmmo.create({
+          }));
+        if (!newItem) return;
+        const newAmmo = await mutate(client.models.inventoryAmmo.create({
           itemId: newItem.id,
           caliber: ammoDraft.caliber!,
           quantity: ammoDraft.quantity ?? 0,
@@ -208,13 +209,13 @@ export default function AmmoPage() {
           bulletType: ammoDraft.bulletType ?? null,
           velocityFps: ammoDraft.velocityFps ?? null,
           roundsAvailable: totalRounds, // auto-populate on create
-        });
+        }));
         const imageKeys = (await imgRef.current?.commit(newItem.id)) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({
+          await mutate(client.models.inventoryItem.update({
             id: newItem.id,
             imageKeys,
-          });
+          }));
         }
         if (newAmmo) {
           setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
@@ -232,7 +233,7 @@ export default function AmmoPage() {
             ? Math.min(draftAvail, totalRounds)
             : Math.min(prevAvail, totalRounds);
 
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id: panel.item.id,
           name: itemDraft.name!,
           brand: itemDraft.brand ?? null,
@@ -245,8 +246,8 @@ export default function AmmoPage() {
           notes: itemDraft.notes ?? null,
           priceSold: itemDraft.priceSold ?? null,
           status: itemDraft.status ?? "OWNED",
-        });
-        await client.models.inventoryAmmo.update({
+        }));
+        await mutate(client.models.inventoryAmmo.update({
           id: panel.ammo.id,
           caliber: ammoDraft.caliber!,
           quantity: ammoDraft.quantity ?? 0,
@@ -256,15 +257,15 @@ export default function AmmoPage() {
           bulletType: ammoDraft.bulletType ?? null,
           velocityFps: ammoDraft.velocityFps ?? null,
           roundsAvailable: newAvail,
-        });
+        }));
         const imageKeys =
           (await imgRef.current?.commit(panel.item.id)) ??
           itemDraft.imageKeys ??
           [];
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id: panel.item.id,
           imageKeys,
-        });
+        }));
         const updatedItem = {
           ...panel.item,
           ...itemDraft,
@@ -281,6 +282,8 @@ export default function AmmoPage() {
         setDetails((prev) => new Map(prev).set(updatedItem.id, updatedAmmo));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -291,8 +294,8 @@ export default function AmmoPage() {
     if (!confirm("Delete this ammo record?")) return;
     setSaving(true);
     try {
-      if (am) await client.models.inventoryAmmo.delete({ id: am.id });
-      await client.models.inventoryItem.delete({ id: item.id });
+      if (am) await mutate(client.models.inventoryAmmo.delete({ id: am.id }));
+      await mutate(client.models.inventoryItem.delete({ id: item.id }));
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       setDetails((prev) => {
         const m = new Map(prev);
@@ -300,6 +303,8 @@ export default function AmmoPage() {
         return m;
       });
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
@@ -341,6 +346,8 @@ export default function AmmoPage() {
       setDetails(currentDetails);
       setLogResults(results);
       setLogEntries((prev) => prev.map((e) => ({ ...e, rounds: "" })));
+    } catch (e) {
+      reportError(e, "Log use");
     } finally {
       setSaving(false);
     }

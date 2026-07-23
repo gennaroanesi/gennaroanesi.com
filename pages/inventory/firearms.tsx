@@ -16,6 +16,7 @@ import {
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -93,7 +94,7 @@ export default function FirearmsPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newItem, errors } = await client.models.inventoryItem.create({
+        const newItem = await mutate(client.models.inventoryItem.create({
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
           description:   itemDraft.description  ?? null,
@@ -106,9 +107,9 @@ export default function FirearmsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        if (errors || !newItem) return;
-        const { data: newFirearm } = await client.models.inventoryFirearm.create({
+        }));
+        if (!newItem) return;
+        const newFirearm = await mutate(client.models.inventoryFirearm.create({
           itemId:       newItem.id,
           type:         (firearmDraft.type ?? "OTHER") as any,
           serialNumber: firearmDraft.serialNumber ?? null,
@@ -117,17 +118,17 @@ export default function FirearmsPage() {
           finish:       firearmDraft.finish        ?? null,
           barrelLength: firearmDraft.barrelLength  ?? null,
           parts:        (firearmDraft.parts ?? []) as any,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({ id: newItem.id, imageKeys });
+          await mutate(client.models.inventoryItem.update({ id: newItem.id, imageKeys }));
         }
         if (newFirearm) {
           setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
           setDetails((prev) => new Map(prev).set(newItem.id, newFirearm));
         }
       } else if (panel?.kind === "edit") {
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id:            panel.item.id,
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
@@ -140,8 +141,8 @@ export default function FirearmsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        await client.models.inventoryFirearm.update({
+        }));
+        await mutate(client.models.inventoryFirearm.update({
           id:           panel.firearm.id,
           type:         (firearmDraft.type ?? "OTHER") as any,
           serialNumber: firearmDraft.serialNumber ?? null,
@@ -150,15 +151,17 @@ export default function FirearmsPage() {
           finish:       firearmDraft.finish        ?? null,
           barrelLength: firearmDraft.barrelLength  ?? null,
           parts:        (firearmDraft.parts ?? []) as any,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
-        await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
+        await mutate(client.models.inventoryItem.update({ id: panel.item.id, imageKeys }));
         const updatedItem = { ...panel.item, ...itemDraft, imageKeys } as ItemRecord;
         const updatedFirearm = { ...panel.firearm, ...firearmDraft } as FirearmRecord;
         setItems((prev) => prev.map((i) => (i.id === updatedItem.id ? updatedItem : i)));
         setDetails((prev) => new Map(prev).set(updatedItem.id, updatedFirearm));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -169,11 +172,13 @@ export default function FirearmsPage() {
     if (!confirm("Delete this firearm and all its data?")) return;
     setSaving(true);
     try {
-      if (fw) await client.models.inventoryFirearm.delete({ id: fw.id });
-      await client.models.inventoryItem.delete({ id: item.id });
+      if (fw) await mutate(client.models.inventoryFirearm.delete({ id: fw.id }));
+      await mutate(client.models.inventoryItem.delete({ id: item.id }));
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       setDetails((prev) => { const m = new Map(prev); m.delete(item.id); return m; });
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

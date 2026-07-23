@@ -16,6 +16,7 @@ import {
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageLoading } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -101,7 +102,7 @@ export default function ElectronicsPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newItem, errors } = await client.models.inventoryItem.create({
+        const newItem = await mutate(client.models.inventoryItem.create({
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
           description:   itemDraft.description  ?? null,
@@ -114,9 +115,9 @@ export default function ElectronicsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        if (errors || !newItem) return;
-        const { data: newDetail } = await client.models.inventoryElectronic.create({
+        }));
+        if (!newItem) return;
+        const newDetail = await mutate(client.models.inventoryElectronic.create({
           itemId:          newItem.id,
           type:            (detailDraft.type ?? "OTHER") as any,
           partNumber:      detailDraft.partNumber     ?? null,
@@ -128,17 +129,17 @@ export default function ElectronicsPage() {
           powerRatingW:    detailDraft.powerRatingW   ?? null,
           tolerancePct:    detailDraft.tolerancePct   ?? null,
           color:           detailDraft.color          ?? null,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({ id: newItem.id, imageKeys });
+          await mutate(client.models.inventoryItem.update({ id: newItem.id, imageKeys }));
         }
         if (newDetail) {
           setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
           setDetails((prev) => new Map(prev).set(newItem.id, newDetail));
         }
       } else if (panel?.kind === "edit") {
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id:            panel.item.id,
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
@@ -151,8 +152,8 @@ export default function ElectronicsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        await client.models.inventoryElectronic.update({
+        }));
+        await mutate(client.models.inventoryElectronic.update({
           id:              panel.detail.id,
           type:            (detailDraft.type ?? "OTHER") as any,
           partNumber:      detailDraft.partNumber     ?? null,
@@ -164,15 +165,17 @@ export default function ElectronicsPage() {
           powerRatingW:    detailDraft.powerRatingW   ?? null,
           tolerancePct:    detailDraft.tolerancePct   ?? null,
           color:           detailDraft.color          ?? null,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
-        await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
+        await mutate(client.models.inventoryItem.update({ id: panel.item.id, imageKeys }));
         const updatedItem   = { ...panel.item,   ...itemDraft,   imageKeys } as ItemRecord;
         const updatedDetail = { ...panel.detail, ...detailDraft } as ElectronicRecord;
         setItems((prev)   => prev.map((i) => i.id === updatedItem.id ? updatedItem : i));
         setDetails((prev) => new Map(prev).set(updatedItem.id, updatedDetail));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -183,11 +186,13 @@ export default function ElectronicsPage() {
     if (!confirm("Delete this electronics record?")) return;
     setSaving(true);
     try {
-      await client.models.inventoryElectronic.delete({ id: panel.detail.id });
-      await client.models.inventoryItem.delete({ id: panel.item.id });
+      await mutate(client.models.inventoryElectronic.delete({ id: panel.detail.id }));
+      await mutate(client.models.inventoryItem.delete({ id: panel.item.id }));
       setItems((prev)   => prev.filter((i) => i.id !== panel.item.id));
       setDetails((prev) => { const m = new Map(prev); m.delete(panel.item.id); return m; });
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

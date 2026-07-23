@@ -15,6 +15,7 @@ import {
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -80,7 +81,7 @@ export default function OtherPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newItem, errors } = await client.models.inventoryItem.create({
+        const newItem = await mutate(client.models.inventoryItem.create({
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
           description:   itemDraft.description  ?? null,
@@ -93,15 +94,15 @@ export default function OtherPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        if (errors || !newItem) return;
+        }));
+        if (!newItem) return;
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({ id: newItem.id, imageKeys });
+          await mutate(client.models.inventoryItem.update({ id: newItem.id, imageKeys }));
         }
         setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
       } else if (panel?.kind === "edit") {
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id:            panel.item.id,
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
@@ -114,14 +115,16 @@ export default function OtherPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
-        await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
+        await mutate(client.models.inventoryItem.update({ id: panel.item.id, imageKeys }));
         setItems((prev) => prev.map((i) =>
           i.id === panel.item.id ? { ...panel.item, ...itemDraft, imageKeys } as ItemRecord : i
         ));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -132,9 +135,11 @@ export default function OtherPage() {
     if (!confirm("Delete this item?")) return;
     setSaving(true);
     try {
-      await client.models.inventoryItem.delete({ id: panel.item.id });
+      await mutate(client.models.inventoryItem.delete({ id: panel.item.id }));
       setItems((prev) => prev.filter((i) => i.id !== panel.item.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }

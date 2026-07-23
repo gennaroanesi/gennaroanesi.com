@@ -19,6 +19,7 @@ import {
 import {
   ColDef, DataTable, SearchInput, useTableControls,
 } from "@/components/common/table";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const UNCATEGORIZED = "Uncategorized";
 
@@ -155,11 +156,13 @@ export default function RecurringPage() {
   async function handleUnlinkTx(tx: TransactionRecord) {
     setSaving(true);
     try {
-      await client.models.financeTransaction.update({ id: tx.id, recurringId: null });
+      await mutate(client.models.financeTransaction.update({ id: tx.id, recurringId: null }));
       setLinkedTxs((p) => p.filter((t) => t.id !== tx.id));
       // Reflect into recentTxs too so the rule's "matched (N)" + "last
       // matched" chips on the list page stay accurate.
       setRecentTxs((p) => p.map((t) => t.id === tx.id ? ({ ...t, recurringId: null } as TransactionRecord) : t));
+    } catch (e) {
+      reportError(e, "Unlink");
     } finally {
       setSaving(false);
     }
@@ -179,6 +182,8 @@ export default function RecurringPage() {
       }
       await fetchData();
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Link");
     } finally {
       setSaving(false);
     }
@@ -217,7 +222,7 @@ export default function RecurringPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newRec } = await client.models.financeRecurring.create({
+        const newRec = await mutate(client.models.financeRecurring.create({
           accountId:    draftToSave.accountId!,
           amount:       draftToSave.amount!,
           type:         (draftToSave.type ?? "EXPENSE") as any,
@@ -231,10 +236,10 @@ export default function RecurringPage() {
           active:       draftToSave.active ?? true,
           goalId:       draftToSave.goalId ?? null,
           matchPattern: draftToSave.matchPattern?.trim() || null,
-        });
+        }));
         if (newRec) setRecurrings((p) => [...p, newRec]);
       } else if (panel?.kind === "edit") {
-        await client.models.financeRecurring.update({
+        await mutate(client.models.financeRecurring.update({
           id:           panel.rec.id,
           accountId:    draftToSave.accountId!,
           amount:       draftToSave.amount!,
@@ -249,10 +254,12 @@ export default function RecurringPage() {
           active:       draftToSave.active ?? true,
           goalId:       draftToSave.goalId ?? null,
           matchPattern: draftToSave.matchPattern?.trim() || null,
-        });
+        }));
         setRecurrings((p) => p.map((r) => r.id === panel.rec.id ? { ...r, ...draftToSave } as RecurringRecord : r));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -262,9 +269,11 @@ export default function RecurringPage() {
     if (!confirm(`Delete recurring "${rec.description}"?`)) return;
     setSaving(true);
     try {
-      await client.models.financeRecurring.delete({ id: rec.id });
+      await mutate(client.models.financeRecurring.delete({ id: rec.id }));
       setRecurrings((p) => p.filter((r) => r.id !== rec.id));
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
@@ -280,7 +289,7 @@ export default function RecurringPage() {
       // A transfer moves |amount| out of the source (magnitude-based, so a
       // mis-signed stored amount can't invert it); non-transfers use amount as-is.
       const srcDelta = isTransfer ? -Math.abs(rec.amount ?? 0) : (rec.amount ?? 0);
-      await client.models.financeTransaction.create({
+      await mutate(client.models.financeTransaction.create({
         accountId:   rec.accountId!,
         amount:      srcDelta,
         type:        (rec.type ?? "EXPENSE") as any,
@@ -291,20 +300,20 @@ export default function RecurringPage() {
         goalId:      rec.goalId ?? null,
         toAccountId: isTransfer ? (rec.toAccountId ?? null) : null,
         importHash:  null,
-      });
+      }));
       // Adjust balances: srcDelta hits the source; a TRANSFER lands |amount| in
       // the destination account.
       const acc = accounts.find((a) => a.id === rec.accountId);
       if (acc) {
         const newBal = (acc.currentBalance ?? 0) + srcDelta;
-        await client.models.financeAccount.update({ id: acc.id, currentBalance: newBal });
+        await mutate(client.models.financeAccount.update({ id: acc.id, currentBalance: newBal }));
         setAccounts((p) => p.map((a) => a.id === acc.id ? { ...a, currentBalance: newBal } : a));
       }
       if (isTransfer && rec.toAccountId) {
         const dest = accounts.find((a) => a.id === rec.toAccountId);
         if (dest) {
           const destBal = (dest.currentBalance ?? 0) + Math.abs(rec.amount ?? 0);
-          await client.models.financeAccount.update({ id: dest.id, currentBalance: destBal });
+          await mutate(client.models.financeAccount.update({ id: dest.id, currentBalance: destBal }));
           setAccounts((p) => p.map((a) => a.id === dest.id ? { ...a, currentBalance: destBal } : a));
         }
       }
@@ -323,8 +332,10 @@ export default function RecurringPage() {
       const patch: Partial<RecurringRecord> = { nextDate: advancedNext };
       if (endedOut) patch.active = false;
 
-      await client.models.financeRecurring.update({ id: rec.id, ...patch });
+      await mutate(client.models.financeRecurring.update({ id: rec.id, ...patch }));
       setRecurrings((p) => p.map((r) => r.id === rec.id ? { ...r, ...patch } as RecurringRecord : r));
+    } catch (e) {
+      reportError(e, "Post");
     } finally {
       setSaving(false);
     }

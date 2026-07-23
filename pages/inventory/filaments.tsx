@@ -17,6 +17,7 @@ import {
   SearchBar, useInventorySearch,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 
 const client = generateClient<Schema>();
 
@@ -102,7 +103,7 @@ export default function FilamentsPage() {
     setSaving(true);
     try {
       if (panel?.kind === "new") {
-        const { data: newItem, errors } = await client.models.inventoryItem.create({
+        const newItem = await mutate(client.models.inventoryItem.create({
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
           description:   itemDraft.description  ?? null,
@@ -115,9 +116,9 @@ export default function FilamentsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        if (errors || !newItem) return;
-        const { data: newFilament } = await client.models.inventoryFilament.create({
+        }));
+        if (!newItem) return;
+        const newFilament = await mutate(client.models.inventoryFilament.create({
           itemId:   newItem.id,
           material: (filamentDraft.material ?? "PLA") as any,
           variant:  filamentDraft.variant  ?? null,
@@ -125,17 +126,17 @@ export default function FilamentsPage() {
           weightG:  filamentDraft.weightG  ?? null,
           diameter: (filamentDraft.diameter ?? "d175") as any,
           quantity: filamentDraft.quantity ?? 1,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(newItem.id) ?? [];
         if (imageKeys.length > 0) {
-          await client.models.inventoryItem.update({ id: newItem.id, imageKeys });
+          await mutate(client.models.inventoryItem.update({ id: newItem.id, imageKeys }));
         }
         if (newFilament) {
           setItems((prev) => [{ ...newItem, imageKeys }, ...prev]);
           setDetails((prev) => new Map(prev).set(newItem.id, newFilament));
         }
       } else if (panel?.kind === "edit") {
-        await client.models.inventoryItem.update({
+        await mutate(client.models.inventoryItem.update({
           id:            panel.item.id,
           name:          itemDraft.name!,
           brand:         itemDraft.brand        ?? null,
@@ -148,8 +149,8 @@ export default function FilamentsPage() {
           notes:         itemDraft.notes         ?? null,
           priceSold:     itemDraft.priceSold     ?? null,
           status:        itemDraft.status        ?? "OWNED",
-        });
-        await client.models.inventoryFilament.update({
+        }));
+        await mutate(client.models.inventoryFilament.update({
           id:       panel.filament.id,
           material: (filamentDraft.material ?? "PLA") as any,
           variant:  filamentDraft.variant  ?? null,
@@ -157,15 +158,17 @@ export default function FilamentsPage() {
           weightG:  filamentDraft.weightG  ?? null,
           diameter: (filamentDraft.diameter ?? "d175") as any,
           quantity: filamentDraft.quantity ?? 1,
-        });
+        }));
         const imageKeys = await imgRef.current?.commit(panel.item.id) ?? (itemDraft.imageKeys ?? []);
-        await client.models.inventoryItem.update({ id: panel.item.id, imageKeys });
+        await mutate(client.models.inventoryItem.update({ id: panel.item.id, imageKeys }));
         const updatedItem     = { ...panel.item,     ...itemDraft, imageKeys }     as ItemRecord;
         const updatedFilament = { ...panel.filament, ...filamentDraft } as FilamentRecord;
         setItems((prev)   => prev.map((i) => i.id === updatedItem.id ? updatedItem : i));
         setDetails((prev) => new Map(prev).set(updatedItem.id, updatedFilament));
       }
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Save");
     } finally {
       setSaving(false);
     }
@@ -176,11 +179,13 @@ export default function FilamentsPage() {
     if (!confirm("Delete this filament record?")) return;
     setSaving(true);
     try {
-      await client.models.inventoryFilament.delete({ id: panel.filament.id });
-      await client.models.inventoryItem.delete({ id: panel.item.id });
+      await mutate(client.models.inventoryFilament.delete({ id: panel.filament.id }));
+      await mutate(client.models.inventoryItem.delete({ id: panel.item.id }));
       setItems((prev)   => prev.filter((i) => i.id !== panel.item.id));
       setDetails((prev) => { const m = new Map(prev); m.delete(panel.item.id); return m; });
       setPanel(null);
+    } catch (e) {
+      reportError(e, "Delete");
     } finally {
       setSaving(false);
     }
