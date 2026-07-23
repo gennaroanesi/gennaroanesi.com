@@ -6,6 +6,7 @@ import { generateClient } from "aws-amplify/data";
 import { uploadData, remove as s3Remove } from "aws-amplify/storage";
 import type { Schema } from "@/amplify/data/resource";
 import { MarkdownText } from "@/components/common/MarkdownText";
+import { SlideOverPanel } from "@/components/common/ui";
 
 type Category = "aviation" | "dev" | "work" | "life";
 type Entry = Schema["timelineEntry"]["type"];
@@ -398,14 +399,11 @@ export default function AdminTimelinePage() {
 
         {/* Side panel — create / edit */}
         {panelMode && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-[28rem] border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-              <h2 className="text-base font-semibold dark:text-rose text-purple">
-                {panelMode.kind === "new" ? "New Entry" : "Edit Entry"}
-              </h2>
-              <button onClick={() => setPanelMode(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+          <SlideOverPanel
+            title={panelMode.kind === "new" ? "New Entry" : "Edit Entry"}
+            onClose={() => setPanelMode(null)}
+            width="md:w-[28rem]"
+          >
               <div>
                 <label className="text-[10px] uppercase tracking-widest text-gray-400 font-medium block mb-1">Date *</label>
                 <input
@@ -559,8 +557,7 @@ export default function AdminTimelinePage() {
                   Delete entry
                 </button>
               )}
-            </div>
-          </div>
+          </SlideOverPanel>
         )}
       </div>
     </DefaultLayout>
