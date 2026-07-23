@@ -1,6 +1,7 @@
 import type { AppProps } from "next/app";
 
 import { HeroUIProvider } from "@heroui/system";
+import { ToastProvider } from "@heroui/react";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import { useRouter } from "next/router";
 import { useCallback } from "react";
@@ -20,6 +21,7 @@ export default function App({ Component, pageProps }: AppProps) {
     <NextThemesProvider attribute="class" defaultTheme="dark">
       <div>
         <HeroUIProvider navigate={navigate}>
+          <ToastProvider placement="bottom-right" toastOffset={12} />
           <Component {...pageProps} />
         </HeroUIProvider>
       </div>

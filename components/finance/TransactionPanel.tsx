@@ -14,6 +14,7 @@ import {
 } from "@/components/finance/_shared";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 import { SlideOverPanel } from "@/components/common/ui";
+import { mutate, reportError } from "@/components/common/mutate";
 import { parseLineItems, type LineItem } from "@/components/finance/categories";
 
 /**
@@ -38,32 +39,32 @@ async function applyHoldingDelta(
 ): Promise<void> {
   const ticker = (tickerRaw ?? "").toUpperCase();
   if (!ticker || !accountId) return;
-  const { data: matches } = await client.models.financeHolding.list({
+  const matches = await mutate(client.models.financeHolding.list({
     filter: { accountId: { eq: accountId }, ticker: { eq: ticker } },
     limit: 50,
-  });
+  }));
   const existing = (matches ?? [])[0] ?? null;
   const now = new Date().toISOString();
 
   if (existing) {
     const newQty = (existing.quantity ?? 0) + deltaQty;
     if (newQty <= 1e-6) {
-      await client.models.financeHolding.delete({ id: existing.id });
+      await mutate(client.models.financeHolding.delete({ id: existing.id }));
       return;
     }
     const newCost = existing.costBasisTotal == null
       ? null
       : Math.max(0, existing.costBasisTotal + deltaCost);
-    await client.models.financeHolding.update({
+    await mutate(client.models.financeHolding.update({
       id:             existing.id,
       quantity:       newQty,
       costBasisTotal: newCost,
       avgCostBasis:   newCost != null && newQty > 1e-9 ? newCost / newQty : null,
       updatedAt:      now,
-    });
+    }));
   } else if (deltaQty > 1e-6) {
     // No holding yet (e.g. first BUY on a manual account) → create it.
-    await client.models.financeHolding.create({
+    await mutate(client.models.financeHolding.create({
       accountId,
       ticker,
       assetType:      (assetType ?? null) as any,
@@ -72,7 +73,7 @@ async function applyHoldingDelta(
       avgCostBasis:   deltaQty > 1e-9 ? deltaCost / deltaQty : null,
       source:         "MANUAL" as any,
       updatedAt:      now,
-    });
+    }));
   }
 }
 
@@ -156,14 +157,16 @@ export function TransactionPanel(props: TransactionPanelProps) {
     const acc = accounts.find((a) => a.id === accountId);
     if (acc) {
       const newBal = (acc.currentBalance ?? 0) + delta;
-      await client.models.financeAccount.update({ id: accountId, currentBalance: newBal });
+      // mutate() first so a failed write throws BEFORE we optimistically move the
+      // local balance — otherwise the UI would show a balance the DB never took.
+      await mutate(client.models.financeAccount.update({ id: accountId, currentBalance: newBal }));
       onSetAccounts((p) => p.map((a) => a.id === accountId ? { ...a, currentBalance: newBal } : a));
     }
     if (type === "TRANSFER" && toAccountId) {
       const dest = accounts.find((a) => a.id === toAccountId);
       if (dest) {
         const newBal = (dest.currentBalance ?? 0) + Math.abs(delta);
-        await client.models.financeAccount.update({ id: toAccountId, currentBalance: newBal });
+        await mutate(client.models.financeAccount.update({ id: toAccountId, currentBalance: newBal }));
         onSetAccounts((p) => p.map((a) => a.id === toAccountId ? { ...a, currentBalance: newBal } : a));
       }
     }
@@ -220,7 +223,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
         let createdLot: HoldingLotRecord | null = null;
         if (txType === "BUY") {
           const buyCostBasis = tradeGross + feesNum;
-          const { data } = await client.models.financeHoldingLot.create({
+          const data = await mutate(client.models.financeHoldingLot.create({
             accountId:    txDraft.accountId!,
             ticker:       (txDraft.ticker ?? "").toUpperCase(),
             assetType:    "STOCK" as any,
@@ -229,7 +232,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
             purchaseDate: txDraft.date!,
             isVested:     true,
             notes:        null,
-          });
+          }));
           if (data) { createdLot = data; createdLotId = data.id; }
           // Keep the current-position row in step with the buy.
           await applyHoldingDelta(
@@ -271,13 +274,13 @@ export function TransactionPanel(props: TransactionPanelProps) {
             remaining   -= takeQty;
             const leftover = lotQty - takeQty;
             if (leftover < 1e-6) {
-              await client.models.financeHoldingLot.delete({ id: lot.id });
+              await mutate(client.models.financeHoldingLot.delete({ id: lot.id }));
               onSetLots((p) => p.filter((l) => l.id !== lot.id));
             } else {
               const newCost = lot.costBasis != null ? lot.costBasis - consumed : null;
-              await client.models.financeHoldingLot.update({
+              await mutate(client.models.financeHoldingLot.update({
                 id: lot.id, quantity: leftover, costBasis: newCost,
-              });
+              }));
               onSetLots((p) => p.map((l) => l.id === lot.id ? { ...l, quantity: leftover, costBasis: newCost } : l));
             }
           }
@@ -290,7 +293,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
           );
         }
 
-        const { data: newTx } = await client.models.financeTransaction.create({
+        const newTx = await mutate(client.models.financeTransaction.create({
           accountId:         txDraft.accountId!,
           amount:            effectiveAmount,
           type:              txType as any,
@@ -311,7 +314,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
           lotConsumptions:   lotConsumptionsJson,
           notes:             txDraft.notes ?? null,
           lineItems:         txDraft.lineItems ?? null,
-        });
+        }));
         if (newTx) {
           if (createdLot) onSetLots((p) => [...p, createdLot!]);
           // Trades aren't recurring cash; skip the auto-link for them.
@@ -333,7 +336,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
       } else if (mode === "edit" && editingTx) {
         const prev = editingTx;
         const editingTrade = isTradeType(prev.type as any);
-        await client.models.financeTransaction.update({
+        await mutate(client.models.financeTransaction.update({
           id:          prev.id,
           accountId:   editingTrade ? prev.accountId : txDraft.accountId!,
           amount:      editingTrade ? prev.amount    : txDraft.amount!,
@@ -348,7 +351,7 @@ export function TransactionPanel(props: TransactionPanelProps) {
           recurringId: txDraft.recurringId ?? null,
           notes:       txDraft.notes ?? null,
           lineItems:   txDraft.lineItems ?? null,
-        });
+        }));
 
         if (!editingTrade) {
           if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
@@ -370,6 +373,19 @@ export function TransactionPanel(props: TransactionPanelProps) {
       }
 
       onClose();
+    } catch (e) {
+      reportError(e, "Save transaction");
+      // A step in this multi-write sequence may have half-applied. Resync local
+      // balances/lots from the DB so the UI reflects what actually persisted
+      // rather than the optimistic state we set along the way.
+      try {
+        const [accs, lts] = await Promise.all([
+          listAll<AccountRecord>(client.models.financeAccount),
+          listAll<HoldingLotRecord>(client.models.financeHoldingLot),
+        ]);
+        onSetAccounts(accs);
+        onSetLots(lts);
+      } catch { /* best-effort resync */ }
     } finally {
       setSaving(false);
     }
@@ -402,18 +418,22 @@ export function TransactionPanel(props: TransactionPanelProps) {
         for (const s of siblings) {
           if (s.status === "POSTED") await adjustBalance(s.accountId!, -(s.amount ?? 0), s.toAccountId ?? null, s.type as TxType);
           await deleteAttachmentsFor("TRANSACTION", s.id);
-          await client.models.financeTransaction.delete({ id: s.id });
+          await mutate(client.models.financeTransaction.delete({ id: s.id }));
         }
       } else if (tx.status === "POSTED") {
         await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
       }
       await deleteAttachmentsFor("TRANSACTION", tx.id);
-      await client.models.financeTransaction.delete({ id: tx.id });
+      await mutate(client.models.financeTransaction.delete({ id: tx.id }));
       const siblingIds = new Set(siblings.map((s) => s.id));
       onSetTransactions((p) => p.filter((t) => t.id !== tx.id && !siblingIds.has(t.id)));
       const accs = await listAll(client.models.financeAccount);
       onSetAccounts(accs);
       onClose();
+    } catch (e) {
+      reportError(e, "Delete transaction");
+      const accs = await listAll<AccountRecord>(client.models.financeAccount);
+      onSetAccounts(accs);
     } finally {
       setSaving(false);
     }
