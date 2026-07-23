@@ -8,6 +8,7 @@
 import React from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
+import { INPUT_BASE, LABEL_CLASS } from "@/components/common/ui";
 
 // Pure finance math lives in finance-core (no React/client) so the
 // financeSnapshots Lambda and the review page can import it too. We import the
@@ -1739,11 +1740,10 @@ export function goalPctColor(pct: number): string {
 
 // ── Shared CSS ────────────────────────────────────────────────────────────────
 
-export const inputCls =
-  "w-full rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 transition";
-
-export const labelCls =
-  "block text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1 font-medium";
+// Canonical field structure lives in components/common/ui; finance keeps its
+// emerald focus-ring accent.
+export const inputCls = `${INPUT_BASE} focus:ring-emerald-400/50`;
+export const labelCls = LABEL_CLASS;
 
 // ── SaveButton ────────────────────────────────────────────────────────────────
 

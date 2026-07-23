@@ -77,6 +77,16 @@ export function SlideOverPanel({
   );
 }
 
+// ── Form field styles ─────────────────────────────────────────────────────────
+// Canonical text-input structure (rounded-lg + focus ring), shared by finance and
+// inventory. The focus-RING COLOR is appended per section (emerald / purple) so
+// each keeps its accent — `${INPUT_BASE} focus:ring-emerald-400/50`. LABEL_CLASS
+// is fully shared.
+export const INPUT_BASE =
+  "w-full rounded-lg border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated px-3 py-1.5 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 transition";
+export const LABEL_CLASS =
+  "block text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1 font-medium";
+
 // ── Buttons ───────────────────────────────────────────────────────────────────
 // The filled accent CTA (`bg-purple text-rose dark:bg-rose dark:text-purple`)
 // inlined ~10× as "+ Add X" / submit buttons, and the amber outline secondary.

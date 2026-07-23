@@ -12,6 +12,7 @@ import React, {
 import type { Schema } from "@/amplify/data/resource";
 import { uploadData, getUrl, remove } from "aws-amplify/storage";
 import { v4 as uuidv4 } from "uuid";
+import { INPUT_BASE, LABEL_CLASS } from "@/components/common/ui";
 import { Tooltip } from "@heroui/tooltip";
 import NextLink from "next/link";
 
@@ -244,10 +245,10 @@ export function CaliberInput({
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
-export const inputCls =
-  "w-full border rounded px-2 py-1.5 text-sm bg-white text-gray-800 border-gray-300 dark:bg-darkElevated dark:text-gray-100 dark:border-darkBorder";
-export const labelCls =
-  "text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-1 block";
+// Canonical field structure lives in components/common/ui; inventory keeps a
+// purple focus-ring accent (matching its purple/rose palette).
+export const inputCls = `${INPUT_BASE} focus:ring-purple-400/50`;
+export const labelCls = LABEL_CLASS;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
