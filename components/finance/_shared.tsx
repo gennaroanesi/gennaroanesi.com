@@ -9,6 +9,7 @@ import React from "react";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import { INPUT_BASE, LABEL_CLASS } from "@/components/common/ui";
+import { FINANCE_ACCENT } from "@/lib/colors";
 
 // Pure finance math lives in finance-core (no React/client) so the
 // financeSnapshots Lambda and the review page can import it too. We import the
@@ -271,7 +272,9 @@ export const LOAN_PAYMENT_STRATEGY_LABELS: Record<LoanPaymentStrategy, string> =
 export const LOAN_PAYMENT_STATUSES = ["SCHEDULED", "POSTED"] as const;
 export type  LoanPaymentStatus    = (typeof LOAN_PAYMENT_STATUSES)[number];
 
-export const FINANCE_COLOR = "#10b981";
+// Finance section accent. Single source of truth lives in lib/colors; kept as
+// FINANCE_COLOR here for the many existing call sites.
+export const FINANCE_COLOR = FINANCE_ACCENT;
 
 export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   CHECKING:   "Checking",

@@ -51,10 +51,12 @@ import {
   type AccountBucket,
 } from "@/components/finance/review";
 import { CARD_CLASS, PageTitle, PageLoading } from "@/components/common/ui";
+import { POSITIVE, NEGATIVE } from "@/lib/colors";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
-const INCOME_COLOR = "#22c55e";
-const EXPENSE_COLOR = "#ef4444";
+// Semantic income/expense come from the shared token source (lib/colors).
+const INCOME_COLOR = POSITIVE;
+const EXPENSE_COLOR = NEGATIVE;
 const AMBER = "#d4a843";
 const CARD = CARD_CLASS;   // shared card wrapper — see components/common/ui
 

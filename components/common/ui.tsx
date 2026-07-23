@@ -12,6 +12,7 @@
  */
 import React from "react";
 import NextLink from "next/link";
+import { withAlpha } from "@/lib/colors";
 
 // ── Card ────────────────────────────────────────────────────────────────────
 // The `rounded-lg border … bg-white dark:bg-darkSurface p-4` wrapper that
@@ -132,7 +133,7 @@ export function Badge({
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full font-semibold tracking-wide ${BADGE_SIZE[size]} ${uppercase ? "uppercase" : ""} ${className}`}
-      style={{ backgroundColor: color + "22", color }}
+      style={{ backgroundColor: withAlpha(color, 0x22), color }}
     >
       {children}
     </span>

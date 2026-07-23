@@ -25,6 +25,12 @@ export default {
         rose:       "#BCABAE",
         green:      "#587D71",
         gold:       "#DEBA02",
+        // Semantic tokens (mirror of lib/colors.ts — keep in sync). Meaning, not
+        // brand: positive=gain/income, negative=loss/expense, warning=pending.
+        positive:   "#22c55e",
+        negative:   "#ef4444",
+        warning:    "#f59e0b",
+        financeAccent: "#10b981",
       },
     },
   },

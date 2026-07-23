@@ -29,7 +29,7 @@ Every UI change must be tested and designed for mobile. This app is frequently v
 - Touch targets must be at least 44×44px (use `p-3` minimum on interactive elements)
 - Horizontal scroll is acceptable for dense data (e.g. flight stat pills), but full-page horizontal scroll is not
 - The Cesium 3D globe has a separate mobile rendering path — test KML overlays on narrow viewports
-- The design system is **navy / cream / amber** — keep this consistent across breakpoints
+- The design system is dark-first **purple / mauve / gold** (see §10) — keep this consistent across breakpoints
 
 ---
 
@@ -126,11 +126,38 @@ All admin sections use a **shared layout with a left sidebar** (desktop) and **t
 
 ## 10. Design system
 
-- **Colors**: navy (`#1e2d4a` range), cream (`#f5f0e8` range), amber (`#d4a843` range)
-- **Font**: serif headings, sans-serif body
-- Tailwind classes in use — no custom CSS files; everything inline via Tailwind utility classes
-- Amber is used for interactive/highlight elements (approach chip links, active states)
-- Dark backgrounds (`bg-navy-*`) are standard for cards and overlays
+The app is **dark-first** and **all sans-serif** (no serif headings). There are
+three deliberate visual languages — don't blur them together:
+
+- **Tool** (finance / inventory / admin) — the default. Purple/mauve surfaces +
+  gold, with an emerald finance accent.
+- **Aviation** (`/flying`) — dark/mono sub-brand, gold highlights. Intentionally
+  distinct; keep its own colors.
+- **Dispatch** — the HUD CSS module (`components/dispatch/*`), brighter
+  greens/reds/blues. Also a sub-brand; do not migrate its colors to the tokens.
+
+**Surfaces & brand tokens** (in `tailwind.config.js`):
+- `darkBg #1e1e2e` (page) · `darkSurface #27273a` (cards/sidebar) ·
+  `darkElevated #31314a` (inputs/raised) · `darkBorder #3d3d58`
+- `purple #31314a` · `rose #BCABAE` (mauve) · `gold #DEBA02` · `green #587D71`
+- Nav/admin accents use amber `#d4a843` (a near-twin of `gold #DEBA02`; both are
+  in use — a candidate for future consolidation, don't rely on them differing).
+- There is **no** navy / cream palette and **no** serif — the old "navy / cream /
+  amber + serif" note was stale (only the amber/gold accent survived).
+
+**Semantic colors** — single source of truth is [`lib/colors.ts`](lib/colors.ts),
+mirrored as Tailwind tokens (`positive`/`negative`/`warning`/`financeAccent`):
+- `POSITIVE #22c55e` — gain / income / success / goal-hit
+- `NEGATIVE #ef4444` — loss / expense / over-budget / error
+- `WARNING  #f59e0b` — pending / near-threshold / unmatched
+- `FINANCE_ACCENT #10b981` (a.k.a. `FINANCE_COLOR`) — the finance **section
+  accent** (buttons, BUY chips); deliberately distinct from POSITIVE green.
+- For a tinted background use `withAlpha(color, 0x22)`, not `color + "22"`.
+- Aviation/dispatch keep their own hexes and do **not** use these tokens.
+
+**Other**: Tailwind utilities only — no custom CSS files (dispatch's HUD module
+is the one exception). Shared UI primitives live in
+[`components/common/ui.tsx`](components/common/ui.tsx).
 
 ---
 
