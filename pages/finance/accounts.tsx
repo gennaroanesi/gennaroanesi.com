@@ -19,6 +19,7 @@ import {
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
+import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
 
 /**
  * Dedicated Accounts page. The dashboard only shows favorited accounts; this is
@@ -346,7 +347,7 @@ export default function AccountsPage() {
 
         <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <div className="flex items-baseline gap-3">
-            <h1 className="text-2xl font-bold text-purple dark:text-rose">Accounts</h1>
+            <PageTitle>Accounts</PageTitle>
             {accounts.length > 0 && (
               <span className="text-sm text-gray-400 tabular-nums">
                 {accounts.length} · Total{" "}
@@ -374,7 +375,7 @@ export default function AccountsPage() {
         </p>
 
         {loading ? (
-          <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>
+          <PageLoading />
         ) : accounts.length === 0 ? (
           <div className="rounded-xl border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkSurface p-8 text-center">
             <p className="text-sm text-gray-400 mb-3">No accounts yet.</p>
@@ -414,14 +415,10 @@ export default function AccountsPage() {
 
         {/* Account side panel — create or edit */}
         {panelMode && (
-          <div className="fixed inset-0 z-40 md:static md:inset-auto md:w-96 border-l border-gray-200 dark:border-darkBorder flex flex-col bg-white dark:bg-darkSurface overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
-              <h2 className="text-base font-semibold dark:text-rose text-purple">
-                {panelMode === "new" ? "New Account" : "Edit Account"}
-              </h2>
-              <button onClick={() => setPanelMode(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4">
+          <SlideOverPanel
+            title={panelMode === "new" ? "New Account" : "Edit Account"}
+            onClose={() => setPanelMode(null)}
+          >
               <div>
                 <label className={labelCls}>Name *</label>
                 <input type="text" className={inputCls} placeholder="Chase Checking"
@@ -562,8 +559,7 @@ export default function AccountsPage() {
                   Delete account
                 </button>
               )}
-            </div>
-          </div>
+          </SlideOverPanel>
         )}
       </div>
     </FinanceLayout>

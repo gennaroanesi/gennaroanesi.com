@@ -50,12 +50,13 @@ import {
   type CategoryBucket,
   type AccountBucket,
 } from "@/components/finance/review";
+import { CARD_CLASS } from "@/components/common/ui";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 const INCOME_COLOR = "#22c55e";
 const EXPENSE_COLOR = "#ef4444";
 const AMBER = "#d4a843";
-const CARD = "rounded-lg border border-gray-200 dark:border-darkBorder p-4 bg-white dark:bg-darkSurface";
+const CARD = CARD_CLASS;   // shared card wrapper — see components/common/ui
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -328,9 +329,15 @@ export default function ReviewPage() {
 
   return (
     <FinanceLayout>
-      <div className="flex flex-col h-full">
-        {/* Fixed header: period selector + headline cards stay put while the body scrolls */}
-        <div className="flex-shrink-0 border-b border-gray-200 dark:border-darkBorder bg-white dark:bg-darkBg px-4 md:px-8 pt-4 pb-3">
+      {/* Same shell as the other finance pages (accounts, etc.): a `flex h-full`
+          row with a single `flex-1 overflow-auto` scroll column. align-items:
+          stretch gives that column a definite height, which scrolls reliably on
+          mobile — unlike a flex-column + `h-full` inner box. Header just flows
+          with the content (not pinned). */}
+      <div className="flex h-full">
+        <div className="flex-1 overflow-auto">
+        {/* Header block: period selector + headline cards (scrolls with the page) */}
+        <div className="border-b border-gray-200 dark:border-darkBorder px-4 md:px-8 pt-4 pb-3">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
           <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
@@ -415,7 +422,7 @@ export default function ReviewPage() {
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-5">
+        <div className="px-4 md:px-8 py-5">
         {loading && <p className="text-sm text-gray-400 animate-pulse py-12 text-center">Loading…</p>}
 
         {!loading && (
@@ -1019,6 +1026,7 @@ export default function ReviewPage() {
             <div className="h-12" />
           </>
         )}
+        </div>
         </div>
       </div>
     </FinanceLayout>

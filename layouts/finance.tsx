@@ -208,12 +208,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
             scrollbar shows up. Pages that don't set up an internal scroll
             (tax-outlook, most single-column pages) just work because this
             wrapper scrolls when their content is tall. */}
-        {/* min-h-0 is essential: as a flex-1 child in the mobile flex-COLUMN it
-            would otherwise refuse to shrink below its content, so pages that pin
-            a header and scroll an inner `h-full` body (Review) collapse the body
-            to ~0 and only the header shows. min-h-0 lets it size to the viewport
-            so both this wrapper and inner scroll regions work. */}
-        <div className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-white dark:bg-darkBg">
+        <div className="flex-1 min-w-0 overflow-y-auto bg-white dark:bg-darkBg">
           {children}
         </div>
 
