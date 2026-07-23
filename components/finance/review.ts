@@ -47,8 +47,10 @@ import { effectiveCategory, isExcludedFromPnl, categoryContributions } from "./c
 // ── Period & range ────────────────────────────────────────────────────────────
 
 export type Period =
-  | { kind: "month"; year: number; month: number } // month: 1–12
-  | { kind: "year"; year: number };
+  | { kind: "month"; year: number; month: number }     // month: 1–12
+  | { kind: "quarter"; year: number; quarter: number } // quarter: 1–4
+  | { kind: "year"; year: number }
+  | { kind: "last3"; anchorIso: string };              // rolling 3 months ending anchorIso (today)
 
 export type DateRange = { fromIso: string; toIso: string; label: string };
 
@@ -65,18 +67,45 @@ function lastDayOfMonth(year: number, month1: number): number {
   return new Date(Date.UTC(year, month1, 0)).getUTCDate();
 }
 
+function addMonthsIso(iso: string, months: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  return `${ny}-${pad2(nm)}-${pad2(Math.min(d, lastDayOfMonth(ny, nm)))}`;
+}
+
 export function periodRange(p: Period): DateRange {
   if (p.kind === "month") {
     const from = `${p.year}-${pad2(p.month)}-01`;
     const to = `${p.year}-${pad2(p.month)}-${pad2(lastDayOfMonth(p.year, p.month))}`;
     return { fromIso: from, toIso: to, label: `${MONTH_NAMES[p.month - 1]} ${p.year}` };
   }
+  if (p.kind === "quarter") {
+    const firstMonth = (p.quarter - 1) * 3 + 1;
+    const lastMonth = firstMonth + 2;
+    return {
+      fromIso: `${p.year}-${pad2(firstMonth)}-01`,
+      toIso: `${p.year}-${pad2(lastMonth)}-${pad2(lastDayOfMonth(p.year, lastMonth))}`,
+      label: `Q${p.quarter} ${p.year}`,
+    };
+  }
+  if (p.kind === "last3") {
+    // Trailing three months ending today (inclusive).
+    return { fromIso: addMonthsIso(p.anchorIso, -3), toIso: p.anchorIso, label: "Last 3 months" };
+  }
   return { fromIso: `${p.year}-01-01`, toIso: `${p.year}-12-31`, label: String(p.year) };
+}
+
+/** Whether the period spans a full calendar year (drives monthly vs weekly detail granularity). */
+export function isYearPeriod(p: Period): boolean {
+  return p.kind === "year";
 }
 
 export function ytdRange(p: Period): DateRange {
   const r = periodRange(p);
-  return { fromIso: `${p.year}-01-01`, toIso: r.toIso, label: `${p.year} YTD` };
+  const year = r.toIso.slice(0, 4);   // works for every kind, incl. rolling last3
+  return { fromIso: `${year}-01-01`, toIso: r.toIso, label: `${year} YTD` };
 }
 
 function inRange(dateIso: string | null | undefined, r: DateRange): boolean {
@@ -239,7 +268,10 @@ export function summarizeRecurring(
       actual: a.actual,
       count: a.count,
     };
-  });
+  })
+    // Hide rules that don't bill in this period and had no matched activity —
+    // e.g. an annual rule whose anniversary falls outside the range.
+    .filter((i) => i.expected > 0 || i.actual > 0);
 
   // Surface rules with activity first, then large expected (likely missing/upcoming).
   items.sort((a, b) => (b.actual - a.actual) || (b.expected - a.expected));
@@ -889,6 +921,30 @@ function quantileSorted(sortedAsc: number[], p: number): number {
 const daysBetweenIso = (a: string, b: string) =>
   Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
+// ── Time-series bucket helpers (month + week) ──────────────────────────────────
+function addDaysIso(iso: string, n: number): string {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+/** Monday on/before the date — the ISO week start. */
+function weekStartIso(iso: string): string {
+  const dt = new Date(`${iso}T00:00:00Z`);
+  const diff = (dt.getUTCDay() + 6) % 7;   // 0 = Mon … 6 = Sun → days since Monday
+  return addDaysIso(iso, -diff);
+}
+function weekLabel(mondayIso: string): string {
+  const [, m, d] = mondayIso.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1].slice(0, 3)} ${d}`;   // e.g. "Jul 20"
+}
+function monthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1].slice(0, 3)} ${String(y).slice(2)}`;   // e.g. "Jul 26"
+}
+function nextMonthKey(monthKey: string): string {
+  let [y, m] = monthKey.split("-").map(Number);
+  if (++m > 12) { m = 1; y++; }
+  return `${y}-${pad2(m)}`;
+}
+
 /**
  * Outflow transactions whose effective category matches, in range. Uses the
  * transaction-level category (not the item split) — this is per-transaction
@@ -925,6 +981,7 @@ export function analyzeCategory(
   txs: TransactionRecord[],
   range: DateRange,
   category: string,
+  granularity: "month" | "week" = "month",
 ): CategoryAnalysis {
   const rows = categoryRows(txs, range, category);
   const amounts = rows.map((r) => Math.abs(r.amount ?? 0)).sort((a, b) => a - b);
@@ -935,27 +992,27 @@ export function analyzeCategory(
   const avgIntervalDays =
     count >= 2 && firstDate && lastDate ? daysBetweenIso(firstDate, lastDate) / (count - 1) : null;
 
-  const byMonth = new Map<string, { amount: number; count: number }>();
+  // Bucket by month or by ISO week (Monday-start). Fill interior gaps with zeros
+  // so the timeseries reads continuously — a quiet bucket shows $0, not a skip.
+  const weekly = granularity === "week";
+  const keyOf = (iso: string) => (weekly ? weekStartIso(iso) : iso.slice(0, 7));
+  const byBucket = new Map<string, { amount: number; count: number }>();
   for (const r of rows) {
-    const b = (r.date ?? "").slice(0, 7);
-    const e = byMonth.get(b) ?? { amount: 0, count: 0 };
+    const k = keyOf(r.date ?? "");
+    const e = byBucket.get(k) ?? { amount: 0, count: 0 };
     e.amount += Math.abs(r.amount ?? 0);
     e.count += 1;
-    byMonth.set(b, e);
+    byBucket.set(k, e);
   }
-  // Fill the interior months (first→last active month) with zeros so the
-  // timeseries reads continuously — a gap month should show $0, not be skipped.
   const series: CategoryAnalysis["series"] = [];
   if (firstDate && lastDate) {
-    let y = Number(firstDate.slice(0, 4));
-    let mo = Number(firstDate.slice(5, 7));
-    const endKey = lastDate.slice(0, 7);
+    let cur = keyOf(firstDate);
+    const endKey = keyOf(lastDate);
     for (let guard = 0; guard < 600; guard++) {
-      const key = `${y}-${String(mo).padStart(2, "0")}`;
-      const v = byMonth.get(key) ?? { amount: 0, count: 0 };
-      series.push({ bucket: key, label: `${MONTH_NAMES[mo - 1].slice(0, 3)} ${String(y).slice(2)}`, amount: v.amount, count: v.count });
-      if (key === endKey) break;
-      if (++mo > 12) { mo = 1; y++; }
+      const v = byBucket.get(cur) ?? { amount: 0, count: 0 };
+      series.push({ bucket: cur, label: weekly ? weekLabel(cur) : monthLabel(cur), amount: v.amount, count: v.count });
+      if (cur === endKey) break;
+      cur = weekly ? addDaysIso(cur, 7) : nextMonthKey(cur);
     }
   }
 
@@ -1317,13 +1374,8 @@ export function computeTrend(
   const buckets = new Map<string, TrendPoint>();
 
   let keyOf: (dateIso: string) => string;
-  if (period.kind === "year") {
-    for (let m = 1; m <= 12; m++) {
-      const key = `${period.year}-${pad2(m)}`;
-      buckets.set(key, { bucket: key, label: MONTH_NAMES[m - 1].slice(0, 3), income: 0, expense: 0, net: 0 });
-    }
-    keyOf = (d) => d.slice(0, 7);
-  } else {
+  if (period.kind === "month") {
+    // Single month → weekly buckets (day-of-month bands 1/8/15/22/29).
     const days = lastDayOfMonth(period.year, period.month);
     const monthAbbr = MONTH_NAMES[period.month - 1].slice(0, 3);
     for (let startDay = 1; startDay <= days; startDay += 7) {
@@ -1335,6 +1387,16 @@ export function computeTrend(
       const startDay = Math.floor((day - 1) / 7) * 7 + 1;
       return `${period.year}-${pad2(period.month)}-${pad2(startDay)}`;
     };
+  } else {
+    // Year / quarter / last-3-months → monthly buckets across the whole range.
+    let cur = range.fromIso.slice(0, 7);
+    const end = range.toIso.slice(0, 7);
+    for (let guard = 0; guard < 60; guard++) {
+      buckets.set(cur, { bucket: cur, label: monthLabel(cur), income: 0, expense: 0, net: 0 });
+      if (cur === end) break;
+      cur = nextMonthKey(cur);
+    }
+    keyOf = (d) => d.slice(0, 7);
   }
 
   for (const tx of txs) {

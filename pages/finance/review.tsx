@@ -29,6 +29,7 @@ import {
 import {
   type Period,
   periodRange,
+  isYearPeriod,
   ytdRange,
   summarizeIncome,
   summarizeIncomeSources,
@@ -225,9 +226,10 @@ export default function ReviewPage() {
   const today = todayIso();
   const curYear = Number(today.slice(0, 4));
   const curMonth = Number(today.slice(5, 7));
-  const [kind, setKind] = useState<"month" | "year">("month");
+  const [kind, setKind] = useState<"month" | "quarter" | "year" | "last3">("month");
   const [year, setYear] = useState(curYear);
   const [month, setMonth] = useState(curMonth);
+  const [quarter, setQuarter] = useState(Math.ceil(curMonth / 3));
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -261,10 +263,14 @@ export default function ReviewPage() {
     if (authState === "authenticated") fetchAll();
   }, [authState, fetchAll]);
 
-  const period: Period = useMemo(
-    () => (kind === "month" ? { kind: "month", year, month } : { kind: "year", year }),
-    [kind, year, month],
-  );
+  const period: Period = useMemo(() => {
+    switch (kind) {
+      case "month":   return { kind: "month", year, month };
+      case "quarter": return { kind: "quarter", year, quarter };
+      case "last3":   return { kind: "last3", anchorIso: today };
+      default:        return { kind: "year", year };
+    }
+  }, [kind, year, month, quarter, today]);
 
   const availableYears = useMemo(() => {
     const ys = new Set<number>([curYear]);
@@ -298,19 +304,27 @@ export default function ReviewPage() {
   // Single-category drill-down: dropdown options + the selected category's stats.
   // These hooks must run on every render — keep them ABOVE the auth early-return
   // below, or the hook count changes between renders (React error #310).
+  // Ordered by spend (most first) — drives a useful default selection.
   const spendCategories = useMemo(() => listSpendCategories(txs, view.range), [txs, view.range]);
+  // …but the dropdown itself is alphabetical so it's easy to scan.
+  const spendCategoriesAlpha = useMemo(
+    () => [...spendCategories].sort((a, b) => a.localeCompare(b)),
+    [spendCategories],
+  );
   const activeDetailCat =
     detailCat && spendCategories.includes(detailCat) ? detailCat : (spendCategories[0] ?? "");
+  // Full-year periods read best monthly; shorter windows (month/quarter/last-3) get a weekly chart.
+  const catGranularity: "month" | "week" = isYearPeriod(period) ? "month" : "week";
   const catAnalysis = useMemo(
-    () => (activeDetailCat ? analyzeCategory(txs, view.range, activeDetailCat) : null),
-    [txs, view.range, activeDetailCat],
+    () => (activeDetailCat ? analyzeCategory(txs, view.range, activeDetailCat, catGranularity) : null),
+    [txs, view.range, activeDetailCat, catGranularity],
   );
 
   if (authState !== "authenticated") return null;
 
   const { range, income, expenses, recurring, recurringSuggestions, cards, groups, stock, goalEvo, trend,
           sources, coverage, oneOffs, carry } = view;
-  const net = income.total - expenses.total;
+  const net = income.total + sources.rsu - expenses.total;
 
   return (
     <FinanceLayout>
@@ -332,14 +346,14 @@ export default function ReviewPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="inline-flex rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
-              {(["month", "year"] as const).map((k) => (
+              {([["month", "Month"], ["quarter", "Quarter"], ["year", "Year"], ["last3", "Last 3 mo"]] as const).map(([k, label]) => (
                 <button
                   key={k}
                   onClick={() => setKind(k)}
-                  className="px-3 py-2 text-xs font-medium capitalize transition-colors"
+                  className="px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap"
                   style={kind === k ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}
                 >
-                  {k}
+                  {label}
                 </button>
               ))}
             </div>
@@ -352,13 +366,24 @@ export default function ReviewPage() {
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
               </select>
             )}
-            <select
-              value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
-              className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-2 text-gray-700 dark:text-gray-200"
-            >
-              {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
+            {kind === "quarter" && (
+              <select
+                value={quarter}
+                onChange={(e) => setQuarter(Number(e.target.value))}
+                className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-2 text-gray-700 dark:text-gray-200"
+              >
+                {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
+              </select>
+            )}
+            {kind !== "last3" && (
+              <select
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+                className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-2 text-gray-700 dark:text-gray-200"
+              >
+                {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            )}
           </div>
         </div>
 
@@ -367,16 +392,16 @@ export default function ReviewPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <StatCard
               label="Income"
-              value={fmtCurrency(income.total)}
+              value={fmtCurrency(income.total + sources.rsu)}
               color={INCOME_COLOR}
-              // Payroll deposits, bonus included — Salary coverage splits the
-              // bonus out separately, so label this honestly or the two
-              // sections read as contradicting each other.
-              hint={
-                sources.bonus > 0
-                  ? `payroll · ${income.count} deposits · incl. ${fmtCurrency(sources.bonus)} bonus`
-                  : `payroll · ${income.count} deposit${income.count === 1 ? "" : "s"}`
-              }
+              // Payroll deposits (bonus included) + RSU proceeds from share sales.
+              // Salary coverage splits bonus/RSU out separately, so break the
+              // components out here or the two sections read as contradicting.
+              hint={[
+                `payroll ${fmtCurrency(income.total)}`,
+                sources.rsu > 0 ? `RSU ${fmtCurrency(sources.rsu)}` : null,
+                sources.bonus > 0 ? `incl. ${fmtCurrency(sources.bonus)} bonus` : null,
+              ].filter(Boolean).join(" · ")}
             />
             <StatCard
               label="Expenses"
@@ -651,7 +676,7 @@ export default function ReviewPage() {
                     onChange={(e) => setDetailCat(e.target.value)}
                     className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-sm px-3 py-1.5 text-gray-700 dark:text-gray-200"
                   >
-                    {spendCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                    {spendCategoriesAlpha.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
 
                   {catAnalysis && catAnalysis.count > 0 ? (
@@ -681,7 +706,7 @@ export default function ReviewPage() {
                         />
                       </div>
                       <div className="mt-4">
-                        <p className="text-xs text-gray-400 mb-2">Spend over time</p>
+                        <p className="text-xs text-gray-400 mb-2">Spend over time · {catGranularity === "week" ? "weekly" : "monthly"}</p>
                         <ResponsiveContainer width="100%" height={200}>
                           <BarChart data={catAnalysis.series} margin={{ left: 8, right: 12, top: 4, bottom: 4 }}>
                             <CartesianGrid strokeOpacity={0.1} vertical={false} />
