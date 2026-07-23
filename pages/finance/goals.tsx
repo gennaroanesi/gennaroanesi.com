@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton, Badge } from "@/components/common/ui";
 import {
   client,
   GoalRecord, MilestoneRecord, MilestoneStatus,
@@ -609,12 +609,9 @@ export default function GoalsPage() {
                                 <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
                                   {acc.name}
                                 </span>
-                                <span
-                                  className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
-                                  style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
-                                >
+                                <Badge color={FINANCE_COLOR} size="xs" className="flex-shrink-0">
                                   {ACCOUNT_TYPE_LABELS[(acc.type ?? "OTHER") as keyof typeof ACCOUNT_TYPE_LABELS]}
-                                </span>
+                                </Badge>
                               </div>
                               <div className="flex items-center justify-between gap-2 mt-1 text-[11px]">
                                 <span className="text-gray-400">

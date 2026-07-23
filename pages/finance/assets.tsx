@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useRouter } from "next/router";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton, Badge } from "@/components/common/ui";
 import {
   client,
   AssetRecord, LoanRecord,
@@ -181,12 +181,9 @@ export default function AssetsPage() {
                         >
                           <div className="flex items-start justify-between gap-2">
                             <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{asset.name}</h3>
-                            <span
-                              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide flex-shrink-0"
-                              style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
-                            >
+                            <Badge color={FINANCE_COLOR} className="flex-shrink-0">
                               {PHYSICAL_ASSET_TYPE_LABELS[(asset.type ?? "OTHER") as keyof typeof PHYSICAL_ASSET_TYPE_LABELS]}
-                            </span>
+                            </Badge>
                           </div>
 
                           <span

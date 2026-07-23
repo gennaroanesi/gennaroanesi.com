@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import NextLink from "next/link";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel, PageTitle, PageLoading } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, PageLoading, Badge } from "@/components/common/ui";
 import {
   client,
   HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
@@ -227,10 +227,7 @@ export default function PricesPage() {
       render: (r) => {
         if (!r.quote) return <span className="text-[10px] text-gray-400">no quote</span>;
         if (isQuoteManual(r.quote)) return (
-          <span
-            className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
-            style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
-          >Manual</span>
+          <Badge color={FINANCE_COLOR}>Manual</Badge>
         );
         return (
           <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">

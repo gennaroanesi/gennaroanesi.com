@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
-import { PageTitle } from "@/components/common/ui";
+import { PageTitle, Badge } from "@/components/common/ui";
 import {
   client,
   AccountRecord, TransactionRecord, HoldingLotRecord, HoldingRecord, TickerQuoteRecord,
@@ -264,13 +264,9 @@ export default function AccountDetailPage() {
           <div className="flex flex-col gap-0.5">
             <span className="text-gray-800 dark:text-gray-200 max-w-[240px] truncate inline-flex items-center gap-1.5">
               {trade && (
-                <span className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
-                  style={{
-                    backgroundColor: t.type === "BUY" ? "#10b98122" : "#f59e0b22",
-                    color:           t.type === "BUY" ? "#10b981"   : "#f59e0b",
-                  }}>
+                <Badge color={t.type === "BUY" ? "#10b981" : "#f59e0b"} size="xs">
                   {t.type}
-                </span>
+                </Badge>
               )}
               {t.description || "—"}
             </span>

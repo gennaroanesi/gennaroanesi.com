@@ -22,7 +22,7 @@ import {
   type Cadence,
 } from "@/components/finance/_shared";
 import { Sparkline } from "@/components/common/sparkline";
-import { Card } from "@/components/common/ui";
+import { Card, Badge } from "@/components/common/ui";
 import { useS3JsonState } from "@/hooks/useS3JsonState";
 import {
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale, project401kWithCap,
@@ -844,12 +844,9 @@ export default function FinanceDashboard() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{asset.name}</span>
-                        <span
-                          className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide flex-shrink-0"
-                          style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
-                        >
+                        <Badge color={FINANCE_COLOR} className="flex-shrink-0">
                           {label}
-                        </span>
+                        </Badge>
                       </div>
                       <span
                         className="text-xl font-bold tabular-nums"
@@ -1205,12 +1202,9 @@ export default function FinanceDashboard() {
                           <p className="text-[10px] uppercase tracking-widest text-gray-400 font-semibold">
                             {PAYCHECK_PERSON_LABELS[k.person]}
                           </p>
-                          <span
-                            className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full"
-                            style={{ backgroundColor: paceColor + "22", color: paceColor }}
-                          >
+                          <Badge color={paceColor} size="xs">
                             {k.paceLabel === "MAXED" ? "Maxed" : k.paceLabel === "ON_PACE" ? "On pace" : "Behind"}
-                          </span>
+                          </Badge>
                         </div>
                         {/* Stacked bar: solid YTD + lighter projected-addition + dark headroom */}
                         <div className="relative h-2.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden">

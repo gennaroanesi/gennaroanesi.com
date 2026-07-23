@@ -11,6 +11,7 @@
  * both the finance (emerald) and inventory (per-category) worlds can share them.
  */
 import React from "react";
+import NextLink from "next/link";
 
 // ── Card ────────────────────────────────────────────────────────────────────
 // The `rounded-lg border … bg-white dark:bg-darkSurface p-4` wrapper that
@@ -108,24 +109,59 @@ export function SecondaryButton({ className = "", ...props }: React.ButtonHTMLAt
 // ── Badge / pill ──────────────────────────────────────────────────────────────
 // The colored `rounded-full` pill (`bg = color+alpha`) reimplemented ~12× and as
 // AccountBadge/StatusBadge/CategoryBadge. `uppercase` matches the finance chips;
-// pass uppercase={false} for sentence-case pills.
+// pass uppercase={false} for sentence-case pills. Two sizes cover both the
+// standard status chip (sm) and the tight inline tag used in dense lists (xs).
+const BADGE_SIZE = {
+  sm: "px-2 py-0.5 text-[10px]",
+  xs: "px-1.5 py-0.5 text-[9px]",
+} as const;
+
 export function Badge({
   color,
   children,
   uppercase = true,
+  size = "sm",
   className = "",
 }: {
   color: string;
   children: React.ReactNode;
   uppercase?: boolean;
+  size?: keyof typeof BADGE_SIZE;
   className?: string;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${uppercase ? "uppercase" : ""} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full font-semibold tracking-wide ${BADGE_SIZE[size]} ${uppercase ? "uppercase" : ""} ${className}`}
       style={{ backgroundColor: color + "22", color }}
     >
       {children}
     </span>
+  );
+}
+
+// ── Back link ─────────────────────────────────────────────────────────────────
+// The "← Back to X" navigation link above detail pages. Divergent across the app
+// ("← Back", "Back to dashboard", inline-styled color). One arrow + label with an
+// optional accent color (finance passes FINANCE_COLOR).
+export function BackLink({
+  href,
+  children,
+  color,
+  className = "",
+}: {
+  href: string;
+  children: React.ReactNode;
+  /** Accent color via inline style (e.g. a finance section color). */
+  color?: string;
+  className?: string;
+}) {
+  return (
+    <NextLink
+      href={href}
+      className={`inline-flex items-center gap-1 text-sm text-gray-500 hover:text-purple dark:hover:text-rose transition-colors ${className}`}
+      style={color ? { color } : undefined}
+    >
+      <span aria-hidden>←</span> {children}
+    </NextLink>
   );
 }

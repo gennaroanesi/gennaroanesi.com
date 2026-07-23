@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import NextLink from "next/link";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
-import { SlideOverPanel, PageTitle } from "@/components/common/ui";
+import { SlideOverPanel, PageTitle, Badge } from "@/components/common/ui";
 import {
   client,
   AccountRecord, LoanRecord, LoanPaymentRecord, AssetRecord, TransactionRecord,
@@ -909,12 +909,9 @@ export default function LoanDetailPage() {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-3">
                 <PageTitle>{account.name}</PageTitle>
-                <span
-                  className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
-                  style={{ backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR }}
-                >
+                <Badge color={FINANCE_COLOR}>
                   {LOAN_TYPE_LABELS[(loan.loanType ?? "OTHER") as keyof typeof LOAN_TYPE_LABELS]}
-                </span>
+                </Badge>
                 {loan.lender && <span className="text-xs text-gray-400">· {loan.lender}</span>}
               </div>
               <div className="flex items-center gap-2">
