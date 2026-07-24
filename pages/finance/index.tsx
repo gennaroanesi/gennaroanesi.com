@@ -521,12 +521,16 @@ export default function FinanceDashboard() {
       }
     }
 
-    // Future transactions
+    // Future transactions. Mirror the recurring path's magnitude-safe transfer
+    // handling: transfers now store a POSITIVE amount, so the source leg must be
+    // −|amount| (money leaving accountId) and the destination leg +|amount|
+    // (money landing in toAccountId) regardless of the stored sign.
     for (const t of transactions) {
       if ((t.date ?? "") >= today && (t.date ?? "") <= in30) {
+        const srcAmount = t.type === "TRANSFER" ? -Math.abs(t.amount ?? 0) : (t.amount ?? 0);
         entries.push({
           rec: null, tx: t, next: t.date!,
-          amount: t.amount ?? 0,
+          amount: srcAmount,
           description: t.description ?? "",
           category: t.category ?? "",
           accountId: t.accountId ?? "",
@@ -535,7 +539,7 @@ export default function FinanceDashboard() {
         if (t.type === "TRANSFER" && t.toAccountId) {
           entries.push({
             rec: null, tx: t, next: t.date!,
-            amount: -(t.amount ?? 0),
+            amount: Math.abs(t.amount ?? 0),
             description: t.description ?? "",
             category: t.category ?? "",
             accountId: t.toAccountId,
