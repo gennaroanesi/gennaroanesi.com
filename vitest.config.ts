@@ -4,14 +4,17 @@ import { resolve } from "path";
 // Unit tests target the pure finance logic (no React, no DB). Node env is enough;
 // the `@/` alias mirrors tsconfig so imports resolve the same as in the app.
 //
-// NOTE: vitest is intentionally NOT in package.json devDependencies. Adding any
-// package to this repo's lockfile with npm 10.x produces a package-lock.json
-// that `npm ci` then rejects as out-of-sync (an npm resolver bug on the deep
-// AWS-SDK/CDK dependency tree — it drops random transitive deps like
-// fast-xml-parser). Keeping vitest out of the lock keeps the Amplify build
-// (npm ci) green. To run the tests locally:
-//     npm install -D vitest@^2 --legacy-peer-deps   # local only; don't commit the lock churn
-//     npm test
+// vitest IS in package.json devDependencies (since 2026-07) so `npm ci && npm test`
+// works in CI. LOCKFILE GOTCHA when adding/updating deps: npm 10.x's resolver
+// chokes on this repo's CDK tree ("Cannot read properties of null (reading
+// 'resolve')") and its lock-only mode drops @aws-cdk/cli-plugin-contract — a
+// peer dep of @aws-cdk/toolkit-lib that `npm ci` then reports as "Missing:
+// ... from lock file". Working recipe:
+//     npx npm@11 install --package-lock-only --legacy-peer-deps
+//     # then, if npm ci complains about @aws-cdk/cli-plugin-contract, re-add
+//     # its packages[] entry (version 2.182.2, peer: true) to package-lock.json
+// Always validate with `npm ci` (in a scratch dir) before pushing — the
+// Amplify build runs npm ci and a bad lock breaks the deploy.
 // The test files are excluded from tsconfig so `next build` doesn't typecheck
 // their `vitest` imports.
 export default defineConfig({
