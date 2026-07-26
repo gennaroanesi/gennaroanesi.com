@@ -154,10 +154,21 @@ export function TransactionPanel(props: TransactionPanelProps) {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
+  /** Display name for manual-correction toasts. */
+  function accountName(id: string | null | undefined): string {
+    return accounts.find((a) => a.id === id)?.name ?? id ?? "account";
+  }
+
+  // Invariant: a TRANSFER moves both balances or neither. The source leg
+  // commits first; if the destination leg fails, the source is restored
+  // (DB + local) before the error propagates. Rethrows in every failure
+  // case so callers still abort.
   async function adjustBalance(accountId: string, delta: number, toAccountId: string | null, type: TxType | string) {
     const acc = accounts.find((a) => a.id === accountId);
+    let sourcePrevBal: number | null = null;
     if (acc) {
-      const newBal = (acc.currentBalance ?? 0) + delta;
+      sourcePrevBal = acc.currentBalance ?? 0;
+      const newBal = sourcePrevBal + delta;
       // mutate() first so a failed write throws BEFORE we optimistically move the
       // local balance — otherwise the UI would show a balance the DB never took.
       await mutate(client.models.financeAccount.update({ id: accountId, currentBalance: newBal }));
@@ -167,7 +178,20 @@ export function TransactionPanel(props: TransactionPanelProps) {
       const dest = accounts.find((a) => a.id === toAccountId);
       if (dest) {
         const newBal = (dest.currentBalance ?? 0) + Math.abs(delta);
-        await mutate(client.models.financeAccount.update({ id: toAccountId, currentBalance: newBal }));
+        try {
+          await mutate(client.models.financeAccount.update({ id: toAccountId, currentBalance: newBal }));
+        } catch (e) {
+          if (acc && sourcePrevBal != null) {
+            const restoreBal = sourcePrevBal;
+            try {
+              await mutate(client.models.financeAccount.update({ id: accountId, currentBalance: restoreBal }));
+              onSetAccounts((p) => p.map((a) => a.id === accountId ? { ...a, currentBalance: restoreBal } : a));
+            } catch {
+              notifyError(`Balances are now inconsistent: "${acc.name}" needs a manual correction of ${fmtCurrency(-delta, "USD", true)}.`);
+            }
+          }
+          throw e;
+        }
         onSetAccounts((p) => p.map((a) => a.id === toAccountId ? { ...a, currentBalance: newBal } : a));
       }
     }
@@ -330,7 +354,20 @@ export function TransactionPanel(props: TransactionPanelProps) {
           // net cash impact (qty·price ± fees). Balance moves once via
           // adjustBalance, no sibling cash/fee transactions needed.
           if (isPosted) {
-            await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
+            // Invariant: the row and its balance impact land together. If the
+            // balance write fails, the just-created row is deleted (DB + local)
+            // so the ledger doesn't show cash the balances never took.
+            try {
+              await adjustBalance(txDraft.accountId!, effectiveAmount, txDraft.toAccountId ?? null, txType);
+            } catch (e) {
+              try {
+                await mutate(client.models.financeTransaction.delete({ id: newTx.id }));
+                onSetTransactions((prev) => prev.filter((t) => t.id !== newTx.id));
+              } catch {
+                notifyError(`Transaction ${newTx.id} was created but its balance update failed — delete it, or correct "${accountName(txDraft.accountId)}" by ${fmtCurrency(effectiveAmount, "USD", true)} manually.`);
+              }
+              throw e;
+            }
           }
         }
 
@@ -355,8 +392,25 @@ export function TransactionPanel(props: TransactionPanelProps) {
         }));
 
         if (!editingTrade) {
-          if (prev.status === "POSTED") await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
-          if (isPosted)                 await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
+          const reversedOld = prev.status === "POSTED";
+          if (reversedOld) await adjustBalance(prev.accountId!, -(prev.amount ?? 0), prev.toAccountId ?? null, prev.type as TxType);
+          if (isPosted) {
+            // Invariant: reverse-old + apply-new commit together. If apply-new
+            // fails after the old impact was reversed, the old impact is
+            // re-applied so balances still match a posted row.
+            try {
+              await adjustBalance(txDraft.accountId!, txDraft.amount!, txDraft.toAccountId ?? null, txDraft.type as TxType);
+            } catch (e) {
+              if (reversedOld) {
+                try {
+                  await adjustBalance(prev.accountId!, prev.amount ?? 0, prev.toAccountId ?? null, prev.type as TxType);
+                } catch {
+                  notifyError(`Balances are now inconsistent: "${accountName(prev.accountId)}" needs a manual correction of ${fmtCurrency(prev.amount ?? 0, "USD", true)}.`);
+                }
+              }
+              throw e;
+            }
+          }
         } else {
           // Single-row trades carry their own cash impact again — handle
           // PENDING ↔ POSTED flips so the balance stays in sync.
@@ -415,17 +469,44 @@ export function TransactionPanel(props: TransactionPanelProps) {
       // trades (no siblings) the trade row carries its own cash impact —
       // reverse it directly like a regular transaction. Non-trades always
       // reverse their own amount.
+      // Invariant: each row's reversal and its delete commit together — if the
+      // delete fails after the reversal applied, the reversal is re-applied so
+      // balances keep matching the still-existing row.
       if (isTrade && siblings.length > 0) {
         for (const s of siblings) {
-          if (s.status === "POSTED") await adjustBalance(s.accountId!, -(s.amount ?? 0), s.toAccountId ?? null, s.type as TxType);
-          await deleteAttachmentsFor("TRANSACTION", s.id);
-          await mutate(client.models.financeTransaction.delete({ id: s.id }));
+          const reversed = s.status === "POSTED";
+          if (reversed) await adjustBalance(s.accountId!, -(s.amount ?? 0), s.toAccountId ?? null, s.type as TxType);
+          try {
+            await deleteAttachmentsFor("TRANSACTION", s.id);
+            await mutate(client.models.financeTransaction.delete({ id: s.id }));
+          } catch (e) {
+            if (reversed) {
+              try {
+                await adjustBalance(s.accountId!, s.amount ?? 0, s.toAccountId ?? null, s.type as TxType);
+              } catch {
+                notifyError(`Balances are now inconsistent: "${accountName(s.accountId)}" needs a manual correction of ${fmtCurrency(s.amount ?? 0, "USD", true)}.`);
+              }
+            }
+            throw e;
+          }
         }
       } else if (tx.status === "POSTED") {
         await adjustBalance(tx.accountId!, -(tx.amount ?? 0), tx.toAccountId ?? null, tx.type as TxType);
       }
-      await deleteAttachmentsFor("TRANSACTION", tx.id);
-      await mutate(client.models.financeTransaction.delete({ id: tx.id }));
+      const reversedMain = !(isTrade && siblings.length > 0) && tx.status === "POSTED";
+      try {
+        await deleteAttachmentsFor("TRANSACTION", tx.id);
+        await mutate(client.models.financeTransaction.delete({ id: tx.id }));
+      } catch (e) {
+        if (reversedMain) {
+          try {
+            await adjustBalance(tx.accountId!, tx.amount ?? 0, tx.toAccountId ?? null, tx.type as TxType);
+          } catch {
+            notifyError(`Balances are now inconsistent: "${accountName(tx.accountId)}" needs a manual correction of ${fmtCurrency(tx.amount ?? 0, "USD", true)}.`);
+          }
+        }
+        throw e;
+      }
       const siblingIds = new Set(siblings.map((s) => s.id));
       onSetTransactions((p) => p.filter((t) => t.id !== tx.id && !siblingIds.has(t.id)));
       const accs = await listAll(client.models.financeAccount);

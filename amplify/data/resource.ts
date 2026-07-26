@@ -2,6 +2,7 @@ import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
 import { sendNotification } from "../functions/sendNotification/resource";
 import { gennaroAgent } from "../functions/gennaroAgent/resource";
 import { financeSnapshots } from "../functions/financeSnapshots/resource";
+import { financeReconcile } from "../functions/financeReconcile/resource";
 import { weeklyCashflow } from "../functions/weeklyCashflow/resource";
 import { simplefinSync } from "../functions/simplefinSync/resource";
 import { parsePaycheckPdf } from "../functions/parsePaycheckPdf/resource";
@@ -498,6 +499,14 @@ const schema = a.schema({
       // duplicates, balanceUpdated }. Same "AWSJSON via string" pattern as
       // financeTransaction.lotConsumptions.
       lastSimplefinSyncDetails: a.string(),
+      // Reconciliation bookkeeping (financeReconcile cron). `reconcileOffset`
+      // is the stable difference currentBalance − Σ(POSTED ledger impact).
+      // A non-zero offset is NORMAL (accounts imported mid-life have no
+      // starting-balance row); what matters is the offset CHANGING between
+      // runs — that means some write path updated the balance without the
+      // ledger (or vice versa). The cron alarms on the delta, not the value.
+      reconcileOffset: a.float(),
+      lastReconcileAt: a.datetime(),
     })
     .authorization((allow) => [allow.group("admins")]),
 
@@ -841,6 +850,27 @@ const schema = a.schema({
       errorsJson:       a.string(),
       // bridgeErrors: string[] (SimpleFIN body.errors)
       bridgeErrorsJson: a.string(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Reconcile Log ──────────────────────────────────────────────────────────
+  // One row per financeReconcile cron run. The cron recomputes each account's
+  // ledger sum (Σ POSTED impact, incl. single-row transfer in-legs) and
+  // compares currentBalance − ledgerSum against the account's stored
+  // reconcileOffset. A changed offset = drift event: some write path desynced
+  // the cached balance from the ledger. Read-only audit surface; the cron
+  // never mutates currentBalance.
+  financeReconcileLog: a
+    .model({
+      runAt:           a.datetime().required(),
+      status:          a.enum(["OK", "DRIFT", "ERROR"]),
+      accountsChecked: a.integer(),
+      driftCount:      a.integer(),
+      // perAccount: [{ accountId, name, currentBalance, ledgerSum,
+      //   inLegs, offset, prevOffset, delta, drifted, txCount }]
+      perAccountJson:  a.string(),
+      errorsJson:      a.string(), // string[]
+      durationMs:      a.integer(),
     })
     .authorization((allow) => [allow.group("admins")]),
 
@@ -1241,6 +1271,7 @@ const schema = a.schema({
 .authorization((allow) => [
   allow.resource(gennaroAgent),
   allow.resource(financeSnapshots),
+  allow.resource(financeReconcile),
   allow.resource(weeklyCashflow),
   allow.resource(simplefinSync),
 ]);

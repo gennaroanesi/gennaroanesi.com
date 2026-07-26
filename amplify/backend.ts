@@ -23,6 +23,7 @@ import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
 import { importLogbook } from "./functions/importLogbook/resource";
 import { gennaroAgent } from "./functions/gennaroAgent/resource";
 import { financeSnapshots } from "./functions/financeSnapshots/resource";
+import { financeReconcile } from "./functions/financeReconcile/resource";
 import { weeklyCashflow } from "./functions/weeklyCashflow/resource";
 import { parsePaycheckPdf } from "./functions/parsePaycheckPdf/resource";
 import { simplefinSync } from "./functions/simplefinSync/resource";
@@ -35,6 +36,7 @@ const backend = defineBackend({
   importLogbook,
   gennaroAgent,
   financeSnapshots,
+  financeReconcile,
   weeklyCashflow,
   parsePaycheckPdf,
   simplefinSync,
@@ -366,6 +368,20 @@ new Rule(backend.stack, "FinanceSnapshotsDailyRule", {
   description: "Daily 6 AM Central capture of per-account balance + flow",
   schedule: Schedule.cron({ minute: "0", hour: "11" }),
   targets: [new LambdaFunctionTarget(snapshotFn)],
+});
+
+// ── financeReconcile cron ────────────────────────────────────────────────────
+// Daily at 11:30 UTC, half an hour after the snapshot capture so drift events
+// and snapshots for the same day agree on what they saw. Data access via
+// schema-level allow.resource(financeReconcile). Detects currentBalance vs
+// ledger drift (see the handler doc) — never mutates balances.
+
+const reconcileFn = backend.financeReconcile.resources.lambda as LambdaFunction;
+
+new Rule(backend.stack, "FinanceReconcileDailyRule", {
+  description: "Daily balance-vs-ledger drift check across finance accounts",
+  schedule: Schedule.cron({ minute: "30", hour: "11" }),
+  targets: [new LambdaFunctionTarget(reconcileFn)],
 });
 
 // ── weeklyCashflow cron + SES ────────────────────────────────────────────────
