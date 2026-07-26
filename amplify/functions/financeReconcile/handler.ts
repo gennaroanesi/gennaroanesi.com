@@ -117,17 +117,28 @@ export const handler = async (): Promise<{ ok: boolean; driftCount: number; acco
     }
   }
 
-  /** True when the receiving account has the SF-style mirror of this leg:
-   *  its own row on the same date, opposite amount, pointing back. */
+  /** True when the receiving account already has its own row for this leg's
+   *  money. Mirrors are matched loosely — first run showed strict matching
+   *  double-counts real pairs: cross-bank transfers settle days apart, and
+   *  imports often type the receiving side INCOME rather than TRANSFER. So:
+   *  any dest row of +|leg amount| within ±5 days counts, and each dest row
+   *  can mirror at most one leg (consumed). A false match is stable
+   *  run-over-run, so drift detection (which alarms on the CHANGE in offset)
+   *  is unaffected either way. */
+  const consumedMirrors = new Set<string>();
   function hasMirror(leg: TransactionRecord): boolean {
     const destRows = byAccount.get(leg.toAccountId!) ?? [];
-    return destRows.some(
-      (m) =>
-        m.type === "TRANSFER" &&
-        m.toAccountId === leg.accountId &&
-        m.date === leg.date &&
-        Math.abs((m.amount ?? 0) + (leg.amount ?? 0)) < EPSILON,
+    const want = Math.abs(leg.amount ?? 0);
+    const legDay = dayNumber(leg.date);
+    const m = destRows.find(
+      (r) =>
+        !consumedMirrors.has(r.id) &&
+        Math.abs((r.amount ?? 0) - want) < EPSILON &&
+        Math.abs(dayNumber(r.date) - legDay) <= 5,
     );
+    if (!m) return false;
+    consumedMirrors.add(m.id);
+    return true;
   }
 
   const perAccount: PerAccount[] = [];
@@ -203,4 +214,10 @@ export const handler = async (): Promise<{ ok: boolean; driftCount: number; acco
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** YYYY-MM-DD → integer day count (UTC) for cheap date-distance checks. */
+function dayNumber(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  return Math.floor(new Date(iso + "T00:00:00Z").getTime() / 86400000);
 }
