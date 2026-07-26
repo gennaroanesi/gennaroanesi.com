@@ -15,7 +15,7 @@ import {
   accountTotalValue, buildQuoteMap, tickerAggregate, isLotVested, isQuoteStale, isQuoteManual,
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState, AccountBadge, StatusBadge,
-  listAll, refreshAllQuotes,
+  listAll, fetchTransactions, refreshAllQuotes,
 } from "@/components/finance/_shared";
 import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import {
@@ -110,7 +110,11 @@ export default function AccountDetailPage() {
       // /finance/transactions — keeps the tuple shallow, typing intact.
       const [accRecs, txs, lotRecs, holdingRecs, quoteRecs, goalRecs, mappingRecs, recRecs, groupRecs] = await Promise.all([
         listAll<AccountRecord>(client.models.financeAccount),
-        listAll<TransactionRecord>(client.models.financeTransaction),
+        // TODO(gsi): deliberately NOT scoped to { accountId } — the shared
+        // TransactionPanel receives the full array (and its setter) and can
+        // save TRANSFERs whose legs live on other accounts / move txs across
+        // accounts, so scoping here would break those flows.
+        fetchTransactions(),
         listAll<HoldingLotRecord>(client.models.financeHoldingLot),
         listAll<HoldingRecord>(client.models.financeHolding),
         listAll<TickerQuoteRecord>(client.models.financeTickerQuote),

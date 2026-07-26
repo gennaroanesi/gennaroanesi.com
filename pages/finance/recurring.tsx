@@ -13,6 +13,8 @@ import {
   inputCls, labelCls,
   SaveButton, DeleteButton, EmptyState,
   listAll,
+  fetchTransactions,
+  fetchTransactionsByRecurring,
   findMatchingTransactionsForRule, applyRecurringMatch,
   type Cadence,
 } from "@/components/finance/_shared";
@@ -68,7 +70,7 @@ export default function RecurringPage() {
       const [accs, recs, txs] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring),
-        listAll(client.models.financeTransaction, { date: { ge: sinceIso } }),
+        fetchTransactions({ from: sinceIso }),
       ]);
       setAccounts(accs);
       setRecurrings(recs);
@@ -146,7 +148,7 @@ export default function RecurringPage() {
     setLinkedTxsLoading(true);
     (async () => {
       try {
-        const rows = await listAll(client.models.financeTransaction, { recurringId: { eq: ruleId } });
+        const rows = await fetchTransactionsByRecurring(ruleId);
         setLinkedTxs(rows.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")));
       } finally {
         setLinkedTxsLoading(false);

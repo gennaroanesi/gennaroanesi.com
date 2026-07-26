@@ -6,6 +6,7 @@ import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client,
   listAll,
+  fetchTransactions,
   FINANCE_COLOR,
   fmtCurrency,
   fmtDate,
@@ -61,7 +62,7 @@ export default function SpendGroupsPage() {
     try {
       const [gs, ts, accs] = await Promise.all([
         listAll(client.models.financeSpendGroup as any),
-        listAll(client.models.financeTransaction),
+        fetchTransactions(),
         listAll(client.models.financeAccount),
       ]);
       setGroups(gs as SpendGroupRecord[]);

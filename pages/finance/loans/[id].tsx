@@ -14,6 +14,7 @@ import {
   inputCls, labelCls,
   SaveButton, DeleteButton,
   listAll,
+  fetchTransactions,
 } from "@/components/finance/_shared";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import {
@@ -743,7 +744,10 @@ export default function LoanDetailPage() {
   async function handleRecalcFromTransactions() {
     if (!loan || !account) return;
     // Fetch ALL posted INCOME transactions on the loan account — those represent principal flows
-    const txs = await listAll(client.models.financeTransaction);
+    const txs = await fetchTransactions({ accountId: account.id });
+    // TODO(gsi): the accountId leg of the client-side filter below is now
+    // redundant (server-side scoped above) but kept — it's harmless and the
+    // status/type legs are still required.
     const loanIncome = txs
       .filter((t) => t.accountId === account.id && t.status === "POSTED" && t.type === "INCOME")
       .reduce((s, t) => s + (t.amount ?? 0), 0);

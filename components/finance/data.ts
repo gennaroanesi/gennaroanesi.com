@@ -9,6 +9,7 @@
 
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
+import type { TransactionRecord } from "./finance-core";
 
 export const client = generateClient<Schema>();
 
@@ -82,6 +83,103 @@ export async function listAll<T>(
   } while (nextToken);
 
   return out;
+}
+
+// ── Transaction reads ─────────────────────────────────────────────────────────
+
+export type TransactionQuery = {
+  accountId?: string;
+  from?: string;      // YYYY-MM-DD inclusive
+  to?: string;        // YYYY-MM-DD inclusive
+};
+
+/** All transaction reads in the app go through this seam.
+ *
+ *  Query strategy:
+ *  - accountId present → the accountId+date GSI Query
+ *    (listFinanceTransactionByAccountIdAndDate): reads only that account's
+ *    rows in date order instead of scanning the whole table. Falls back to
+ *    the scan path if the environment hasn't deployed the GSI yet
+ *    (FieldUndefined — see CLAUDE.md §5).
+ *  - otherwise → scan (+ server-side date filter when from/to given). The
+ *    full-ledger surfaces (transactions table, dashboard, review) genuinely
+ *    need all accounts; trimming those is a windowing/snapshot problem, not
+ *    a query-shape one. */
+export async function fetchTransactions(q: TransactionQuery = {}): Promise<TransactionRecord[]> {
+  const dateCond =
+    q.from && q.to ? { between: [q.from, q.to] as [string, string] } :
+    q.from         ? { ge: q.from } :
+    q.to           ? { le: q.to } :
+    undefined;
+
+  if (q.accountId) {
+    try {
+      return await listAllByIndex<TransactionRecord>(
+        (args) => (client.models.financeTransaction as any)
+          .listFinanceTransactionByAccountIdAndDate({
+            accountId: q.accountId,
+            ...(dateCond ? { date: dateCond } : {}),
+            ...args,
+          }),
+      );
+    } catch (e: any) {
+      // Environment without the GSI deployed — the AppSync schema rejects the
+      // query (FieldUndefined) or, with a stale amplify_outputs.json, the
+      // typed client never generated the method at all (TypeError: … is not
+      // a function). Fall back to the scan so the page still works.
+      const msg = String(e?.message ?? e);
+      if (msg.includes("FieldUndefined") || msg.includes("is not a function")) {
+        console.warn("[fetchTransactions] accountId+date GSI not available here yet — falling back to scan");
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  const filter: any = {};
+  if (q.accountId) filter.accountId = { eq: q.accountId };
+  if (dateCond)    filter.date = dateCond;
+
+  if (Object.keys(filter).length === 0) {
+    return listAll<TransactionRecord>(client.models.financeTransaction);
+  }
+  return listAll<TransactionRecord>(client.models.financeTransaction, { filter });
+}
+
+/** Paginate an index Query (partition-key call shape) to exhaustion. Same
+ *  page-size / safety-cap semantics as listAll. */
+async function listAllByIndex<T>(
+  query: (args: { limit: number; nextToken?: string | null }) => Promise<{
+    data: T[] | null;
+    nextToken?: string | null;
+    errors?: any[];
+  }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let nextToken: string | null | undefined = null;
+  let pages = 0;
+  do {
+    const res: any = await query({ limit: 1000, nextToken });
+    if (res?.errors?.length) {
+      throw new Error(res.errors[0]?.message ?? "index query failed");
+    }
+    if (res?.data?.length) out.push(...res.data);
+    nextToken = res?.nextToken ?? null;
+    pages++;
+    if (pages >= 50) {
+      console.warn("[listAllByIndex] hit safety cap of 50 pages — result may be truncated");
+      break;
+    }
+  } while (nextToken);
+  return out;
+}
+
+/** Transactions realizing a recurring rule (already GSI-backed via the
+ *  recurringId secondary index — keep using the same filter listAll for now). */
+export async function fetchTransactionsByRecurring(recurringId: string): Promise<TransactionRecord[]> {
+  return listAll<TransactionRecord>(client.models.financeTransaction, {
+    filter: { recurringId: { eq: recurringId } },
+  });
 }
 
 // ── Record types ──────────────────────────────────────────────────────────────

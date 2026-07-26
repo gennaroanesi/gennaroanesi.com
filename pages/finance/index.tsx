@@ -19,6 +19,7 @@ import {
   estimateTimeToZero,
   AccountBadge,
   listAll,
+  fetchTransactions,
   type Cadence,
 } from "@/components/finance/_shared";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
@@ -117,7 +118,7 @@ export default function FinanceDashboard() {
     setLoadingUpcoming(true);
     try {
       const [txs, recs] = await Promise.all([
-        listAll(client.models.financeTransaction),
+        fetchTransactions(),
         listAll(client.models.financeRecurring),
       ]);
       setTransactions(txs);

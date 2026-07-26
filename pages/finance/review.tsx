@@ -10,6 +10,7 @@ import FinanceLayout from "@/layouts/finance";
 import {
   client,
   listAll,
+  fetchTransactions,
   FINANCE_COLOR,
   fmtCurrency,
   fmtDate,
@@ -238,7 +239,7 @@ export default function ReviewPage() {
     setLoading(true);
     try {
       const [t, a, rec, l, q, hs, gs, g, sg] = await Promise.all([
-        listAll(client.models.financeTransaction),
+        fetchTransactions(),
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring as any),
         listAll(client.models.financeHolding),

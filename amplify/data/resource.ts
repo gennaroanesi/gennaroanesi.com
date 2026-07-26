@@ -424,6 +424,10 @@ const schema = a.schema({
       icaoIdent: a.string(),
       nasrCycleDate: a.string().required(),
     })
+    // airportId GSI: enables listInstrumentApproachByAirportId instead of the
+    // filter-scan workaround documented in CLAUDE.md §5. After this deploys,
+    // archive-charts.mjs can switch to the GSI query.
+    .secondaryIndexes((index) => [index("airportId")])
     .authorization((allow) => [
       allow.publicApiKey().to(["read"]),
       allow.group("admins"),
@@ -558,7 +562,14 @@ const schema = a.schema({
       // exact even when tax/shipping make the raw item sum differ slightly.
       lineItems:         a.string(),
     })
-    .secondaryIndexes((index) => [index("recurringId")])
+    // accountId+date GSI: the workhorse index — every account-scoped or
+    // date-ranged read (account detail, review periods, reconciliation)
+    // becomes a Query instead of a full-table Scan. Reads route through
+    // fetchTransactions() in components/finance/data.ts.
+    .secondaryIndexes((index) => [
+      index("recurringId"),
+      index("accountId").sortKeys(["date"]),
+    ])
     .authorization((allow) => [allow.group("admins")]),
 
   financeRecurring: a
@@ -584,6 +595,8 @@ const schema = a.schema({
       // Examples: "MORTGAGE PMT", "NETFLIX", "/CHASE.*AUTOPAY/i"
       matchPattern: a.string(),
     })
+    // accountId GSI: rules are listed per-account by the matcher and crons.
+    .secondaryIndexes((index) => [index("accountId")])
     .authorization((allow) => [allow.group("admins")]),
 
   financeSavingsGoal: a

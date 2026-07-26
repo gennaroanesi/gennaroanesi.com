@@ -15,6 +15,7 @@ import {
   EmptyState, AccountBadge, StatusBadge,
   isTradeType, realizedGain,
   listAll,
+  fetchTransactions,
 } from "@/components/finance/_shared";
 import { WARNING, withAlpha } from "@/lib/colors";
 import {
@@ -154,7 +155,7 @@ export default function TransactionsPage() {
       // keeps the tuple shallow while preserving full typing.
       const [accs, txs, gls, maps, lotRecs, holdingRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
         listAll<AccountRecord>(client.models.financeAccount),
-        listAll<TransactionRecord>(client.models.financeTransaction),
+        fetchTransactions(),
         listAll<GoalRecord>(client.models.financeSavingsGoal),
         listAll<GoalFundingSourceRecord>(client.models.financeGoalFundingSource),
         listAll<HoldingLotRecord>(client.models.financeHoldingLot),

@@ -67,13 +67,22 @@ Affected models: `flight` (approachChartKeys), any future model with `.array()` 
 
 ---
 
-## 5. InstrumentApproach — no airportId GSI (yet)
+## 5. Secondary indexes — deploy state matters
 
-The `instrumentApproach` table has no secondary index on `airportId` in the current prod schema.
+The schema (as of 2026-07) declares GSIs on `instrumentApproach.airportId`,
+`financeTransaction.accountId + date`, and `financeRecurring.accountId`. GSI
+queries (`listInstrumentApproachByAirportId`,
+`listFinanceTransactionByAccountIdAndDate`, …) only exist in an environment
+**after** that schema deploys there (prod: push to main → Amplify pipeline;
+sandbox: `npm run sandbox`). Against a stale environment they return a
+`FieldUndefined` GraphQL error — fall back to
+`list…(filter: { … })` scans only for environments that haven't deployed yet.
 
-- **Do not** use `listInstrumentApproachByAirportId` — it doesn't exist in prod and will return a `FieldUndefined` GraphQL error
-- **Use** `listInstrumentApproaches(filter: { airportId: { eq: "KXXX" } }, limit: 200)` instead
-- Once `.secondaryIndexes((index) => [index("airportId")])` is deployed and `amplify push` is run, the GSI query will exist and `archive-charts.mjs` can be updated to use it
+- Frontend transaction reads route through `fetchTransactions()` in
+  `components/finance/data.ts` — change query strategy there, not in pages.
+- `archive-charts.mjs` still uses the filter-scan
+  (`listInstrumentApproaches(filter: { airportId: { eq: "KXXX" } }, limit: 200)`)
+  — safe everywhere; switch to the GSI query once prod has deployed.
 
 ---
 
