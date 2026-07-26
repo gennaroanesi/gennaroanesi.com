@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
-import { inputCls, labelCls, SaveButton, DeleteButton, CaliberInput } from "@/components/inventory/_shared";
+import { inputCls, labelCls, SaveButton, DeleteButton, CaliberInput, listAll } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import { mutate, reportError } from "@/components/common/mutate";
 
@@ -42,12 +42,12 @@ export default function ThresholdsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: tData }, { data: pData }] = await Promise.all([
-        client.models.ammoThreshold.list({ limit: 500 }),
-        client.models.notificationPerson.list({ limit: 500 }),
+      const [tData, pData] = await Promise.all([
+        listAll(client.models.ammoThreshold),
+        listAll(client.models.notificationPerson),
       ]);
-      setThresholds(tData ?? []);
-      setPeople((pData ?? []).filter((p) => p.active !== false));
+      setThresholds(tData);
+      setPeople(pData.filter((p) => p.active !== false));
     } finally {
       setLoading(false);
     }

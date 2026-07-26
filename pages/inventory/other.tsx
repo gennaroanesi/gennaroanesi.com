@@ -13,6 +13,7 @@ import {
   InventoryTable, ColDef, useThumbnails,
   useTableControls, TableControls,
   SearchBar, useInventorySearch,
+  listAll,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import { mutate, reportError } from "@/components/common/mutate";
@@ -39,11 +40,10 @@ export default function OtherPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await client.models.inventoryItem.list({
+      const data = await listAll(client.models.inventoryItem, {
         filter: { category: { eq: "OTHER" } },
-        limit: 500,
       });
-      setItems((data ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
+      setItems(data.filter((it) => (it.status ?? "OWNED") === "OWNED"));
     } finally {
       setLoading(false);
     }

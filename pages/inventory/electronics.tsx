@@ -14,6 +14,7 @@ import {
   InventoryTable, ColDef, useThumbnails,
   useTableControls, TableControls,
   SearchBar, useInventorySearch,
+  listAll,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageLoading } from "@/components/common/ui";
 import { mutate, reportError } from "@/components/common/mutate";
@@ -54,9 +55,9 @@ export default function ElectronicsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "ELECTRONICS" } }, limit: 500 }),
-        client.models.inventoryElectronic.list({ limit: 500 }),
+      const [itemData, detailData] = await Promise.all([
+        listAll(client.models.inventoryItem, { filter: { category: { eq: "ELECTRONICS" } } }),
+        listAll(client.models.inventoryElectronic),
       ]);
       setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, ElectronicRecord>();

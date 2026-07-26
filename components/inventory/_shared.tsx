@@ -31,6 +31,60 @@ export { FilterTypeahead, TableControls } from "@/components/common/table";
 export const thCls = _thCls;
 export const tdCls = _tdCls;
 
+// ── Pagination helper ────────────────────────────────────────────────────
+
+/**
+ * Page through an Amplify `list()` call until all records are retrieved.
+ * Mirrors the finance `listAll` (components/finance/data.ts): a single
+ * fixed-limit `list()` silently drops records beyond the first page —
+ * DynamoDB returns rows in internal storage order, so anything past the
+ * page vanishes from the UI.
+ *
+ * Safety cap: stops at 50 pages with a console.warn to prevent runaway
+ * loops if something goes wrong server-side.
+ *
+ * Usage:
+ *   const items = await listAll(client.models.inventoryItem);
+ *   const ammo  = await listAll(client.models.inventoryItem, { filter: { category: { eq: "AMMO" } } });
+ */
+export async function listAll<T>(
+  model: {
+    list: (args: { limit?: number; nextToken?: string | null; filter?: any }) => Promise<{
+      data: T[] | null;
+      nextToken?: string | null;
+      errors?: any[];
+    }>;
+  },
+  opts: { pageSize?: number; maxPages?: number; filter?: any } = {},
+): Promise<T[]> {
+  const pageSize = opts.pageSize ?? 500;
+  const maxPages = opts.maxPages ?? 50;
+  const filter   = opts.filter;
+
+  const out: T[] = [];
+  let nextToken: string | null | undefined = null;
+  let pages = 0;
+
+  do {
+    const args: any = { limit: pageSize, nextToken };
+    if (filter) args.filter = filter;
+    const res: any = await model.list(args);
+    if (res?.errors?.length) {
+      console.error("[listAll] errors:", res.errors);
+      throw new Error(res.errors[0]?.message ?? "list failed");
+    }
+    if (res?.data?.length) out.push(...res.data);
+    nextToken = res?.nextToken ?? null;
+    pages++;
+    if (pages >= maxPages) {
+      console.warn(`[listAll] hit safety cap of ${maxPages} pages — result may be truncated`);
+      break;
+    }
+  } while (nextToken);
+
+  return out;
+}
+
 // Inventory pages call useTableControls with only a `getSortValue` signature
 // (legacy, pre-refactor). Wrap the generic hook to preserve that API.
 export function useTableControls<T>(

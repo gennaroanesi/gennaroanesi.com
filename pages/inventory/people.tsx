@@ -3,7 +3,7 @@ import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import InventoryLayout from "@/layouts/inventory";
-import { inputCls, labelCls, SaveButton, DeleteButton } from "@/components/inventory/_shared";
+import { inputCls, labelCls, SaveButton, DeleteButton, listAll } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import { mutate, reportError } from "@/components/common/mutate";
 
@@ -51,8 +51,8 @@ export default function PeoplePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await client.models.notificationPerson.list({ limit: 500 });
-      setPeople(data ?? []);
+      const data = await listAll(client.models.notificationPerson);
+      setPeople(data);
     } finally {
       setLoading(false);
     }

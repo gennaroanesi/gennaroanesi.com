@@ -13,6 +13,7 @@ import {
   labelCls, tdCls,
   CategoryBadge,
   resolveAllUrls,
+  listAll,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -55,35 +56,35 @@ export default function ItemDetailPage() {
       // Fetch category-specific detail
       const cat = it.category as Category;
       if (cat === "FIREARM") {
-        const { data } = await client.models.inventoryFirearm.list({
-          filter: { itemId: { eq: itemId } }, limit: 1,
+        const data = await listAll(client.models.inventoryFirearm, {
+          filter: { itemId: { eq: itemId } },
         });
-        setDetail(data?.[0] ? { kind: "FIREARM", data: data[0] } : { kind: "OTHER" });
+        setDetail(data[0] ? { kind: "FIREARM", data: data[0] } : { kind: "OTHER" });
       } else if (cat === "AMMO") {
-        const { data } = await client.models.inventoryAmmo.list({
-          filter: { itemId: { eq: itemId } }, limit: 1,
+        const data = await listAll(client.models.inventoryAmmo, {
+          filter: { itemId: { eq: itemId } },
         });
-        setDetail(data?.[0] ? { kind: "AMMO", data: data[0] } : { kind: "OTHER" });
+        setDetail(data[0] ? { kind: "AMMO", data: data[0] } : { kind: "OTHER" });
       } else if (cat === "FILAMENT") {
-        const { data } = await client.models.inventoryFilament.list({
-          filter: { itemId: { eq: itemId } }, limit: 1,
+        const data = await listAll(client.models.inventoryFilament, {
+          filter: { itemId: { eq: itemId } },
         });
-        setDetail(data?.[0] ? { kind: "FILAMENT", data: data[0] } : { kind: "OTHER" });
+        setDetail(data[0] ? { kind: "FILAMENT", data: data[0] } : { kind: "OTHER" });
       } else if (cat === "INSTRUMENT") {
-        const { data } = await client.models.inventoryInstrument.list({
-          filter: { itemId: { eq: itemId } }, limit: 1,
+        const data = await listAll(client.models.inventoryInstrument, {
+          filter: { itemId: { eq: itemId } },
         });
-        setDetail(data?.[0] ? { kind: "INSTRUMENT", data: data[0] } : { kind: "OTHER" });
+        setDetail(data[0] ? { kind: "INSTRUMENT", data: data[0] } : { kind: "OTHER" });
       } else if (cat === "PHOTOGRAPHY") {
-        const { data } = await client.models.inventoryPhotography.list({
-          filter: { itemId: { eq: itemId } }, limit: 1,
+        const data = await listAll(client.models.inventoryPhotography, {
+          filter: { itemId: { eq: itemId } },
         });
-        setDetail(data?.[0] ? { kind: "PHOTOGRAPHY", data: data[0] } : { kind: "OTHER" });
+        setDetail(data[0] ? { kind: "PHOTOGRAPHY", data: data[0] } : { kind: "OTHER" });
       } else if (cat === "ELECTRONICS") {
-        const { data } = await client.models.inventoryElectronic.list({
-          filter: { itemId: { eq: itemId } }, limit: 1,
+        const data = await listAll(client.models.inventoryElectronic, {
+          filter: { itemId: { eq: itemId } },
         });
-        setDetail(data?.[0] ? { kind: "ELECTRONICS", data: data[0] } : { kind: "OTHER" });
+        setDetail(data[0] ? { kind: "ELECTRONICS", data: data[0] } : { kind: "OTHER" });
       } else {
         setDetail({ kind: "OTHER" });
       }

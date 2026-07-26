@@ -182,6 +182,33 @@ export async function fetchTransactionsByRecurring(recurringId: string): Promise
   });
 }
 
+/** Distinct years present in the ledger, descending. Used by period pickers
+ *  so windowed pages don't need the full row set just to know which years
+ *  exist. Raw GraphQL selecting ONLY the date field — the server still scans,
+ *  but the payload is a few bytes per row instead of full records. */
+export async function fetchTransactionYears(): Promise<number[]> {
+  const years = new Set<number>();
+  let nextToken: string | null = null;
+  let pages = 0;
+  do {
+    const res: any = await client.graphql({
+      query: `query TxYears($next: String) {
+        listFinanceTransactions(limit: 1000, nextToken: $next) { items { date } nextToken }
+      }`,
+      variables: { next: nextToken },
+      authMode: "userPool",
+    });
+    const page = res?.data?.listFinanceTransactions;
+    for (const it of page?.items ?? []) {
+      const y = Number((it?.date ?? "").slice(0, 4));
+      if (Number.isFinite(y) && y > 1970) years.add(y);
+    }
+    nextToken = page?.nextToken ?? null;
+    pages++;
+  } while (nextToken && pages < 100);
+  return [...years].sort((a, b) => b - a);
+}
+
 // ── Record types ──────────────────────────────────────────────────────────────
 
 // These aliases already exist in finance-core (the pure bottom layer) — re-export

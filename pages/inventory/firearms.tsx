@@ -14,6 +14,7 @@ import {
   InventoryTable, ColDef, useThumbnails, useSuggestions,
   useTableControls, TableControls,
   SearchBar, useInventorySearch,
+  listAll,
 } from "@/components/inventory/_shared";
 import { SlideOverPanel, PageTitle, PageLoading, PrimaryButton } from "@/components/common/ui";
 import { mutate, reportError } from "@/components/common/mutate";
@@ -46,9 +47,9 @@ export default function FirearmsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({ filter: { category: { eq: "FIREARM" } }, limit: 500 }),
-        client.models.inventoryFirearm.list({ limit: 500 }),
+      const [itemData, detailData] = await Promise.all([
+        listAll(client.models.inventoryItem, { filter: { category: { eq: "FIREARM" } } }),
+        listAll(client.models.inventoryFirearm),
       ]);
       setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, FirearmRecord>();

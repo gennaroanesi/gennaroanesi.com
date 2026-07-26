@@ -13,6 +13,7 @@ import {
   fmtCurrency, fmtDate,
   CategoryBadge, EmptyState, TableControls,
   FilamentColorDots,
+  listAll,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -41,15 +42,15 @@ export default function InventoryPage() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: itemData }, { data: fwData }, { data: amData }, { data: flData }, { data: instData }, { data: phData }, { data: elData }] =
+      const [itemData, fwData, amData, flData, instData, phData, elData] =
         await Promise.all([
-          client.models.inventoryItem.list({ limit: 500 }),
-          client.models.inventoryFirearm.list({ limit: 500 }),
-          client.models.inventoryAmmo.list({ limit: 500 }),
-          client.models.inventoryFilament.list({ limit: 500 }),
-          client.models.inventoryInstrument.list({ limit: 500 }),
-          client.models.inventoryPhotography.list({ limit: 500 }),
-          client.models.inventoryElectronic.list({ limit: 500 }),
+          listAll(client.models.inventoryItem),
+          listAll(client.models.inventoryFirearm),
+          listAll(client.models.inventoryAmmo),
+          listAll(client.models.inventoryFilament),
+          listAll(client.models.inventoryInstrument),
+          listAll(client.models.inventoryPhotography),
+          listAll(client.models.inventoryElectronic),
         ]);
       setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       setFirearms(fwData ?? []);

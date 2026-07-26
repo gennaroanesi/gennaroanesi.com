@@ -11,6 +11,7 @@ import {
   client,
   listAll,
   fetchTransactions,
+  fetchTransactionYears,
   FINANCE_COLOR,
   fmtCurrency,
   fmtDate,
@@ -224,6 +225,7 @@ export default function ReviewPage() {
   const [goalSnaps, setGoalSnaps] = useState<GoalSnapshotRecord[]>([]);
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [spendGroups, setSpendGroups] = useState<SpendGroupRecord[]>([]);
+  const [ledgerYears, setLedgerYears] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailCat, setDetailCat] = useState<string>("");
 
@@ -238,8 +240,7 @@ export default function ReviewPage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, a, rec, l, q, hs, gs, g, sg] = await Promise.all([
-        fetchTransactions(),
+      const [a, rec, l, q, hs, gs, g, sg, ys] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring as any),
         listAll(client.models.financeHolding),
@@ -248,8 +249,8 @@ export default function ReviewPage() {
         listAll(client.models.financeGoalSnapshot),
         listAll(client.models.financeSavingsGoal),
         listAll(client.models.financeSpendGroup as any),
+        fetchTransactionYears(),
       ]);
-      setTxs(t as TransactionRecord[]);
       setAccounts(a as AccountRecord[]);
       setRecurrings(rec as RecurringRecord[]);
       setHoldings(l as HoldingRecord[]);
@@ -258,6 +259,7 @@ export default function ReviewPage() {
       setGoalSnaps(gs as GoalSnapshotRecord[]);
       setGoals(g as GoalRecord[]);
       setSpendGroups(sg as SpendGroupRecord[]);
+      setLedgerYears(ys);
     } finally {
       setLoading(false);
     }
@@ -266,6 +268,29 @@ export default function ReviewPage() {
   useEffect(() => {
     if (authState === "authenticated") fetchAll();
   }, [authState, fetchAll]);
+
+  // Transactions load per selected year: the window is Jan 1 of the PRIOR
+  // year through Dec 31 of the selected year, so every widget's baseline —
+  // YoY month comparisons, trailing averages, the rolling last-3 straddling
+  // a year boundary — has real data without pulling the whole ledger.
+  const [txLoading, setTxLoading] = useState(true);
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+    let cancelled = false;
+    (async () => {
+      setTxLoading(true);
+      try {
+        const rows = await fetchTransactions({
+          from: `${year - 1}-01-01`,
+          to:   `${year}-12-31`,
+        });
+        if (!cancelled) setTxs(rows);
+      } finally {
+        if (!cancelled) setTxLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authState, year]);
 
   const period: Period = useMemo(() => {
     switch (kind) {
@@ -276,11 +301,12 @@ export default function ReviewPage() {
     }
   }, [kind, year, month, quarter, today]);
 
+  // Year picker comes from the cheap date-only ledger probe, not the loaded
+  // window (which only spans two years by design).
   const availableYears = useMemo(() => {
-    const ys = new Set<number>([curYear]);
-    for (const t of txs) if (t.date) ys.add(Number(t.date.slice(0, 4)));
+    const ys = new Set<number>([curYear, ...ledgerYears]);
     return [...ys].sort((a, b) => b - a);
-  }, [txs, curYear]);
+  }, [ledgerYears, curYear]);
 
   const view = useMemo(() => {
     const range = periodRange(period);
@@ -398,7 +424,7 @@ export default function ReviewPage() {
         </div>
 
         {/* Headline cards — pinned with the selector */}
-        {!loading && (
+        {!(loading || txLoading) && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <StatCard
               label="Income"
@@ -426,9 +452,9 @@ export default function ReviewPage() {
 
         {/* Scrollable body */}
         <div className="px-4 md:px-8 py-5">
-        {loading && <PageLoading />}
+        {(loading || txLoading) && <PageLoading />}
 
-        {!loading && (
+        {!(loading || txLoading) && (
           <>
             {income.count === 0 && (
               <p className="text-xs text-gray-400 mt-2">

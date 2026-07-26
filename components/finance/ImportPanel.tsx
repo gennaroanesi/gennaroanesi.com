@@ -10,6 +10,7 @@ import {
   type TxType,
   isInvestedAccount,
   listAll,
+  fetchTransactions,
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
@@ -136,16 +137,55 @@ export function ImportPanel(props: ImportPanelProps) {
   const totalRows  = mode === "schwab" ? schwabRows.length : bankRows.length;
   const inRangeLen = mode === "schwab" ? inRangeSchwab.length : inRangeBank.length;
 
-  // Existing tx in range — relevant to both modes for the "delete existing
-  // in range first" replace flow.
-  const inRangeExistingTx = useMemo(() => {
-    if (!importAccountId || !importStartDate || !importEndDate) return [];
-    return transactions.filter((t) =>
-      t.accountId === importAccountId &&
-      (t.date ?? "") >= importStartDate &&
-      (t.date ?? "") <= importEndDate,
-    );
-  }, [transactions, importAccountId, importStartDate, importEndDate]);
+  // Existing tx in range — drives both the "delete existing in range first"
+  // replace flow AND duplicate marking. Fetched directly (account-scoped →
+  // GSI query) rather than derived from the `transactions` prop: the parent
+  // page now loads a rolling window, so the prop can't see rows older than
+  // its window and dedup/delete would silently miss them.
+  const [rangeExisting, setRangeExisting] = useState<TransactionRecord[] | null>(null);
+  useEffect(() => {
+    if (!importAccountId || !importStartDate || !importEndDate) {
+      setRangeExisting(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchTransactions({
+        accountId: importAccountId,
+        from: importStartDate,
+        to: importEndDate,
+      });
+      if (!cancelled) setRangeExisting(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [importAccountId, importStartDate, importEndDate]);
+
+  const inRangeExistingTx = useMemo(() => rangeExisting ?? [], [rangeExisting]);
+
+  // Authoritative duplicate set: the fetched in-range rows (full history
+  // coverage for this account) plus the parent's loaded window (catches
+  // cross-account dupes the old prop-based marking also caught).
+  const existingHashSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of transactions) if (t.importHash) s.add(t.importHash);
+    for (const t of rangeExisting ?? []) if (t.importHash) s.add(t.importHash);
+    return s;
+  }, [transactions, rangeExisting]);
+
+  // Re-mark duplicates when the fetched index lands or changes. Only rows
+  // whose duplicate status actually flips get their selection reset — a
+  // user's manual checkbox choices on unaffected rows survive.
+  useEffect(() => {
+    setBankRows((prev) => prev.map((r) => {
+      const dup = existingHashSet.has(r.hash);
+      return dup === r.duplicate ? r : { ...r, duplicate: dup, selected: !dup };
+    }));
+    setSchwabRows((prev) => prev.map((r) => {
+      const dup = existingHashSet.has(r.hash);
+      return dup === r.duplicate ? r : { ...r, duplicate: dup, selected: !dup && r.action !== "UNKNOWN" };
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingHashSet]);
 
   async function adjustBalance(accountId: string, delta: number) {
     const acc = accounts.find((a) => a.id === accountId);

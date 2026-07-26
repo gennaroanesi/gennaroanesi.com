@@ -29,6 +29,7 @@ import {
   TableControls,
   SearchBar,
   useInventorySearch,
+  listAll,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -111,12 +112,11 @@ export default function AmmoPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [{ data: itemData }, { data: detailData }] = await Promise.all([
-        client.models.inventoryItem.list({
+      const [itemData, detailData] = await Promise.all([
+        listAll(client.models.inventoryItem, {
           filter: { category: { eq: "AMMO" } },
-          limit: 500,
         }),
-        client.models.inventoryAmmo.list({ limit: 500 }),
+        listAll(client.models.inventoryAmmo),
       ]);
       setItems((itemData ?? []).filter((it) => (it.status ?? "OWNED") === "OWNED"));
       const map = new Map<string, AmmoRecord>();

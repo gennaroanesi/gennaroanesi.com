@@ -10,6 +10,7 @@ import {
   thCls, tdCls,
   fmtCurrency,
   CategoryBadge,
+  listAll,
 } from "@/components/inventory/_shared";
 
 const client = generateClient<Schema>();
@@ -31,11 +32,10 @@ export default function WishlistPage() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await client.models.inventoryItem.list({
+      const data = await listAll(client.models.inventoryItem, {
         filter: { status: { eq: "WISHLIST" } },
-        limit: 500,
       });
-      setItems(data ?? []);
+      setItems(data);
     } finally {
       setLoading(false);
     }

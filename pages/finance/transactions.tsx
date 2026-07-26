@@ -146,6 +146,18 @@ export default function TransactionsPage() {
 
   // ── Data fetching ─────────────────────────────────────────────────────────
 
+  // Transactions load a rolling window (default: last 12 months) instead of
+  // the whole ledger — the table renders paginated anyway, and the full-table
+  // load is what eventually trips listAll's safety cap. `loadedFrom = null`
+  // means "everything" (the Load-all-history escape hatch). Date filters
+  // reaching past the window auto-extend it.
+  const [loadedFrom, setLoadedFrom] = useState<string | null>(() => {
+    const d = new Date();
+    d.setUTCFullYear(d.getUTCFullYear() - 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [txLoading, setTxLoading] = useState(true);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -153,9 +165,8 @@ export default function TransactionsPage() {
       // (very deep) Amplify model types, and the 8-way Promise.all tuple trips
       // "Type instantiation is excessively deep" (TS2589). Passing T directly
       // keeps the tuple shallow while preserving full typing.
-      const [accs, txs, gls, maps, lotRecs, holdingRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
+      const [accs, gls, maps, lotRecs, holdingRecs, quoteRecs, recRecs, groupRecs] = await Promise.all([
         listAll<AccountRecord>(client.models.financeAccount),
-        fetchTransactions(),
         listAll<GoalRecord>(client.models.financeSavingsGoal),
         listAll<GoalFundingSourceRecord>(client.models.financeGoalFundingSource),
         listAll<HoldingLotRecord>(client.models.financeHoldingLot),
@@ -165,7 +176,6 @@ export default function TransactionsPage() {
         listAll<SpendGroupRecord>(client.models.financeSpendGroup as any),
       ]);
       setAccounts(accs);
-      setTransactions(txs);
       setGoals(gls);
       setMappings(maps);
       setLots(lotRecs);
@@ -178,10 +188,31 @@ export default function TransactionsPage() {
     }
   }, []);
 
+  const fetchTxWindow = useCallback(async (from: string | null) => {
+    setTxLoading(true);
+    try {
+      setTransactions(await fetchTransactions(from ? { from } : {}));
+    } finally {
+      setTxLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authState !== "authenticated") return;
     fetchData();
   }, [authState, fetchData]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+    fetchTxWindow(loadedFrom);
+  }, [authState, loadedFrom, fetchTxWindow]);
+
+  // A from-date filter older than the loaded window widens the window.
+  useEffect(() => {
+    if (filterFromDate && loadedFrom && filterFromDate < loadedFrom) {
+      setLoadedFrom(filterFromDate);
+    }
+  }, [filterFromDate, loadedFrom]);
 
   // Preselect account filter from ?account= query param
   useEffect(() => {
@@ -668,8 +699,23 @@ export default function TransactionsPage() {
             </div>
           )}
 
+          {/* Loaded-window indicator: the ledger fetches a rolling window, not
+              the whole table — make the boundary visible and escapable. */}
+          {!loading && !txLoading && loadedFrom && (
+            <div className="flex items-center gap-2 mb-2 text-xs text-gray-400 dark:text-gray-500">
+              <span>Showing transactions since {loadedFrom}</span>
+              <button
+                onClick={() => setLoadedFrom(null)}
+                className="font-medium hover:underline"
+                style={{ color: FINANCE_COLOR }}
+              >
+                Load all history
+              </button>
+            </div>
+          )}
+
           {/* Table */}
-          {loading ? (
+          {loading || txLoading ? (
             <PageLoading />
           ) : filtered.length === 0 ? (
             <EmptyState label="transactions" />
