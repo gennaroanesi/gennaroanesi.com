@@ -413,6 +413,12 @@ export const handler = async (event: S3Event): Promise<{ ok: boolean; processed:
       failed++;
       continue;
     }
+    // SES drops a marker object into the prefix when a receipt rule is
+    // created/verified — it's not an email and produced junk rows once.
+    if (key.endsWith("AMAZON_SES_SETUP_NOTIFICATION")) {
+      console.log("[invoiceProcessor] skipping SES setup-notification marker");
+      continue;
+    }
     try {
       await processEmail(bucket, key);
       processed++;
