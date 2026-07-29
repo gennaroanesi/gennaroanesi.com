@@ -159,7 +159,128 @@ aws lambda add-permission \
   --source-account "$ACCOUNT" \
   --region $REGION 2>/dev/null || echo "  (permission already exists — skipping)"
 
-# ── 6. Print Route53 instructions ────────────────────────────────────────────
+# ── 6. Invoice ingestion: invoices@ → S3 → invoiceProcessor Lambda ──────────
+# Same shape as the logbook rule, but the Lambda is triggered by an S3
+# bucket notification on the invoice-inbound prefix (not an SES LambdaAction):
+#   SES rule stores raw email → s3://gennaroanesi.com/private/invoice-inbound/
+#   S3 object-created notification (prefix-filtered) → invoiceProcessor.
+# The Lambda's s3.amazonaws.com invoke permission is granted in
+# amplify/backend.ts; this section owns the SES rule, the SES→S3 bucket
+# policy for the new prefix, and the bucket-notification entry (merged into
+# the existing config — put-bucket-notification-configuration REPLACES it).
+
+INVOICE_RULE_NAME="invoice-ingest"
+INVOICE_RECIPIENT="invoices@gennaroanesi.com"
+INVOICE_PREFIX="private/invoice-inbound"
+
+echo ""
+echo "==> Resolving invoiceProcessor Lambda ARN..."
+INVOICE_LAMBDA_NAME=$(aws lambda list-functions \
+  --region $REGION \
+  --query "Functions[?contains(FunctionName, 'invoiceProcessor')].FunctionName" \
+  --output text | tr '\t' '\n' | head -1)
+
+if [ -z "$INVOICE_LAMBDA_NAME" ]; then
+  echo "ERROR: Could not find invoiceProcessor Lambda. Deploy the backend first."
+  exit 1
+fi
+
+INVOICE_LAMBDA_ARN=$(aws lambda get-function \
+  --function-name "$INVOICE_LAMBDA_NAME" \
+  --region $REGION \
+  --query "Configuration.FunctionArn" \
+  --output text)
+
+echo "  Lambda name: $INVOICE_LAMBDA_NAME"
+echo "  Lambda ARN:  $INVOICE_LAMBDA_ARN"
+
+echo ""
+echo "==> Creating receipt rule: $INVOICE_RULE_NAME..."
+INVOICE_RULE_JSON=$(cat <<EOF
+{
+  "Name": "$INVOICE_RULE_NAME",
+  "Enabled": true,
+  "TlsPolicy": "Optional",
+  "Recipients": ["$INVOICE_RECIPIENT"],
+  "Actions": [
+    {
+      "S3Action": {
+        "BucketName": "$BUCKET",
+        "ObjectKeyPrefix": "$INVOICE_PREFIX/",
+        "TopicArn": null
+      }
+    }
+  ],
+  "ScanEnabled": false
+}
+EOF
+)
+
+aws ses create-receipt-rule \
+  --rule-set-name "$RULE_SET_NAME" \
+  --rule "$INVOICE_RULE_JSON" \
+  --region $REGION 2>/dev/null || \
+aws ses update-receipt-rule \
+  --rule-set-name "$RULE_SET_NAME" \
+  --rule "$INVOICE_RULE_JSON" \
+  --region $REGION
+echo "  Receipt rule created/updated."
+
+echo ""
+echo "==> Adding S3 bucket policy for SES (invoice prefix)..."
+EXISTING_POLICY=$(aws s3api get-bucket-policy --bucket "$BUCKET" --query Policy --output text 2>/dev/null || echo "{\"Statement\":[]}")
+
+# The logbook statement is scoped to its own prefix, so check for THIS prefix.
+if echo "$EXISTING_POLICY" | grep -q "$INVOICE_PREFIX"; then
+  echo "  SES bucket policy for $INVOICE_PREFIX already present — skipping."
+else
+  SES_INVOICE_STATEMENT=$(cat <<EOF
+{
+  "Sid": "AllowSESPutObjectInvoices",
+  "Effect": "Allow",
+  "Principal": { "Service": "ses.amazonaws.com" },
+  "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::$BUCKET/$INVOICE_PREFIX/*",
+  "Condition": {
+    "StringEquals": { "AWS:SourceAccount": "$ACCOUNT" }
+  }
+}
+EOF
+)
+  python3 -c "
+import json, sys
+policy = json.loads('''$EXISTING_POLICY''')
+stmt = json.loads('''$SES_INVOICE_STATEMENT''')
+policy['Statement'].append(stmt)
+print(json.dumps(policy))
+" | aws s3api put-bucket-policy --bucket "$BUCKET" --policy file:///dev/stdin
+  echo "  S3 bucket policy updated."
+fi
+
+echo ""
+echo "==> Wiring S3 bucket notification → invoiceProcessor..."
+# Merge (don't clobber) — put-bucket-notification-configuration replaces the
+# whole config, so read the current one and append/refresh our entry.
+EXISTING_NOTIF=$(aws s3api get-bucket-notification-configuration --bucket "$BUCKET" 2>/dev/null || echo "{}")
+python3 -c "
+import json
+config = json.loads('''$EXISTING_NOTIF''')
+lambdas = config.get('LambdaFunctionConfigurations', [])
+# Drop any stale entry for this id, then re-add with the current ARN.
+lambdas = [l for l in lambdas if l.get('Id') != 'invoice-inbound-to-invoiceProcessor']
+lambdas.append({
+    'Id': 'invoice-inbound-to-invoiceProcessor',
+    'LambdaFunctionArn': '$INVOICE_LAMBDA_ARN',
+    'Events': ['s3:ObjectCreated:*'],
+    'Filter': {'Key': {'FilterRules': [{'Name': 'prefix', 'Value': '$INVOICE_PREFIX/'}]}},
+})
+config['LambdaFunctionConfigurations'] = lambdas
+config.pop('ResponseMetadata', None)
+print(json.dumps(config))
+" | aws s3api put-bucket-notification-configuration --bucket "$BUCKET" --notification-configuration file:///dev/stdin
+echo "  Bucket notification wired."
+
+# ── 7. Print Route53 instructions ────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════"
 echo "  MANUAL STEP REQUIRED: Add this MX record in Route53"
@@ -198,3 +319,7 @@ echo "Test by forwarding a ForeFlight CSV export email to:"
 echo "  $RECIPIENT"
 echo ""
 echo "You'll receive a summary email when the import finishes."
+echo ""
+echo "Invoice ingestion: forward an invoice email (PDF attachment or plain"
+echo "body) to $INVOICE_RECIPIENT — a financeInvoice record appears with the"
+echo "PDF stored under private/invoices/."

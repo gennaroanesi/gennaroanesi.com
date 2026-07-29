@@ -27,6 +27,7 @@ import { financeReconcile } from "./functions/financeReconcile/resource";
 import { weeklyCashflow } from "./functions/weeklyCashflow/resource";
 import { parsePaycheckPdf } from "./functions/parsePaycheckPdf/resource";
 import { simplefinSync } from "./functions/simplefinSync/resource";
+import { invoiceProcessor } from "./functions/invoiceProcessor/resource";
 
 const backend = defineBackend({
   auth,
@@ -40,6 +41,7 @@ const backend = defineBackend({
   weeklyCashflow,
   parsePaycheckPdf,
   simplefinSync,
+  invoiceProcessor,
   //storage,
 });
 
@@ -348,6 +350,60 @@ parsePaycheckFn.addToRolePolicy(
     resources: [`${customBucket.bucketArn}/*`],
   }),
 );
+
+// ── invoiceProcessor infrastructure ──────────────────────────────────────────
+// S3-triggered (no EventBridge): SES writes raw email for
+// invoices@gennaroanesi.com into private/invoice-inbound/ and the bucket
+// notification (wired by scripts/setup-ses-inbound.sh — the bucket is
+// imported, so CDK can't own its notification config) invokes this Lambda.
+// Data-model access comes from schema-level allow.resource(invoiceProcessor).
+// Anthropic key reuses the gennaroanesi/transcribe secret (same pattern as
+// parsePaycheckPdf).
+
+const invoiceFn = backend.invoiceProcessor.resources.lambda as LambdaFunction;
+const anthropicSecretForInvoices = Secret.fromSecretNameV2(
+  backend.stack,
+  "InvoiceProcessorAnthropicSecret",
+  "gennaroanesi/transcribe",
+);
+anthropicSecretForInvoices.grantRead(invoiceFn);
+invoiceFn.addEnvironment(
+  "ANTHROPIC_API_KEY",
+  anthropicSecretForInvoices.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+);
+
+// S3: read raw emails deposited by SES, write PDF facsimile + original .eml
+invoiceFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetObject"],
+    resources: [`${customBucket.bucketArn}/private/invoice-inbound/*`],
+  }),
+);
+invoiceFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:PutObject"],
+    resources: [`${customBucket.bucketArn}/private/invoices/*`],
+  }),
+);
+
+// S3 trigger plumbing (mirrors importLogbook): allow reading/updating the
+// bucket-notification config from the setup script's credentials context…
+invoiceFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetBucketNotification", "s3:PutBucketNotification"],
+    resources: [customBucket.bucketArn],
+  }),
+);
+
+// …and allow S3 to invoke the Lambda when an object lands in the prefix.
+invoiceFn.addPermission("S3InvokeInvoiceProcessor", {
+  principal: new ServicePrincipal("s3.amazonaws.com"),
+  action:    "lambda:InvokeFunction",
+  sourceArn: customBucket.bucketArn,
+});
 
 // ── financeSnapshots cron ────────────────────────────────────────────────────
 // Daily EventBridge rule at 11:00 UTC ≈ 6 AM America/Chicago (the repo's

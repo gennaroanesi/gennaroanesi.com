@@ -6,6 +6,7 @@ import { financeReconcile } from "../functions/financeReconcile/resource";
 import { weeklyCashflow } from "../functions/weeklyCashflow/resource";
 import { simplefinSync } from "../functions/simplefinSync/resource";
 import { parsePaycheckPdf } from "../functions/parsePaycheckPdf/resource";
+import { invoiceProcessor } from "../functions/invoiceProcessor/resource";
 
 const schema = a.schema({
   // ── Inventory ────────────────────────────────────────────────────────────
@@ -874,6 +875,53 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Invoice ───────────────────────────────────────────────────────────────
+  // One row per ingested invoice. Created by the invoiceProcessor Lambda when
+  // an email lands at invoices@gennaroanesi.com (SES → S3 → Lambda), or later
+  // by a direct PDF upload from the UI (source UPLOAD). The PDF facsimile in
+  // S3 is the canonical artifact; extracted fields are Claude's best effort
+  // and reviewable (parseStatus NEEDS_REVIEW when the total couldn't be read).
+  financeInvoice: a
+    .model({
+      vendor:        a.string(),
+      invoiceNumber: a.string(),
+      issueDate:     a.date(),
+      dueDate:       a.date(),
+      currency:      a.string().default("USD"),
+      subtotal:      a.float(),
+      tax:           a.float(),
+      total:         a.float(),
+      // items: JSON [{description, qty, unitPrice, amount}] — stored as a
+      // string (the repo's AWSJSON-via-string pattern, like perAccountJson).
+      items:         a.string(),
+      s3KeyPdf:      a.string().required(), // normalized/facsimile PDF, always present
+      s3KeyOriginal: a.string(),            // raw .eml (omitted when source was a direct PDF upload)
+      contentHash:   a.string(),            // sha256 of the PDF — dedup on re-forward
+      source:        a.enum(["EMAIL", "UPLOAD"]),
+      emailFrom:     a.string(),
+      emailSubject:  a.string(),
+      receivedAt:    a.datetime(),
+      parseStatus:   a.enum(["PARSED", "NEEDS_REVIEW", "ERROR"]),
+      parseError:    a.string(),
+      notes:         a.string(),
+    })
+    .secondaryIndexes((index) => [index("vendor")])
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Invoice ↔ Transaction link ────────────────────────────────────────────
+  // Many-to-many: one transaction can pay N invoices and one invoice can be
+  // paid by N transactions (deposits, split payments), so links live in their
+  // own table. `amount` is the optional partial allocation of the transaction
+  // against this invoice; null means full/unspecified.
+  financeInvoiceLink: a
+    .model({
+      invoiceId:     a.id().required(),  // FK → financeInvoice.id
+      transactionId: a.id().required(),  // FK → financeTransaction.id
+      amount:        a.float(),
+    })
+    .secondaryIndexes((index) => [index("invoiceId"), index("transactionId")])
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Ticker Quote ───────────────────────────────────────────────────────────
   // Last known market price per ticker. Single row per ticker (PK = ticker).
   // Refresh loop upserts these; lot records join in memory for market value.
@@ -1274,6 +1322,7 @@ const schema = a.schema({
   allow.resource(financeReconcile),
   allow.resource(weeklyCashflow),
   allow.resource(simplefinSync),
+  allow.resource(invoiceProcessor),
 ]);
 
 export type Schema = ClientSchema<typeof schema>;
