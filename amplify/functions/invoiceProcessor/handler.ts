@@ -100,20 +100,30 @@ async function readObject(bucket: string, key: string): Promise<Buffer> {
 // ── Email parsing ───────────────────────────────────────────────────────────
 
 /**
- * Parse the raw email, then keep descending into message/rfc822 attachments
- * (Gmail "forward as attachment" wraps the original email whole) so the mail
- * we work with is the innermost real message. Depth-capped defensively.
+ * Parse the raw email into one or more invoice SOURCES. Gmail's "forward as
+ * attachment" nests originals as message/rfc822 — and multi-selecting emails
+ * attaches SEVERAL of them to one wrapper. Every nested email is its own
+ * source (recursively, depth-capped); the wrapper itself only counts as a
+ * source when it carries its own direct PDF attachments (mixed forwards).
+ * A plain email with no nested messages is simply its own single source.
  */
-async function parseInnermost(raw: Buffer): Promise<ParsedMail> {
-  let mail = await simpleParser(raw);
-  for (let depth = 0; depth < 3; depth++) {
-    const nested = (mail.attachments ?? []).find(
+async function collectEmailSources(raw: Buffer): Promise<ParsedMail[]> {
+  const sources: ParsedMail[] = [];
+  async function walk(mail: ParsedMail, depth: number): Promise<void> {
+    const nested = (mail.attachments ?? []).filter(
       (a) => (a.contentType ?? "").toLowerCase() === "message/rfc822",
     );
-    if (!nested) break;
-    mail = await simpleParser(nested.content);
+    if (nested.length === 0 || depth >= 3) {
+      sources.push(mail);
+      return;
+    }
+    if ((mail.attachments ?? []).some(isPdfAttachment)) sources.push(mail);
+    for (const n of nested) {
+      await walk(await simpleParser(n.content), depth + 1);
+    }
   }
-  return mail;
+  await walk(await simpleParser(raw), 0);
+  return sources;
 }
 
 function isPdfAttachment(a: { contentType?: string; filename?: string }): boolean {
@@ -317,8 +327,24 @@ async function autoMatchTransaction(
 
 async function processEmail(bucket: string, key: string): Promise<void> {
   const raw = await readObject(bucket, key);
-  const mail = await parseInnermost(raw);
+  const sources = await collectEmailSources(raw);
+  if (sources.length > 1) {
+    console.log(`[invoiceProcessor] multi-email forward: ${sources.length} nested source(s)`);
+  }
+  const client = await getClient();
 
+  for (const mail of sources) {
+    await processSource(client, bucket, raw, mail);
+  }
+}
+
+/** One email source → N invoices (one per PDF, or one body render). */
+async function processSource(
+  client: DataClient,
+  bucket: string,
+  raw: Buffer,
+  mail: ParsedMail,
+): Promise<void> {
   const emailFrom    = mail.from?.value?.[0]?.address ?? mail.from?.text ?? null;
   const emailSubject = mail.subject ?? null;
   const receivedAt   = (mail.date ?? new Date()).toISOString();
@@ -328,8 +354,6 @@ async function processEmail(bucket: string, key: string): Promise<void> {
   const pdfs: Buffer[] = pdfAttachments.length > 0
     ? pdfAttachments.map((a) => a.content) // mailparser already hands us a Buffer
     : [await renderBodyToPdf(mail)];
-
-  const client = await getClient();
 
   for (const pdf of pdfs) {
     // Cast dodges the @types/node 20.5 Buffer/Uint8Array generics clash; the
