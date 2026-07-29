@@ -11,7 +11,11 @@ import {
   listAll,
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
+  fetchInvoiceLinks,
+  type InvoiceRecord, type InvoiceLinkRecord,
 } from "@/components/finance/_shared";
+import NextLink from "next/link";
+import { getUrl } from "aws-amplify/storage";
 import { withAlpha } from "@/lib/colors";
 import { AttachmentsSection, deleteAttachmentsFor } from "@/components/common/AttachmentsSection";
 import { SlideOverPanel } from "@/components/common/ui";
@@ -105,6 +109,86 @@ export type TransactionPanelProps = {
   onSetAccounts:     React.Dispatch<React.SetStateAction<AccountRecord[]>>;
   onSetLots:         React.Dispatch<React.SetStateAction<HoldingLotRecord[]>>;
 };
+
+/**
+ * Read-only strip of invoices linked to a transaction (financeInvoiceLink →
+ * financeInvoice). View opens the facsimile PDF via a fresh signed URL;
+ * unlink deletes only the link row — the invoice itself lives on
+ * /finance/invoices, which is also where linking happens.
+ */
+function InvoicesStrip({ transactionId }: { transactionId: string }) {
+  const [rows, setRows] = useState<{ link: InvoiceLinkRecord; invoice: InvoiceRecord | null }[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const links = await fetchInvoiceLinks({ transactionId });
+        const invoices = await Promise.all(
+          links.map((l) =>
+            (client.models.financeInvoice as any).get({ id: l.invoiceId })
+              .then((r: any) => (r?.data ?? null) as InvoiceRecord | null)
+              .catch(() => null),
+          ),
+        );
+        if (!cancelled) setRows(links.map((link, i) => ({ link, invoice: invoices[i] })));
+      } catch (e) {
+        console.warn("[InvoicesStrip] load failed", e);
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [transactionId]);
+
+  async function openPdf(invoice: InvoiceRecord) {
+    try {
+      const { url } = await getUrl({ path: invoice.s3KeyPdf });
+      window.open(url.toString(), "_blank", "noopener");
+    } catch {
+      notifyError("Could not open the invoice PDF");
+    }
+  }
+
+  async function unlink(linkId: string) {
+    try {
+      await mutate(client.models.financeInvoiceLink.delete({ id: linkId }));
+      setRows((p) => p.filter((r) => r.link.id !== linkId));
+    } catch (e) {
+      reportError(e, "Unlink failed");
+    }
+  }
+
+  // Nothing linked and nothing loading → stay invisible; the panel is busy enough.
+  if (loaded && rows.length === 0) return null;
+
+  return (
+    <div className="border-t border-gray-200 dark:border-darkBorder pt-4">
+      <p className={labelCls}>Invoices</p>
+      {rows.map(({ link, invoice }) => (
+        <div key={link.id} className="flex items-center justify-between gap-2 py-1 text-xs">
+          <span className="truncate text-gray-600 dark:text-gray-300">
+            {invoice ? `${invoice.vendor ?? "(unknown vendor)"} — ${fmtCurrency(link.amount ?? invoice.total, "USD")}` : "(invoice missing)"}
+          </span>
+          <span className="flex items-center gap-2 shrink-0">
+            {invoice && (
+              <button onClick={() => openPdf(invoice)} className="hover:underline" style={{ color: FINANCE_COLOR }}>
+                PDF
+              </button>
+            )}
+            <button onClick={() => unlink(link.id)} className="text-gray-400 hover:text-red-400 hover:underline">
+              Unlink
+            </button>
+          </span>
+        </div>
+      ))}
+      <NextLink href="/finance/invoices" className="text-[11px] text-gray-400 hover:underline">
+        Manage on the Invoices page →
+      </NextLink>
+    </div>
+  );
+}
 
 export function TransactionPanel(props: TransactionPanelProps) {
   const {
@@ -1010,6 +1094,9 @@ export function TransactionPanel(props: TransactionPanelProps) {
             disabled={mode === "create"}
           />
         </div>
+        {mode === "edit" && editingTx && (
+          <InvoicesStrip transactionId={editingTx.id} />
+        )}
         <SaveButton saving={saving} onSave={handleSave}
           disabled={!txDraft.accountId || !txDraft.date}
           label={mode === "create" ? "Add Transaction" : "Save"} />

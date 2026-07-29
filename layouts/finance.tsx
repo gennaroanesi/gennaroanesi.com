@@ -29,6 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
       { key: "transactions", label: "Transactions", href: "/finance/transactions" },
+      { key: "invoices",     label: "Invoices",     href: "/finance/invoices" },
       { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
       { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
     ],

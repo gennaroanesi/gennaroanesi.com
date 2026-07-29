@@ -209,6 +209,59 @@ export async function fetchTransactionYears(): Promise<number[]> {
   return [...years].sort((a, b) => b - a);
 }
 
+// ── Invoice reads ─────────────────────────────────────────────────────────────
+
+export type InvoiceQuery = { invoiceId?: string; transactionId?: string };
+
+/** All financeInvoice rows. Volume is human-scale (one row per bill), so a
+ *  paginated scan is the right shape for the list page. */
+export async function fetchInvoices(): Promise<InvoiceRecord[]> {
+  // `as any` erases the deep typed-model generic (TS2589 guard, CLAUDE.md §4
+  // pattern); the result is re-typed via the explicit listAll<T> parameter.
+  return listAll<InvoiceRecord>(client.models.financeInvoice as any);
+}
+
+/** Invoice ↔ transaction links, optionally scoped by either FK.
+ *
+ *  Query strategy mirrors fetchTransactions: use the GSI-named typed-client
+ *  query when a key is given (invoiceId / transactionId secondary indexes),
+ *  falling back to the filter scan when the environment hasn't deployed the
+ *  GSI yet (FieldUndefined from AppSync, or "is not a function" from a stale
+ *  amplify_outputs.json that never generated the method). */
+export async function fetchInvoiceLinks(q: InvoiceQuery = {}): Promise<InvoiceLinkRecord[]> {
+  const indexCall: { method: string; args: any } | null =
+    q.invoiceId     ? { method: "listFinanceInvoiceLinkByInvoiceId",     args: { invoiceId: q.invoiceId } } :
+    q.transactionId ? { method: "listFinanceInvoiceLinkByTransactionId", args: { transactionId: q.transactionId } } :
+    null;
+
+  if (indexCall) {
+    try {
+      return await listAllByIndex<InvoiceLinkRecord>(
+        (page) => (client.models.financeInvoiceLink as any)[indexCall.method]({
+          ...indexCall.args,
+          ...page,
+        }),
+      );
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (msg.includes("FieldUndefined") || msg.includes("is not a function")) {
+        console.warn("[fetchInvoiceLinks] link GSI not available here yet — falling back to scan");
+      } else {
+        throw e;
+      }
+    }
+  }
+
+  const filter: any = {};
+  if (q.invoiceId)     filter.invoiceId = { eq: q.invoiceId };
+  if (q.transactionId) filter.transactionId = { eq: q.transactionId };
+
+  if (Object.keys(filter).length === 0) {
+    return listAll<InvoiceLinkRecord>(client.models.financeInvoiceLink as any);
+  }
+  return listAll<InvoiceLinkRecord>(client.models.financeInvoiceLink as any, { filter });
+}
+
 // ── Record types ──────────────────────────────────────────────────────────────
 
 // These aliases already exist in finance-core (the pure bottom layer) — re-export
@@ -234,3 +287,5 @@ export type HoldingSnapshotRecord = Schema["financeHoldingSnapshot"]["type"];
 export type GoalSnapshotRecord    = Schema["financeGoalSnapshot"]["type"];
 export type PaycheckRecord       = Schema["financePaycheck"]["type"];
 export type AttachmentRecord     = Schema["attachment"]["type"];
+export type InvoiceRecord        = Schema["financeInvoice"]["type"];
+export type InvoiceLinkRecord    = Schema["financeInvoiceLink"]["type"];
