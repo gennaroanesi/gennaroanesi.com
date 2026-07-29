@@ -110,7 +110,13 @@ export const handler = async (): Promise<{ ok: boolean; driftCount: number; acco
       b.push(t);
       byAccount.set(t.accountId, b);
     }
-    if (t.type === "TRANSFER" && t.toAccountId && t.toAccountId !== t.accountId) {
+    // Only NEGATIVE transfer rows can be in-legs. In the wild, toAccountId
+    // means "counterparty", not "destination": SF-paired and receiving rows
+    // carry it with a positive amount, and their cash impact is already
+    // their own row — treating them as legs into the source double-counts.
+    // A negative row is the source side; its dest gets +|amount| either via
+    // a mirror row (pair — skip) or via the UI's balance-only bump (count).
+    if (t.type === "TRANSFER" && t.toAccountId && t.toAccountId !== t.accountId && (t.amount ?? 0) < 0) {
       const b = inLegsByAccount.get(t.toAccountId) ?? [];
       b.push(t);
       inLegsByAccount.set(t.toAccountId, b);
