@@ -164,7 +164,84 @@ scanSource:   a.string(),
 
 ## Finance
 
-### ⚡ ACTIVE — Paycheck → AGI / 401k tracker (Phases 3–5)
+### 📋 PLANNED — Aviation Cost & Currency (bridge Finance + Flying)
+
+**Added 2026-07-25.** Design only — holding on code pending an app-architecture
+review in a separate thread. One view that joins **money** (finance
+transactions) with **hours** (the `flight` logbook) so flying economics +
+progress live together: blended $/hr, spend by aircraft & cost type, the LIFT
+P.L.A.N. deposit draw-down + runway, and budget-vs-plan.
+
+**Context (real numbers):** 2026 flying spend ≈ **$21.8K** (all category
+`Flying`), front-loaded by the Q1 instrument-rating push (Genesis Aero / KGTU),
+tapering to ~$1.5K/mo. Plan is NOT to replace all C172 time with Cirrus — finish
+commercial in the 172 (~$280/hr), then **20–50 hrs/yr in the SR22 via LIFT**
+(~$800 NA / ~$890 turbo all-in), 172 as the cheap floor. That makes LIFT a
+~**$5–20K/yr** net increase, not the doc's $80K — and the deposit model
+(prepay, draw hours, replenish) is what makes the variable/blended usage work.
+
+#### The bridge
+- **Cost side** — `financeTransaction`, category `Flying` (already populated).
+- **Hours side** — the `flight` logbook (ForeFlight import): hours, aircraft, dates.
+- **Missing link** — nothing connects a dollar to an hour, or splits C172 spend
+  from Cirrus spend. That's the feature.
+
+#### Data model (new primitives)
+- **LIFT P.L.A.N. deposit as a prepaid-*asset* account** (the elegant bit):
+  - New account "LIFT P.L.A.N." (prepaid/cash-asset type); balance = current deposit.
+  - **Fund** = TRANSFER Chase Checking → LIFT deposit (net worth unchanged;
+    cash → prepaid asset, not an expense).
+  - **Fly** = EXPENSE on the deposit account (category `Flying`) — draws the
+    balance down and recognizes the cost *when flown*.
+  - **Replenish / refund / cancel-fee** = further transfers/adjustments.
+  - Payoff: correct net worth (deposit is an asset until consumed), true live
+    deposit balance, and it absorbs the accrual timing (cash out at deposit vs
+    expense at flight) inside the existing account/transaction model.
+- **Aviation tags on Flying transactions** — a `flyingExpense` detail row keyed
+  by `transactionId` (mirrors the inventory `item + detail` pattern; keeps the
+  finance schema clean): `aircraft` (C172 / SR22-NA / SR22T), `costType`
+  (LEASE / FUEL / INSTRUCTION / INSURANCE / FEES), optional `hours`, optional
+  `flightId` link to the logbook. Auto-tag by vendor rule (Genesis Aero →
+  C172/instruction; LIFT → SR22 lease; 100LL/FBO → fuel) so SimpleFIN-imported
+  charges self-classify; manual override.
+- **Flying plan/budget config** — small S3-JSON state (like the simulator):
+  target hours per aircraft, $ envelope, term dates. Drives budget-vs-actual.
+
+#### Dashboard sections
+- Blended **$/hr** — overall + per aircraft (cost ÷ logbook hours, trailing 3/12mo).
+- **Spend by aircraft × costType** — stacked (Cirrus-lease vs 172 vs fuel vs instruction).
+- **LIFT deposit** — balance, burn rate, projected depletion, "replenish soon" flag.
+- **Budget vs plan** — YTD vs the ~$26–45K envelope + pace.
+- **Progress/currency** (from logbook) — hours toward 250 commercial, Cirrus
+  make/model time, IFR recency.
+- **Cost per milestone** — what IR cost; what commercial is costing.
+
+#### SimpleFIN tie-in
+LIFT + club charges land via the new `simplefinSync` → auto-categorized
+`Flying` → aviation rules split by aircraft/costType. Deposit funding-transfer +
+per-flight draws reconcile against LIFT's monthly statement (manual entry first,
+auto-reconcile later). The prepaid-account model absorbs the deposit-vs-flight timing.
+
+#### Open decisions (resolve in the architecture review)
+1. **Placement** — Flying Economics page under `/finance` (reuses finance
+   components + SimpleFIN) vs a Costs tab under `/flying` vs a unified
+   cross-section. Lean: cost/deposit under `/finance`, hours/currency stay in
+   `/flying`, cross-linked. Drives model coupling.
+2. **Deposit**: dedicated `flyingDeposit` model vs prepaid-asset account (lean: account).
+3. **Aviation tags**: fields on `financeTransaction` vs a `flyingExpense` detail
+   model (lean: detail model).
+4. **Logbook link**: per-flight cost linking vs period-based (aircraft+date) join.
+5. **Plan config**: S3-JSON (like the simulator) vs a model.
+
+#### Build order (after architecture review)
+1. LIFT deposit-account convention + fund/draw transactions.
+2. `flyingExpense` detail model + aircraft/costType tags + vendor auto-tag rules.
+3. Analytics page v1 (spend by aircraft/costType, deposit balance, budget-vs-plan);
+   $/hr from the plan or manually entered hours.
+4. Join to `flight` logbook for real $/hr + progress/currency.
+5. Deposit-runway projection + SimpleFIN↔statement reconciliation.
+
+### ~~Paycheck → AGI / 401k tracker (Phases 3–5)~~ ✅ (shipped: /finance/tax-outlook, dashboard tiles, agent project_* tools)
 
 **Status as of 2026-05-07:** Phases 1 + 2 are merged on `main` (commit `893222b`)
 and Amplify Hosting auto-deploys from `main`. Once `ampx pipeline-deploy`
@@ -457,7 +534,7 @@ financeStatementImport: a.model({
 5. `financeStatementImport` audit model + history page
 6. OCR fallback (last priority — most users have text-layer PDFs)
 
-### Auto-allocation of account balances to savings goals
+### ~~Auto-allocation of account balances to savings goals~~ ✅ (financeGoalFundingSource + computeGoalAllocations)
 
 Today: `financeSavingsGoal.currentAmount` is maintained manually — user edits it or
 tags transactions with `goalId`. Painful and out of sync with reality.
@@ -712,7 +789,7 @@ v2: Lambda + EventBridge cron, every 15 min during market hours, once daily on w
 - **Holdings on savings/checking**: UI only shows the holdings section for BROKERAGE
   and (future) RETIREMENT types. Schema doesn't enforce — integrity is UI-only
 
-### Retirement accounts (401k, IRA, etc.)
+### ~~Retirement accounts (401k, IRA, etc.)~~ ✅
 
 Retirement accounts are structurally identical to brokerage accounts — cash + holdings,
 value moves with market prices. Reuse the brokerage infrastructure with a new account
@@ -774,7 +851,7 @@ the app tracks pre-tax balances because that's what the provider shows.
 6. Update `ACCOUNT_TYPE_LABELS` and badge display
 7. Add `retirementType` dropdown on the account edit form (only shown when type=RETIREMENT)
 
-### Assets (house, car, collectibles)
+### ~~Assets (house, car, collectibles)~~ ✅ (assetEquity calc still pending)
 
 Non-financial holdings whose value depends on appraisal/market, not transactions.
 Contribute to net worth; don't have a ledger. Purely a scalar that the user updates
@@ -869,7 +946,7 @@ Credit cards remain negative `financeAccount` balances. Loans are separate.
 5. Dashboard: fetch assets, show section, include in net worth
 6. Linked loan display (after loans land)
 
-### Loans (mortgage, auto, student)
+### ~~Loans (mortgage, auto, student)~~ ✅ v1 (referenceAmortization + loan-statement CSV import pending)
 
 Loans need more structure than accounts because a payment splits into principal /
 interest / escrow — a single ledger transaction can't express this. Hybrid approach:
@@ -1130,7 +1207,7 @@ already summed in the first term. Clean.
 11. Recurring payment integration (optional — may skip in favor of manual entry)
 
 
-### Daily account snapshots (balance history)
+### ~~Daily account snapshots (balance history)~~ ✅ (financeSnapshots cron + sparklines)
 
 Capture one row per account per day so we can draw sparkline trends, compute
 run rates, and feed projections. Current state: account balances are mutated
@@ -1254,7 +1331,7 @@ Pick a sparkline lib or hand-roll a one-file SVG component. Native SVG is
    "next cron run fixes it" is acceptable
 
 
-### Account / loan projections (EOY balance, time to payoff)
+### ~~Account / loan projections (EOY balance, time to payoff)~~ ✅ (projectBalance on dashboard)
 
 Forward-looking figures beside current numbers. Once snapshots are live we
 have trajectory data; combined with `financeRecurring` (deterministic
@@ -1344,7 +1421,7 @@ history, not snapshots.
 6. Goal reach date on the goals page (later — needs allocation wiring)
 
 
-### Loan payment recalculation
+### ~~Loan payment recalculation~~ ✅ (recalculateLoan on /finance/loans/[id])
 
 Given a loan's original terms and the stream of actual posted payments,
 compute: remaining balance, remaining term under the *current* trajectory

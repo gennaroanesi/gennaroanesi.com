@@ -1,0 +1,376 @@
+[
+  {
+    "inventoryItem": {
+      "name": "Resistor 0Ω 1%",
+      "brand": "ELEGOO",
+      "description": "0Ω jumper resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "0R",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "0Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 10Ω 1%",
+      "brand": "ELEGOO",
+      "description": "10Ω ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "10R",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "10Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 20Ω 1%",
+      "brand": "ELEGOO",
+      "description": "20Ω ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "20R",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "20Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 47Ω 1%",
+      "brand": "ELEGOO",
+      "description": "47Ω ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "47R",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "47Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 100Ω 1%",
+      "brand": "ELEGOO",
+      "description": "100Ω ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "100R",
+      "packaging": "THT",
+      "quantity": 50,
+      "valueText": "100Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 220Ω 1%",
+      "brand": "ELEGOO",
+      "description": "220Ω ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "220R",
+      "packaging": "THT",
+      "quantity": 50,
+      "valueText": "220Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 470Ω 1%",
+      "brand": "ELEGOO",
+      "description": "470Ω ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "470R",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "470Ω",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 1kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "1kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "1K",
+      "packaging": "THT",
+      "quantity": 50,
+      "valueText": "1kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 2.2kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "2.2kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "2K2",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "2.2kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 4.7kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "4.7kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "4K7",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "4.7kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 10kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "10kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "10K",
+      "packaging": "THT",
+      "quantity": 50,
+      "valueText": "10kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 22kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "22kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "22K",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "22kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 47kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "47kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "47K",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "47kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 100kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "100kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "100K",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "100kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 220kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "220kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "220K",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "220kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 470kΩ 1%",
+      "brand": "ELEGOO",
+      "description": "470kΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "470K",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "470kΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "Resistor 1MΩ 1%",
+      "brand": "ELEGOO",
+      "description": "1MΩ ±1% resistor — from ELEGOO 17 Values 1% Resistor Kit, 0Ω–1MΩ, 525pcs",
+      "category": "ELECTRONICS",
+      "vendor": "Amazon",
+      "notes": "Resistor Kit — ELEGOO 17 Values 1% Resistor Kit Assortment, 0 Ohm-1M Ohm (Pack of 525)",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "RESISTOR",
+      "partNumber": "1M",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "1MΩ",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 1
+    }
+  }
+]

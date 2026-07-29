@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(npx --no-install eslint layouts/finance.tsx components/finance/_shared.tsx)",
+      "Bash(node /Users/gennaroanesi/repositories/gennaroanesi.com/node_modules/typescript/bin/tsc --noEmit --project /Users/gennaroanesi/repositories/gennaroanesi.com/tsconfig.json)"
+    ]
+  }
+}

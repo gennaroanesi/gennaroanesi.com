@@ -1,0 +1,2956 @@
+[
+  {
+    "inventoryItem": {
+      "name": "IRLZ34NPBF",
+      "brand": "Infineon Technologies",
+      "description": "N-Channel Logic-Level Power MOSFET, 55V 30A, RDS(on) 35m\u03a9, TO-220AB",
+      "category": "ELECTRONICS",
+      "datePurchased": "2022-12-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/942-IRLZ34NPBF",
+      "currency": "USD",
+      "notes": "Mouser SKU: 942-IRLZ34NPBF | Order: 27683695",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "TRANSISTOR",
+      "partNumber": "IRLZ34NPBF",
+      "packaging": "TO-220AB",
+      "quantity": 10,
+      "valueText": "55V 30A",
+      "voltageRating": 55,
+      "currentRatingA": 30,
+      "powerRatingW": 68,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "FQP30N06L",
+      "brand": "onsemi",
+      "description": "N-Channel Logic-Level QFET Power MOSFET, 60V 32A, RDS(on) 35m\u03a9, TO-220",
+      "category": "ELECTRONICS",
+      "datePurchased": "2022-12-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/512-FQP30N06L",
+      "currency": "USD",
+      "notes": "Mouser SKU: 512-FQP30N06L | Order: 27683695",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "TRANSISTOR",
+      "partNumber": "FQP30N06L",
+      "packaging": "TO-220",
+      "quantity": 10,
+      "valueText": "60V 32A",
+      "voltageRating": 60,
+      "currentRatingA": 32,
+      "powerRatingW": 79,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "PSMN022-30PL,127",
+      "brand": "Nexperia",
+      "description": "N-Channel Logic-Level MOSFET, 30V 30A, RDS(on) 22m\u03a9, TO-220AB",
+      "category": "ELECTRONICS",
+      "datePurchased": "2022-12-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/771-PSMN02230PL127",
+      "currency": "USD",
+      "notes": "Mouser SKU: 771-PSMN02230PL127 | Order: 27683695",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "TRANSISTOR",
+      "partNumber": "PSMN022-30PL,127",
+      "packaging": "TO-220AB",
+      "quantity": 10,
+      "valueText": "30V 30A",
+      "voltageRating": 30,
+      "currentRatingA": 30,
+      "powerRatingW": 41,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "FDP5800",
+      "brand": "onsemi",
+      "description": "N-Channel Logic-Level PowerTrench MOSFET, 60V 80A, RDS(on) 6m\u03a9, TO-220",
+      "category": "ELECTRONICS",
+      "datePurchased": "2022-12-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/512-FDP5800",
+      "currency": "USD",
+      "notes": "Mouser SKU: 512-FDP5800 | Order: 27683695",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "TRANSISTOR",
+      "partNumber": "FDP5800",
+      "packaging": "TO-220",
+      "quantity": 5,
+      "valueText": "60V 80A",
+      "voltageRating": 60,
+      "currentRatingA": 80,
+      "powerRatingW": 242,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "UA78M33CKCS",
+      "brand": "Texas Instruments",
+      "description": "3.3V 500mA Positive Linear Voltage Regulator, TO-252",
+      "category": "ELECTRONICS",
+      "datePurchased": "2022-12-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-UA78M33CKCS",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-UA78M33CKCS | Order: 27683695",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "UA78M33CKCS",
+      "packaging": "TO-252",
+      "quantity": 5,
+      "valueText": "3.3V 500mA",
+      "voltageRating": 3.3,
+      "currentRatingA": 0.5,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "STUSB4500LQTR",
+      "brand": "STMicroelectronics",
+      "description": "Standalone USB Type-C PD Controller, QFN-24",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-STUSB4500LQTR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-STUSB4500LQTR | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "STUSB4500LQTR",
+      "packaging": "QFN-24",
+      "quantity": 3,
+      "valueText": "USB-C PD Controller",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "DX07S024XJ4R250",
+      "brand": "JAE Electronics",
+      "description": "USB Type-C Receptacle, Right-Angle, Through-Hole",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/656-DX07S024XJ4R250",
+      "currency": "USD",
+      "notes": "Mouser SKU: 656-DX07S024XJ4R250 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "DX07S024XJ4R250",
+      "packaging": "THT",
+      "quantity": 1,
+      "valueText": "USB-C Receptacle",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SS-52400-004",
+      "brand": "Stewart Connector / Bel",
+      "description": "USB 3.1 Type-C IP67 Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/530-SS-52400-004",
+      "currency": "USD",
+      "notes": "Mouser SKU: 530-SS-52400-004 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "SS-52400-004",
+      "packaging": "THT",
+      "quantity": 1,
+      "valueText": "USB-C IP67",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "LP1OA1AY",
+      "brand": "E-Switch",
+      "description": "Illuminated Pushbutton Switch",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/612-LP1OA1AY",
+      "currency": "USD",
+      "notes": "Mouser SKU: 612-LP1OA1AY | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "LP1OA1AY",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "Illuminated Pushbutton",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "5000.0501",
+      "brand": "Marquardt",
+      "description": "Pushbutton Switch SPNO",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/979-5000.0501",
+      "currency": "USD",
+      "notes": "Mouser SKU: 979-5000.0501 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "5000.0501",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "SPNO Pushbutton",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "DG409DJ-E3",
+      "brand": "Vishay / Siliconix",
+      "description": "Dual 4-Channel Analog Multiplexer IC, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/781-DG409DJ-E3",
+      "currency": "USD",
+      "notes": "Mouser SKU: 781-DG409DJ-E3 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "DG409DJ-E3",
+      "packaging": "DIP-16",
+      "quantity": 12,
+      "valueText": "4CH Multiplexer",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "8021",
+      "brand": "Belden",
+      "description": "22AWG 1C Solid Hook-up Wire",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/566-8021",
+      "currency": "USD",
+      "notes": "Mouser SKU: 566-8021 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "8021",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "22AWG Solid",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "STUSB4710ADTR",
+      "brand": "STMicroelectronics",
+      "description": "USB Interface IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-STUSB4710ADTR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-STUSB4710ADTR | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "STUSB4710ADTR",
+      "packaging": "SMD",
+      "quantity": 2,
+      "valueText": "USB Interface",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "MAX77958EWV+",
+      "brand": "Maxim Integrated",
+      "description": "USB Type-C CC/PD Controller IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/700-MAX77958EWV+",
+      "currency": "USD",
+      "notes": "Mouser SKU: 700-MAX77958EWV+ | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "MAX77958EWV+",
+      "packaging": "SMD",
+      "quantity": 3,
+      "valueText": "USB-C PD IC",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "AP43770T16-13",
+      "brand": "Diodes Inc.",
+      "description": "USB Type-C Power Delivery IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/621-AP43770T16-13",
+      "currency": "USD",
+      "notes": "Mouser SKU: 621-AP43770T16-13 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "AP43770T16-13",
+      "packaging": "SMD",
+      "quantity": 3,
+      "valueText": "USB-C PD IC",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "BM92A50MWV-ZE2",
+      "brand": "ROHM Semiconductor",
+      "description": "USB Interface IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/755-BM92A50MWV-ZE2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 755-BM92A50MWV-ZE2 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "BM92A50MWV-ZE2",
+      "packaging": "SMD",
+      "quantity": 1,
+      "valueText": "USB Interface",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "BM92A14MWV-ZE2",
+      "brand": "ROHM Semiconductor",
+      "description": "USB Interface IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/755-BM92A14MWV-ZE2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 755-BM92A14MWV-ZE2 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "BM92A14MWV-ZE2",
+      "packaging": "SMD",
+      "quantity": 1,
+      "valueText": "USB Interface",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "BM92A30MWV-ZE2",
+      "brand": "ROHM Semiconductor",
+      "description": "USB Interface IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/755-BM92A30MWV-ZE2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 755-BM92A30MWV-ZE2 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "BM92A30MWV-ZE2",
+      "packaging": "SMD",
+      "quantity": 1,
+      "valueText": "USB Interface",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "632723130112",
+      "brand": "Wurth Elektronik",
+      "description": "USB Type-C Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/710-632723130112",
+      "currency": "USD",
+      "notes": "Mouser SKU: 710-632723130112 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "632723130112",
+      "packaging": "SMD",
+      "quantity": 1,
+      "valueText": "USB-C Connector",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "12401598E4#2A",
+      "brand": "Amphenol",
+      "description": "USB Type-C Receptacle",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/523-12401598E4#2A",
+      "currency": "USD",
+      "notes": "Mouser SKU: 523-12401598E4#2A | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "12401598E4#2A",
+      "packaging": "SMD",
+      "quantity": 3,
+      "valueText": "USB-C Receptacle",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SS-52400-002",
+      "brand": "Stewart Connector / Bel",
+      "description": "USB Type-C Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/530-SS-52400-002",
+      "currency": "USD",
+      "notes": "Mouser SKU: 530-SS-52400-002 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "SS-52400-002",
+      "packaging": "THT",
+      "quantity": 1,
+      "valueText": "USB-C Connector",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "STUSB4700YQTR",
+      "brand": "STMicroelectronics",
+      "description": "USB Interface IC",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-STUSB4700YQTR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-STUSB4700YQTR | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "STUSB4700YQTR",
+      "packaging": "SMD",
+      "quantity": 1,
+      "valueText": "USB Interface",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "220004-D061B01LF",
+      "brand": "Amphenol",
+      "description": "6-Position 3.81mm Pluggable Terminal Block",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/649-220004-D061B01LF",
+      "currency": "USD",
+      "notes": "Mouser SKU: 649-220004-D061B01LF | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "220004-D061B01LF",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "6P 3.81mm Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "220004-C081B01LF",
+      "brand": "Amphenol",
+      "description": "8-Position 3.50mm Pluggable Terminal Block",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/649-220004-C081B01LF",
+      "currency": "USD",
+      "notes": "Mouser SKU: 649-220004-C081B01LF | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "220004-C081B01LF",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "8P 3.50mm Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "FSD75-8-DSL10",
+      "brand": "Panduit",
+      "description": "20 AWG Wire Terminals",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-08",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/644-FSD75-8-DSL10",
+      "currency": "USD",
+      "notes": "Mouser SKU: 644-FSD75-8-DSL10 | Order: 22319022",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "FSD75-8-DSL10",
+      "packaging": null,
+      "quantity": 2,
+      "valueText": "20AWG Terminals",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "LM2931AZ-5.0/R",
+      "brand": "STMicroelectronics",
+      "description": "LDO Voltage Regulator, 5.0V 100mA, TO-92",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-LM2931AZ50R",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-LM2931AZ50R | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "LM2931AZ-5.0",
+      "packaging": "TO-92",
+      "quantity": 10,
+      "valueText": "5.0V 100mA LDO",
+      "voltageRating": 5.0,
+      "currentRatingA": 0.1,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1725711",
+      "brand": "Phoenix Contact",
+      "description": "Fixed Terminal Block, 8-Position, 2.54mm Pitch",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/651-1725711",
+      "currency": "USD",
+      "notes": "Mouser SKU: 651-1725711 | Order: 22453513, 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "1725711",
+      "packaging": "THT",
+      "quantity": 4,
+      "valueText": "8P 2.54mm Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1725672",
+      "brand": "Phoenix Contact",
+      "description": "Fixed Terminal Block, 4-Position, 2.54mm Pitch",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/651-1725672",
+      "currency": "USD",
+      "notes": "Mouser SKU: 651-1725672 | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "1725672",
+      "packaging": "THT",
+      "quantity": 12,
+      "valueText": "4P 2.54mm Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1725656",
+      "brand": "Phoenix Contact",
+      "description": "Fixed Terminal Block, 2-Position, 2.54mm Pitch",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/651-1725656",
+      "currency": "USD",
+      "notes": "Mouser SKU: 651-1725656 | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "1725656",
+      "packaging": "THT",
+      "quantity": 22,
+      "valueText": "2P 2.54mm Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "LL3303F065QG",
+      "brand": "E-Switch",
+      "description": "Pushbutton Switch",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/612-LL3303F065QG",
+      "currency": "USD",
+      "notes": "Mouser SKU: 612-LL3303F065QG | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "LL3303F065QG",
+      "packaging": "SMD",
+      "quantity": 15,
+      "valueText": "Pushbutton Switch",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "L78L33ACZ",
+      "brand": "STMicroelectronics",
+      "description": "3.3V 100mA Positive Linear Voltage Regulator, TO-92",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-L78L33ACZ",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-L78L33ACZ | Order: 22453513, 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "L78L33ACZ",
+      "packaging": "TO-92",
+      "quantity": 35,
+      "valueText": "3.3V 100mA",
+      "voltageRating": 3.3,
+      "currentRatingA": 0.1,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "L78L05ACZ-AP",
+      "brand": "STMicroelectronics",
+      "description": "5.0V 100mA Positive Linear Voltage Regulator, TO-92",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-L78L05ACZ-AP",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-L78L05ACZ-AP | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "L78L05ACZ-AP",
+      "packaging": "TO-92",
+      "quantity": 15,
+      "valueText": "5.0V 100mA",
+      "voltageRating": 5.0,
+      "currentRatingA": 0.1,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "T3403109",
+      "brand": "Amphenol",
+      "description": "Female Circular DIN Receptacle",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/523-T3403109",
+      "currency": "USD",
+      "notes": "Mouser SKU: 523-T3403109 | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "T3403109",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "DIN Receptacle",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC574N",
+      "brand": "Texas Instruments",
+      "description": "Octal D-Type Flip-Flop with Tri-State Outputs, DIP-20",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC574N",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC574N | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC574N",
+      "packaging": "DIP-20",
+      "quantity": 10,
+      "valueText": "Octal D Flip-Flop",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC86NE4",
+      "brand": "Texas Instruments",
+      "description": "Quadruple 2-Input Exclusive-OR Logic Gate, DIP-14",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC86NE4",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC86NE4 | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC86NE4",
+      "packaging": "DIP-14",
+      "quantity": 10,
+      "valueText": "Quad XOR Gate",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "L78L33ABU-TR",
+      "brand": "STMicroelectronics",
+      "description": "3.3V 100mA Positive Linear Voltage Regulator, SOT-89",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/511-L78L33ABU-TR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 511-L78L33ABU-TR | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "L78L33ABU-TR",
+      "packaging": "SOT-89",
+      "quantity": 20,
+      "valueText": "3.3V 100mA",
+      "voltageRating": 3.3,
+      "currentRatingA": 0.1,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "UA78M33CKVURG3",
+      "brand": "Texas Instruments",
+      "description": "3.3V 500mA Positive Linear Voltage Regulator, TO-252",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-UA78M33CKVURG3",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-UA78M33CKVURG3 | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "UA78M33CKVURG3",
+      "packaging": "TO-252",
+      "quantity": 15,
+      "valueText": "3.3V 500mA",
+      "voltageRating": 3.3,
+      "currentRatingA": 0.5,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "UA78M05CKVURG3",
+      "brand": "Texas Instruments",
+      "description": "5.0V 500mA Positive Linear Voltage Regulator, TO-252",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-07-22",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-UA78M05CKVURG3",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-UA78M05CKVURG3 | Order: 22453513",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "UA78M05CKVURG3",
+      "packaging": "TO-252",
+      "quantity": 10,
+      "valueText": "5.0V 500mA",
+      "voltageRating": 5.0,
+      "currentRatingA": 0.5,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC165QPWRQ1",
+      "brand": "Texas Instruments",
+      "description": "8-Bit Parallel-Load Shift Register, TSSOP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-08-07",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC165QPWRQ1",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC165QPWRQ1 | Order: 22604464",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC165QPWRQ1",
+      "packaging": "TSSOP-16",
+      "quantity": 10,
+      "valueText": "8-Bit PISO Shift Register",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74LVC8T245DWR",
+      "brand": "Texas Instruments",
+      "description": "8-Bit Dual-Supply Bus Transceiver, SOIC-24",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-08-07",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74LVC8T245DWR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74LVC8T245DWR | Order: 22604464",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74LVC8T245DWR",
+      "packaging": "SOIC-24",
+      "quantity": 10,
+      "valueText": "8-Bit Level Shifter",
+      "voltageRating": 5.5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC595PWR",
+      "brand": "Texas Instruments",
+      "description": "8-Bit Shift Register with Output Latch, TSSOP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-08-07",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC595PWR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC595PWR | Order: 22604464",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC595PWR",
+      "packaging": "TSSOP-16",
+      "quantity": 20,
+      "valueText": "8-Bit SIPO Shift Register",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "C0805C104K5RACLR",
+      "brand": "KEMET",
+      "description": "0.1\u00b5F 50V Ceramic Capacitor, 0805",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-08-07",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/80-C0805C104K5RACLR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 80-C0805C104K5RACLR | Order: 22604464",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "C0805C104K5RACLR",
+      "packaging": "SMD-0805",
+      "quantity": 200,
+      "valueText": "0.1\u00b5F 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "C0805C226K7PACTU",
+      "brand": "KEMET",
+      "description": "22\u00b5F 4V Ceramic Capacitor, 0805",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-08-07",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/80-C0805C226K7PACTU",
+      "currency": "USD",
+      "notes": "Mouser SKU: 80-C0805C226K7PACTU | Order: 22604464",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "C0805C226K7PACTU",
+      "packaging": "SMD-0805",
+      "quantity": 10,
+      "valueText": "22\u00b5F 4V",
+      "voltageRating": 4,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "C0805C105J4RECTU",
+      "brand": "KEMET",
+      "description": "1\u00b5F 16V Ceramic Capacitor, 0805",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-08-07",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/80-C0805C105J4RECTU",
+      "currency": "USD",
+      "notes": "Mouser SKU: 80-C0805C105J4RECTU | Order: 22604464",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "C0805C105J4RECTU",
+      "packaging": "SMD-0805",
+      "quantity": 50,
+      "valueText": "1\u00b5F 16V",
+      "voltageRating": 16,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 5
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "T3359-018",
+      "brand": "Amphenol",
+      "description": "5-Pin Female Circular DIN Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/523-T3359-018",
+      "currency": "USD",
+      "notes": "Mouser SKU: 523-T3359-018 | Order: 22197191, 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "T3359-018",
+      "packaging": null,
+      "quantity": 2,
+      "valueText": "5-Pin DIN Female",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "CSI-RGFI-2-UFFR",
+      "brand": "Linx Technologies",
+      "description": "RF Cable Assembly",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/712-CSI-RGFI-2-UFFR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 712-CSI-RGFI-2-UFFR | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "CSI-RGFI-2-UFFR",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "RF Cable Assembly",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "CSI-RGFB-3-UFFR",
+      "brand": "Linx Technologies",
+      "description": "RF Cable Assembly",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/712-CSI-RGFB-3-UFFR",
+      "currency": "USD",
+      "notes": "Mouser SKU: 712-CSI-RGFB-3-UFFR | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "CSI-RGFB-3-UFFR",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "RF Cable Assembly",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TAP104M035SCS",
+      "brand": "AVX",
+      "description": "0.1\u00b5F 35V Tantalum Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/581-TAP104M035SCS",
+      "currency": "USD",
+      "notes": "Mouser SKU: 581-TAP104M035SCS | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "TAP104M035SCS",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "0.1\u00b5F 35V",
+      "voltageRating": 35,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 20
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "K220J10C0GF5UH5",
+      "brand": "Vishay",
+      "description": "22pF 50V Ceramic Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/594-K220J10C0GF5UH5",
+      "currency": "USD",
+      "notes": "Mouser SKU: 594-K220J10C0GF5UH5 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "K220J10C0GF5UH5",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "22pF 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 5
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "K103K10X7RF5UH5",
+      "brand": "Vishay",
+      "description": "0.01\u00b5F 50V Ceramic Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/594-K103K10X7RF5UH5",
+      "currency": "USD",
+      "notes": "Mouser SKU: 594-K103K10X7RF5UH5 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "K103K10X7RF5UH5",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "0.01\u00b5F 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "K473K10X7RF5UH5",
+      "brand": "Vishay",
+      "description": "0.047\u00b5F 50V Ceramic Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/594-K473K10X7RF5UH5",
+      "currency": "USD",
+      "notes": "Mouser SKU: 594-K473K10X7RF5UH5 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "K473K10X7RF5UH5",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "0.047\u00b5F 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "K103K15X7RF5UL2",
+      "brand": "Vishay",
+      "description": "0.01\u00b5F 50V Ceramic Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/594-K103K15X7RF5UL2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 594-K103K15X7RF5UL2 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "K103K15X7RF5UL2",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "0.01\u00b5F 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "K471K15X7RF53H5",
+      "brand": "Vishay",
+      "description": "470pF 50V Ceramic Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/594-K471K15X7RF53H5",
+      "currency": "USD",
+      "notes": "Mouser SKU: 594-K471K15X7RF53H5 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "K471K15X7RF53H5",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "470pF 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "K104K15X7RF53H5",
+      "brand": "Vishay",
+      "description": "0.1\u00b5F 50V Ceramic Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/594-K104K15X7RF53H5",
+      "currency": "USD",
+      "notes": "Mouser SKU: 594-K104K15X7RF53H5 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "K104K15X7RF53H5",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "0.1\u00b5F 50V",
+      "voltageRating": 50,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TX2-5V",
+      "brand": "Panasonic",
+      "description": "2A 5VDC DPDT Low Signal Relay",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/769-TX2-5V",
+      "currency": "USD",
+      "notes": "Mouser SKU: 769-TX2-5V | Order: 22197191, 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "TX2-5V",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "5VDC DPDT 2A",
+      "voltageRating": 5,
+      "currentRatingA": 2,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "FLTWC0311-22-2",
+      "brand": "TE Connectivity",
+      "description": "22 AWG Red Hook-up Wire",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/650-FLTWC0311-22-2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 650-FLTWC0311-22-2 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "FLTWC0311-22-2",
+      "packaging": null,
+      "quantity": 20,
+      "valueText": "22AWG Red",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null,
+      "color": "Red"
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "55A0111-22-9",
+      "brand": "TE Connectivity",
+      "description": "22AWG White Hook-up Wire",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/650-55A0111-22-9",
+      "currency": "USD",
+      "notes": "Mouser SKU: 650-55A0111-22-9 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "55A0111-22-9",
+      "packaging": null,
+      "quantity": 20,
+      "valueText": "22AWG White",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null,
+      "color": "White"
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "55PC0211-22-9",
+      "brand": "TE Connectivity",
+      "description": "22AWG White Hook-up Wire",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/650-55PC0211-22-9",
+      "currency": "USD",
+      "notes": "Mouser SKU: 650-55PC0211-22-9 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "55PC0211-22-9",
+      "packaging": null,
+      "quantity": 20,
+      "valueText": "22AWG White",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null,
+      "color": "White"
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "FLTWC0311-22-0",
+      "brand": "TE Connectivity",
+      "description": "22AWG Hook-up Wire, Black",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-25",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/650-FLTWC0311-22-0",
+      "currency": "USD",
+      "notes": "Mouser SKU: 650-FLTWC0311-22-0 | Order: 22197191",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "FLTWC0311-22-0",
+      "packaging": null,
+      "quantity": 20,
+      "valueText": "22AWG Black",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null,
+      "color": "Black"
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TL072BCP",
+      "brand": "Texas Instruments",
+      "description": "Low-Noise JFET-Input Dual Op-Amp, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-TL072BCP",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-TL072BCP | Order: 22197191, 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "TL072BCP",
+      "packaging": "DIP-8",
+      "quantity": 10,
+      "valueText": "Dual JFET Op-Amp",
+      "voltageRating": 36,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TL072ACP",
+      "brand": "Texas Instruments",
+      "description": "Low-Noise JFET-Input Dual Op-Amp, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-TL072ACP",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-TL072ACP | Order: 22197191, 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "TL072ACP",
+      "packaging": "DIP-8",
+      "quantity": 13,
+      "valueText": "Dual JFET Op-Amp",
+      "voltageRating": 36,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1-2199298-4",
+      "brand": "TE Connectivity",
+      "description": "16-Pin DIP IC Socket",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/571-1-2199298-4",
+      "currency": "USD",
+      "notes": "Mouser SKU: 571-1-2199298-4 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "1-2199298-4",
+      "packaging": "THT",
+      "quantity": 30,
+      "valueText": "16P DIP Socket",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1-2199299-2",
+      "brand": "TE Connectivity",
+      "description": "28-Pin DIP IC Socket",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/571-1-2199299-2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 571-1-2199299-2 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "1-2199299-2",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "28P DIP Socket",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "MAX337CPI",
+      "brand": "Maxim Integrated",
+      "description": "8-Channel Analog Multiplexer Switch IC, DIP-20",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/700-MAX337CPI",
+      "currency": "USD",
+      "notes": "Mouser SKU: 700-MAX337CPI | Order: 22113617, 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "MAX337CPI",
+      "packaging": "DIP-20",
+      "quantity": 8,
+      "valueText": "8CH Mux Switch",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "4482",
+      "brand": "Adafruit",
+      "description": "Premium Jumper Wires Assortment",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/485-4482",
+      "currency": "USD",
+      "notes": "Mouser SKU: 485-4482 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "4482",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "Jumper Wires",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ZW-MF-10",
+      "brand": "BusBoard",
+      "description": "ZIPWIRE 10cm Jumper Wires Male-Female",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/854-ZW-MF-10",
+      "currency": "USD",
+      "notes": "Mouser SKU: 854-ZW-MF-10 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "ZW-MF-10",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "10cm M-F Jumpers",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ZW-MF-20",
+      "brand": "BusBoard",
+      "description": "ZIPWIRE 20cm Jumper Wires Male-Female",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/854-ZW-MF-20",
+      "currency": "USD",
+      "notes": "Mouser SKU: 854-ZW-MF-20 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "ZW-MF-20",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "20cm M-F Jumpers",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ZW-MM-20",
+      "brand": "BusBoard",
+      "description": "ZIPWIRE 20cm Jumper Wires Male-Male",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/854-ZW-MM-20",
+      "currency": "USD",
+      "notes": "Mouser SKU: 854-ZW-MM-20 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "ZW-MM-20",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "20cm M-M Jumpers",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TW-E40-1020",
+      "brand": "Twin Industries",
+      "description": "Solderless Breadboard 400 Tie Points",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/589-TW-E40-1020",
+      "currency": "USD",
+      "notes": "Mouser SKU: 589-TW-E40-1020 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "BREADBOARD",
+      "partNumber": "TW-E40-1020",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "400 Tie Points",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "GS-630A",
+      "brand": "Global Specialties",
+      "description": "Solderless Breadboard",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/510-GS-630A",
+      "currency": "USD",
+      "notes": "Mouser SKU: 510-GS-630A | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "BREADBOARD",
+      "partNumber": "GS-630A",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "Solderless Breadboard",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "782201-100-02",
+      "brand": "Alpha Wire",
+      "description": "Hook-up Wire",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-16",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/602-782201-100-02",
+      "currency": "USD",
+      "notes": "Mouser SKU: 602-782201-100-02 | Order: 22113617",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "782201-100-02",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "Hook-up Wire",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "NMJ2HC-S",
+      "brand": "Neutrik",
+      "description": "1/4\" Mono Phone Jack, Switching",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-15",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/550-12001",
+      "currency": "USD",
+      "notes": "Mouser SKU: 550-12001 (NMJ2HC-S) | Order: 22062832, 21822615",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "NMJ2HC-S",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "1/4\" Mono Jack",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "MAX4518CPD",
+      "brand": "Maxim Integrated",
+      "description": "Low-Voltage 4-Channel Analog Multiplexer IC, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/700-MAX4518CPD",
+      "currency": "USD",
+      "notes": "Mouser SKU: 700-MAX4518CPD | Order: 22062832, 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "MAX4518CPD",
+      "packaging": "DIP-16",
+      "quantity": 9,
+      "valueText": "4CH Mux",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "NMJ6HCS",
+      "brand": "Neutrik",
+      "description": "1/4\" Stereo Switched Phone Jack",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-15",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/550-NMJ6HCS",
+      "currency": "USD",
+      "notes": "Mouser SKU: 550-NMJ6HCS | Order: 22062832, 21822615",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "NMJ6HCS",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "1/4\" Stereo Jack",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "MAX3485ECPA+",
+      "brand": "Maxim Integrated",
+      "description": "RS-485/RS-422 Transceiver IC, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/700-MAX3485ECPA+",
+      "currency": "USD",
+      "notes": "Mouser SKU: 700-MAX3485ECPA+ | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "MAX3485ECPA+",
+      "packaging": "DIP-8",
+      "quantity": 1,
+      "valueText": "RS-485 Transceiver",
+      "voltageRating": 3.3,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "MAX485CPA",
+      "brand": "Maxim Integrated",
+      "description": "RS-485/RS-422 Transceiver IC, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/700-MAX485CPA",
+      "currency": "USD",
+      "notes": "Mouser SKU: 700-MAX485CPA | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "MAX485CPA",
+      "packaging": "DIP-8",
+      "quantity": 1,
+      "valueText": "RS-485 Transceiver",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "F3007S-16-025-85",
+      "brand": "Temp-Flex",
+      "description": "16-Conductor Ribbon Cable",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/538-F3007S-16-025-85",
+      "currency": "USD",
+      "notes": "Mouser SKU: 538-F3007S-16-025-85 | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "F3007S-16-025-85",
+      "packaging": null,
+      "quantity": 3,
+      "valueText": "16C Ribbon Cable",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "3659/14FT",
+      "brand": "3M",
+      "description": "14-Conductor 28AWG Flat Cable",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/517-3659/14FT",
+      "currency": "USD",
+      "notes": "Mouser SKU: 517-3659/14FT | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "3659/14FT",
+      "packaging": null,
+      "quantity": 3,
+      "valueText": "14C 28AWG Flat Cable",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "09180207001",
+      "brand": "HARTING",
+      "description": "20-Conductor Flat Cable",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/617-09180207001",
+      "currency": "USD",
+      "notes": "Mouser SKU: 617-09180207001 | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "09180207001",
+      "packaging": null,
+      "quantity": 10,
+      "valueText": "20C Flat Cable",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74LS08N",
+      "brand": "Texas Instruments",
+      "description": "Quadruple 2-Input AND Gate, DIP-14",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74LS08N",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74LS08N | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74LS08N",
+      "packaging": "DIP-14",
+      "quantity": 10,
+      "valueText": "Quad AND Gate",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC08AN",
+      "brand": "Texas Instruments",
+      "description": "Quadruple 2-Input AND Gate, DIP-14",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC08AN",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC08AN | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC08AN",
+      "packaging": "DIP-14",
+      "quantity": 10,
+      "valueText": "Quad AND Gate",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74AHC139N",
+      "brand": "Texas Instruments",
+      "description": "Dual 2-Line to 4-Line Decoder/Demultiplexer, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74AHC139N",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74AHC139N | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74AHC139N",
+      "packaging": "DIP-16",
+      "quantity": 10,
+      "valueText": "Dual 2-to-4 Decoder",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "CSJ-RGFB200-MHF4",
+      "brand": "Linx Technologies",
+      "description": "RF Cable Assembly with MHF4 Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/712-CSJ-RGFB200-MHF4",
+      "currency": "USD",
+      "notes": "Mouser SKU: 712-CSJ-RGFB200-MHF4 | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "CSJ-RGFB200-MHF4",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "RF Cable MHF4",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ESP32-WROOM-32U",
+      "brand": "Espressif Systems",
+      "description": "WiFi/BLE Module, ESP32, U.FL Antenna Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/356-ESP32-WROOM-32U",
+      "currency": "USD",
+      "notes": "Mouser SKU: 356-ESP32-WROOM-32U | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "MODULE",
+      "partNumber": "ESP32-WROOM-32U",
+      "packaging": "SMD",
+      "quantity": 3,
+      "valueText": "ESP32 WiFi/BLE Module",
+      "voltageRating": 3.3,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1729128",
+      "brand": "Phoenix Contact",
+      "description": "Fixed Terminal Block",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/651-1729128",
+      "currency": "USD",
+      "notes": "Mouser SKU: 651-1729128 | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "1729128",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "NMJ4HC-S",
+      "brand": "Neutrik",
+      "description": "1/4\" Mono Switched Phone Jack",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-15",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/568-NMJ4HC-S",
+      "currency": "USD",
+      "notes": "Mouser SKU: 568-NMJ4HC-S | Order: 22062832, 21822615",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "NMJ4HC-S",
+      "packaging": "THT",
+      "quantity": 25,
+      "valueText": "1/4\" Mono Jack",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1N4001G",
+      "brand": "ON Semiconductor",
+      "description": "50V 1A General Purpose Rectifier Diode, DO-41",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/863-1N4001G",
+      "currency": "USD",
+      "notes": "Mouser SKU: 863-1N4001G | Order: 22062832, 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "DIODE",
+      "partNumber": "1N4001G",
+      "packaging": "DO-41",
+      "quantity": 80,
+      "valueText": "50V 1A Rectifier",
+      "voltageRating": 50,
+      "currentRatingA": 1,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "BC547BTA",
+      "brand": "ON Semiconductor",
+      "description": "NPN Bipolar Transistor, 45V 100mA, TO-92",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/512-BC547BTA",
+      "currency": "USD",
+      "notes": "Mouser SKU: 512-BC547BTA | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "TRANSISTOR",
+      "partNumber": "BC547BTA",
+      "packaging": "TO-92",
+      "quantity": 50,
+      "valueText": "NPN 45V 100mA",
+      "voltageRating": 45,
+      "currentRatingA": 0.1,
+      "powerRatingW": 0.625,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "8310",
+      "brand": "Keystone",
+      "description": "LED Mounting Hardware, Panel Mount Clip",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-06-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/534-8310",
+      "currency": "USD",
+      "notes": "Mouser SKU: 534-8310 | Order: 22062832",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "8310",
+      "packaging": null,
+      "quantity": 30,
+      "valueText": "LED Panel Mount Clip",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ESP32-PICO-DevKitM-2",
+      "brand": "Espressif Systems",
+      "description": "ESP32-PICO Development Board",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/356-ESP32PCODEVKITM2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 356-ESP32PCODEVKITM2 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "MODULE",
+      "partNumber": "ESP32-PICO-DevKitM-2",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "ESP32 Dev Board",
+      "voltageRating": 3.3,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ESP32-C3-DevKitM-1",
+      "brand": "Espressif Systems",
+      "description": "ESP32-C3 WiFi Development Board",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/356-ESP32-C3DEVKITM1",
+      "currency": "USD",
+      "notes": "Mouser SKU: 356-ESP32-C3DEVKITM1 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "MODULE",
+      "partNumber": "ESP32-C3-DevKitM-1",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "ESP32-C3 Dev Board",
+      "voltageRating": 3.3,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC165NE4",
+      "brand": "Texas Instruments",
+      "description": "8-Bit Parallel-Load Shift Register, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC165NE4",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC165NE4 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC165NE4",
+      "packaging": "DIP-16",
+      "quantity": 20,
+      "valueText": "8-Bit PISO Shift Register",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "RMCS19038BK1",
+      "brand": "Hammond",
+      "description": "Rackmount Chassis, 1U",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/546-RMCS19038BK1",
+      "currency": "USD",
+      "notes": "Mouser SKU: 546-RMCS19038BK1 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "RMCS19038BK1",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "1U Rackmount Chassis",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SKMW06F-05",
+      "brand": "MEAN WELL",
+      "description": "5V 1.2A DC/DC Converter, 6W",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/709-SKMW06F-05",
+      "currency": "USD",
+      "notes": "Mouser SKU: 709-SKMW06F-05 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "MODULE",
+      "partNumber": "SKMW06F-05",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "5V 1.2A DC/DC",
+      "voltageRating": 5,
+      "currentRatingA": 1.2,
+      "powerRatingW": 6,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SLW05A-15",
+      "brand": "MEAN WELL",
+      "description": "5W DC/DC Converter, 15V Output",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/709-SLW05A-15",
+      "currency": "USD",
+      "notes": "Mouser SKU: 709-SLW05A-15 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "MODULE",
+      "partNumber": "SLW05A-15",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "15V 5W DC/DC",
+      "voltageRating": 15,
+      "currentRatingA": null,
+      "powerRatingW": 5,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "C09131W1051002",
+      "brand": "Amphenol",
+      "description": "Male Receptacle Circular DIN Connector",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-28",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/523-C09131W1051002",
+      "currency": "USD",
+      "notes": "Mouser SKU: 523-C09131W1051002 | Order: 21950745",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "C09131W1051002",
+      "packaging": null,
+      "quantity": 1,
+      "valueText": "DIN Male Receptacle",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "SN74HC595N",
+      "brand": "Texas Instruments",
+      "description": "8-Bit Shift Register with Output Latch, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-15",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-SN74HC595N",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-SN74HC595N | Order: 21822615",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "SN74HC595N",
+      "packaging": "DIP-16",
+      "quantity": 10,
+      "valueText": "8-Bit SIPO Shift Register",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "CD4021BE",
+      "brand": "Texas Instruments",
+      "description": "8-Stage Static Shift Register, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-15",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-CD4021BE",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-CD4021BE | Order: 21822615",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "CD4021BE",
+      "packaging": "DIP-16",
+      "quantity": 10,
+      "valueText": "8-Bit Shift Register",
+      "voltageRating": 15,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1984617",
+      "brand": "Phoenix Contact",
+      "description": "Fixed Terminal Block",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-15",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/651-1984617",
+      "currency": "USD",
+      "notes": "Mouser SKU: 651-1984617 | Order: 21822615",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "WIRE_CONNECTOR",
+      "partNumber": "1984617",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "Terminal Block",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "2N3904TA",
+      "brand": "ON Semiconductor",
+      "description": "NPN Bipolar Transistor, 40V 200mA, TO-92",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/512-2N3904TA",
+      "currency": "USD",
+      "notes": "Mouser SKU: 512-2N3904TA | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "TRANSISTOR",
+      "partNumber": "2N3904TA",
+      "packaging": "TO-92",
+      "quantity": 50,
+      "valueText": "NPN 40V 200mA",
+      "voltageRating": 40,
+      "currentRatingA": 0.2,
+      "powerRatingW": 0.625,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ADG417BNZ",
+      "brand": "Analog Devices",
+      "description": "SPST Analog Switch IC, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/584-ADG417BNZ",
+      "currency": "USD",
+      "notes": "Mouser SKU: 584-ADG417BNZ | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "ADG417BNZ",
+      "packaging": "DIP-8",
+      "quantity": 4,
+      "valueText": "SPST Analog Switch",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ADG407BNZ",
+      "brand": "Analog Devices",
+      "description": "8-Channel Analog Multiplexer Switch IC, DIP-28",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/584-ADG407BNZ",
+      "currency": "USD",
+      "notes": "Mouser SKU: 584-ADG407BNZ | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "ADG407BNZ",
+      "packaging": "DIP-28",
+      "quantity": 1,
+      "valueText": "8CH Mux Switch",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "LM2937ET-15/NOPB",
+      "brand": "Texas Instruments",
+      "description": "15V 500mA LDO Voltage Regulator, TO-220",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/926-LM2937ET-15/NOPB",
+      "currency": "USD",
+      "notes": "Mouser SKU: 926-LM2937ET-15/NOPB | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "LM2937ET-15/NOPB",
+      "packaging": "TO-220",
+      "quantity": 10,
+      "valueText": "15V 500mA LDO",
+      "voltageRating": 15,
+      "currentRatingA": 0.5,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TAP226K016BRW",
+      "brand": "AVX",
+      "description": "22\u00b5F 16V Tantalum Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/581-TAP226K016BRW",
+      "currency": "USD",
+      "notes": "Mouser SKU: 581-TAP226K016BRW | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "TAP226K016BRW",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "22\u00b5F 16V",
+      "voltageRating": 16,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 10
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TAP106M035SCS",
+      "brand": "AVX",
+      "description": "10\u00b5F 35V Tantalum Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/581-TAP106M035SCS",
+      "currency": "USD",
+      "notes": "Mouser SKU: 581-TAP106M035SCS | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "TAP106M035SCS",
+      "packaging": "THT",
+      "quantity": 20,
+      "valueText": "10\u00b5F 35V",
+      "voltageRating": 35,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 20
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "LM2937ET-5.0/NOPB",
+      "brand": "Texas Instruments",
+      "description": "5.0V 500mA LDO Voltage Regulator, TO-220",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/926-LM2937ET-5.0NOPB",
+      "currency": "USD",
+      "notes": "Mouser SKU: 926-LM2937ET-5.0NOPB | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "LM2937ET-5.0/NOPB",
+      "packaging": "TO-220",
+      "quantity": 10,
+      "valueText": "5.0V 500mA LDO",
+      "voltageRating": 5.0,
+      "currentRatingA": 0.5,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "CD4015BE",
+      "brand": "Texas Instruments",
+      "description": "Dual 4-Stage Static Shift Register, DIP-16",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/595-CD4015BE",
+      "currency": "USD",
+      "notes": "Mouser SKU: 595-CD4015BE | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "CD4015BE",
+      "packaging": "DIP-16",
+      "quantity": 20,
+      "valueText": "Dual 4-Stage Shift Register",
+      "voltageRating": 15,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "AP7381-33V-A",
+      "brand": "Diodes Inc.",
+      "description": "3.3V 150mA LDO Voltage Regulator, SOT-89",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/621-AP7381-33V-A",
+      "currency": "USD",
+      "notes": "Mouser SKU: 621-AP7381-33V-A | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "AP7381-33V-A",
+      "packaging": "SOT-89",
+      "quantity": 15,
+      "valueText": "3.3V 150mA LDO",
+      "voltageRating": 3.3,
+      "currentRatingA": 0.15,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "8014702010001000",
+      "brand": "Mill-Max",
+      "description": "IC & Component Socket",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/575-8014702010001000",
+      "currency": "USD",
+      "notes": "Mouser SKU: 575-8014702010001000 | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "8014702010001000",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "IC Socket",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ATmega4809-PF",
+      "brand": "Microchip",
+      "description": "8-bit AVR Microcontroller, 48-Pin TQFP",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/556-ATMEGA4809-PF",
+      "currency": "USD",
+      "notes": "Mouser SKU: 556-ATMEGA4809-PF | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "ATmega4809-PF",
+      "packaging": "TQFP-48",
+      "quantity": 5,
+      "valueText": "8-bit AVR MCU 48KB Flash",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TAP476M016CRS",
+      "brand": "AVX",
+      "description": "47\u00b5F 16V Tantalum Capacitor",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-10",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/581-TAP476M016CRS",
+      "currency": "USD",
+      "notes": "Mouser SKU: 581-TAP476M016CRS | Order: 21774780",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "CAPACITOR",
+      "partNumber": "TAP476M016CRS",
+      "packaging": "THT",
+      "quantity": 15,
+      "valueText": "47\u00b5F 16V",
+      "voltageRating": 16,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": 20
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "PIC12F675-I/P",
+      "brand": "Microchip",
+      "description": "8-bit PIC Microcontroller, 1.75KB Flash, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/579-PIC12F675-I/P",
+      "currency": "USD",
+      "notes": "Mouser SKU: 579-PIC12F675-I/P | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "PIC12F675-I/P",
+      "packaging": "DIP-8",
+      "quantity": 5,
+      "valueText": "8-bit PIC MCU",
+      "voltageRating": 5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ATtiny45-20PU",
+      "brand": "Microchip",
+      "description": "8-bit AVR Microcontroller, 4KB Flash, DIP-8",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/556-ATTINY45-20PU",
+      "currency": "USD",
+      "notes": "Mouser SKU: 556-ATTINY45-20PU | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "ATtiny45-20PU",
+      "packaging": "DIP-8",
+      "quantity": 5,
+      "valueText": "8-bit AVR MCU 4KB",
+      "voltageRating": 5.5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1-2199298-2",
+      "brand": "TE Connectivity",
+      "description": "8-Pin DIP IC Socket",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/571-1-2199298-2",
+      "currency": "USD",
+      "notes": "Mouser SKU: 571-1-2199298-2 | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "1-2199298-2",
+      "packaging": "THT",
+      "quantity": 10,
+      "valueText": "8P DIP Socket",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "64111210",
+      "brand": "Carling",
+      "description": "Pushbutton Switch SP ON-OFF",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/691-64111210",
+      "currency": "USD",
+      "notes": "Mouser SKU: 691-64111210 | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "64111210",
+      "packaging": null,
+      "quantity": 2,
+      "valueText": "SP ON-OFF Pushbutton",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "ATtiny84A-PU",
+      "brand": "Microchip",
+      "description": "8-bit AVR Microcontroller, 8KB Flash, DIP-14",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/556-ATTINY84A-PU",
+      "currency": "USD",
+      "notes": "Mouser SKU: 556-ATTINY84A-PU | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "IC",
+      "partNumber": "ATtiny84A-PU",
+      "packaging": "DIP-14",
+      "quantity": 5,
+      "valueText": "8-bit AVR MCU 8KB",
+      "voltageRating": 5.5,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "1-2199298-3",
+      "brand": "TE Connectivity",
+      "description": "14-Pin DIP IC Socket",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/571-1-2199298-3",
+      "currency": "USD",
+      "notes": "Mouser SKU: 571-1-2199298-3 | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "1-2199298-3",
+      "packaging": "THT",
+      "quantity": 5,
+      "valueText": "14P DIP Socket",
+      "voltageRating": null,
+      "currentRatingA": null,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  },
+  {
+    "inventoryItem": {
+      "name": "TX2-3V",
+      "brand": "Panasonic",
+      "description": "2A 3VDC DPDT Low Signal Relay",
+      "category": "ELECTRONICS",
+      "datePurchased": "2021-05-02",
+      "vendor": "Mouser",
+      "url": "https://www.mouser.com/ProductDetail/769-TX2-3V",
+      "currency": "USD",
+      "notes": "Mouser SKU: 769-TX2-3V | Order: 21700510",
+      "active": true
+    },
+    "inventoryElectronic": {
+      "type": "OTHER",
+      "partNumber": "TX2-3V",
+      "packaging": "THT",
+      "quantity": 5,
+      "valueText": "3VDC DPDT 2A",
+      "voltageRating": 3,
+      "currentRatingA": 2,
+      "powerRatingW": null,
+      "tolerancePct": null
+    }
+  }
+]
