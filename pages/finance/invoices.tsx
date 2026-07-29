@@ -521,11 +521,17 @@ export default function InvoicesPage() {
           >
             {/* PDF preview — signed URL, regenerated on every open */}
             {pdfUrl ? (
-              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+              <div
+                className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden shrink-0"
+                // Inline height: the panel body is a flex column, which
+                // compresses class-based heights; shrink-0 + explicit style
+                // guarantees the preview keeps real reading size.
+                style={{ height: "min(60vh, 32rem)", minHeight: 320 }}
+              >
                 <iframe
                   src={pdfUrl}
                   title="Invoice PDF"
-                  className="w-full h-96 md:h-[32rem] min-h-[320px] bg-white"
+                  className="w-full h-full bg-white"
                 />
               </div>
             ) : (
