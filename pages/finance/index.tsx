@@ -997,7 +997,7 @@ export default function FinanceDashboard() {
                     )}
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                       {upcomingFiltered.map((entry, idx) => (
-                        <tr key={entry.tx ? `tx-${entry.tx.id}` : `rec-${entry.rec!.id}-${entry.next}`} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                        <tr key={`${entry.tx ? `tx-${entry.tx.id}` : `rec-${entry.rec!.id}`}-${entry.next}-${entry.accountId}-${entry.amount}`} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                           <td className="px-4 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">{fmtDate(entry.next)}</td>
                           <td className="px-4 py-2 text-gray-800 dark:text-gray-200">
                             {entry.description}
