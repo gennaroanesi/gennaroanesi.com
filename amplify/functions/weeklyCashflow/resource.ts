@@ -14,10 +14,12 @@ export const weeklyCashflow = defineFunction({
   memoryMB: 512,
   resourceGroupName: "data",
   environment: {
-    // Sender must be an SES-verified identity. Using the verified Gmail for now;
-    // switch to "noreply@gennaroanesi.com" once the gennaroanesi.com domain is
-    // verified in SES (us-east-1).
-    SES_FROM_EMAIL:  "gennaroanesi@gmail.com",
+    // Sender must be an SES-verified identity. The gennaroanesi.com domain is
+    // verified in SES (us-east-1), so send from noreply@. Do NOT use an
+    // @gmail.com From — Gmail silently drops mail claiming to be from a
+    // gmail.com address that didn't originate from Google's servers, so SES
+    // reports success (MessageId) but the briefing never reaches the inbox.
+    SES_FROM_EMAIL:  "noreply@gennaroanesi.com",
     WEEKLY_TO_EMAIL: "gennaroanesi@gmail.com",
     BUFFER:          "750",
   },
