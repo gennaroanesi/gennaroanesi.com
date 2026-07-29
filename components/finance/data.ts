@@ -114,21 +114,26 @@ export async function fetchTransactions(q: TransactionQuery = {}): Promise<Trans
 
   if (q.accountId) {
     try {
-      return await listAllByIndex<TransactionRecord>(
-        (args) => (client.models.financeTransaction as any)
-          .listFinanceTransactionByAccountIdAndDate({
-            accountId: q.accountId,
-            ...(dateCond ? { date: dateCond } : {}),
-            ...args,
-          }),
+      // Raw GraphQL, not the typed client: typed index queries declare their
+      // filter variable as Model<PascalCase>FilterInput, but this schema's
+      // lowercase model names generate Model<camelCase>FilterInput — AppSync
+      // rejects the whole query with VariableTypeMismatch. Same client-codegen
+      // bug family as CLAUDE.md §4; raw queries sidestep it.
+      return await listAllRawIndex<TransactionRecord>(
+        "listFinanceTransactionByAccountIdAndDate",
+        `query ByAccount($accountId: ID!, $date: ModelStringKeyConditionInput, $limit: Int, $nextToken: String) {
+          listFinanceTransactionByAccountIdAndDate(accountId: $accountId, date: $date, limit: $limit, nextToken: $nextToken) {
+            items { ${TX_FIELDS} }
+            nextToken
+          }
+        }`,
+        { accountId: q.accountId, date: dateCond ?? null },
       );
     } catch (e: any) {
-      // Environment without the GSI deployed — the AppSync schema rejects the
-      // query (FieldUndefined) or, with a stale amplify_outputs.json, the
-      // typed client never generated the method at all (TypeError: … is not
-      // a function). Fall back to the scan so the page still works.
+      // Environment without the GSI deployed rejects with FieldUndefined —
+      // fall back to the scan so the page still works (CLAUDE.md §5).
       const msg = String(e?.message ?? e);
-      if (msg.includes("FieldUndefined") || msg.includes("is not a function")) {
+      if (msg.includes("FieldUndefined")) {
         console.warn("[fetchTransactions] accountId+date GSI not available here yet — falling back to scan");
       } else {
         throw e;
@@ -146,28 +151,47 @@ export async function fetchTransactions(q: TransactionQuery = {}): Promise<Trans
   return listAll<TransactionRecord>(client.models.financeTransaction, { filter });
 }
 
-/** Paginate an index Query (partition-key call shape) to exhaustion. Same
- *  page-size / safety-cap semantics as listAll. */
-async function listAllByIndex<T>(
-  query: (args: { limit: number; nextToken?: string | null }) => Promise<{
-    data: T[] | null;
-    nextToken?: string | null;
-    errors?: any[];
-  }>,
+// Selection sets for raw index queries. Typed-client index queries are
+// unusable against this schema (VariableTypeMismatch — see fetchTransactions),
+// so the raw queries need explicit field lists. Keep in sync with the models.
+const TX_FIELDS = `id accountId amount type category description date status
+  goalId spendGroupId toAccountId importHash recurringId ticker quantity price
+  fees lotId consumedCostBasis lotConsumptions notes lineItems createdAt updatedAt`;
+
+const INVOICE_LINK_FIELDS = `id invoiceId transactionId amount createdAt updatedAt`;
+
+/** Paginate a raw-GraphQL index Query to exhaustion. Same page-size /
+ *  safety-cap semantics as listAll. `queryName` is the field to unwrap from
+ *  the response; `query` must declare $limit and $nextToken. */
+async function listAllRawIndex<T>(
+  queryName: string,
+  query: string,
+  variables: Record<string, unknown>,
 ): Promise<T[]> {
   const out: T[] = [];
   let nextToken: string | null | undefined = null;
   let pages = 0;
   do {
-    const res: any = await query({ limit: 1000, nextToken });
-    if (res?.errors?.length) {
-      throw new Error(res.errors[0]?.message ?? "index query failed");
+    let res: any;
+    try {
+      res = await client.graphql({
+        query,
+        variables: { ...variables, limit: 1000, nextToken },
+        authMode: "userPool",
+      });
+    } catch (e: any) {
+      // client.graphql throws a GraphQLResult-shaped error; normalize to a
+      // plain Error carrying the first GraphQL message so callers can match.
+      const msg = e?.errors?.[0]?.message ?? e?.message ?? String(e);
+      throw new Error(msg);
     }
-    if (res?.data?.length) out.push(...res.data);
-    nextToken = res?.nextToken ?? null;
+    if (res?.errors?.length) throw new Error(res.errors[0]?.message ?? "index query failed");
+    const page = res?.data?.[queryName];
+    if (page?.items?.length) out.push(...page.items);
+    nextToken = page?.nextToken ?? null;
     pages++;
     if (pages >= 50) {
-      console.warn("[listAllByIndex] hit safety cap of 50 pages — result may be truncated");
+      console.warn(`[${queryName}] hit safety cap of 50 pages — result may be truncated`);
       break;
     }
   } while (nextToken);
@@ -223,28 +247,31 @@ export async function fetchInvoices(): Promise<InvoiceRecord[]> {
 
 /** Invoice ↔ transaction links, optionally scoped by either FK.
  *
- *  Query strategy mirrors fetchTransactions: use the GSI-named typed-client
- *  query when a key is given (invoiceId / transactionId secondary indexes),
- *  falling back to the filter scan when the environment hasn't deployed the
- *  GSI yet (FieldUndefined from AppSync, or "is not a function" from a stale
- *  amplify_outputs.json that never generated the method). */
+ *  Query strategy mirrors fetchTransactions: raw-GraphQL GSI query when a key
+ *  is given (typed index queries are broken by the filter-input casing bug —
+ *  see listAllRawIndex), falling back to the filter scan when the environment
+ *  hasn't deployed the GSI yet (FieldUndefined). */
 export async function fetchInvoiceLinks(q: InvoiceQuery = {}): Promise<InvoiceLinkRecord[]> {
-  const indexCall: { method: string; args: any } | null =
-    q.invoiceId     ? { method: "listFinanceInvoiceLinkByInvoiceId",     args: { invoiceId: q.invoiceId } } :
-    q.transactionId ? { method: "listFinanceInvoiceLinkByTransactionId", args: { transactionId: q.transactionId } } :
+  const indexCall =
+    q.invoiceId     ? { name: "listFinanceInvoiceLinkByInvoiceId",     arg: "invoiceId",     value: q.invoiceId } :
+    q.transactionId ? { name: "listFinanceInvoiceLinkByTransactionId", arg: "transactionId", value: q.transactionId } :
     null;
 
   if (indexCall) {
     try {
-      return await listAllByIndex<InvoiceLinkRecord>(
-        (page) => (client.models.financeInvoiceLink as any)[indexCall.method]({
-          ...indexCall.args,
-          ...page,
-        }),
+      return await listAllRawIndex<InvoiceLinkRecord>(
+        indexCall.name,
+        `query Links($${indexCall.arg}: ID!, $limit: Int, $nextToken: String) {
+          ${indexCall.name}(${indexCall.arg}: $${indexCall.arg}, limit: $limit, nextToken: $nextToken) {
+            items { ${INVOICE_LINK_FIELDS} }
+            nextToken
+          }
+        }`,
+        { [indexCall.arg]: indexCall.value },
       );
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      if (msg.includes("FieldUndefined") || msg.includes("is not a function")) {
+      if (msg.includes("FieldUndefined")) {
         console.warn("[fetchInvoiceLinks] link GSI not available here yet — falling back to scan");
       } else {
         throw e;

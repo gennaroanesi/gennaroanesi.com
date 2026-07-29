@@ -56,6 +56,14 @@ There are two AppSync environments. **Always confirm which env you're targeting 
 
 **Bug**: When using the Amplify Gen2 typed client (`.list()`, `.get()`), array fields like `approachChartKeys: string[]` are silently omitted from the response.
 
+**Bug 2 (same family)**: typed-client **secondary-index queries** are broken
+for this schema's lowercase model names — the client declares the filter
+variable as `ModelFinanceInvoiceLinkFilterInput` (PascalCased) but the
+deployed type is `ModelfinanceInvoiceLinkFilterInput`, so AppSync rejects the
+whole query with `VariableTypeMismatch` and `data` comes back empty. Use raw
+GraphQL for ALL GSI queries (see `listAllRawIndex` in
+`components/finance/data.ts`).
+
 **Fix**: Use raw GraphQL queries for any model that has array fields:
 ```ts
 const result = await client.graphql({

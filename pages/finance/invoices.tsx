@@ -525,7 +525,7 @@ export default function InvoicesPage() {
                 <iframe
                   src={pdfUrl}
                   title="Invoice PDF"
-                  className="w-full h-64 bg-white"
+                  className="w-full h-96 md:h-[32rem] min-h-[320px] bg-white"
                 />
               </div>
             ) : (
