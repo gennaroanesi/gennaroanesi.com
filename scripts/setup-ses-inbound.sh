@@ -36,7 +36,7 @@ echo "==> Resolving importLogbook Lambda ARN..."
 # Find the Amplify-generated function name — it contains 'importLogbook'
 LAMBDA_NAME=$(aws lambda list-functions \
   --region $REGION \
-  --query "Functions[?contains(FunctionName, 'importLogbook')].FunctionName" \
+  --query "Functions[?contains(FunctionName, 'importLogbook') && contains(FunctionName, 'd3hzztqj54ajlt')].FunctionName" \
   --output text | tr '\t' '\n' | head -1)
 
 if [ -z "$LAMBDA_NAME" ]; then
@@ -177,7 +177,7 @@ echo ""
 echo "==> Resolving invoiceProcessor Lambda ARN..."
 INVOICE_LAMBDA_NAME=$(aws lambda list-functions \
   --region $REGION \
-  --query "Functions[?contains(FunctionName, 'invoiceProcessor')].FunctionName" \
+  --query "Functions[?contains(FunctionName, 'invoiceProcessor') && contains(FunctionName, 'd3hzztqj54ajlt')].FunctionName" \
   --output text | tr '\t' '\n' | head -1)
 
 if [ -z "$INVOICE_LAMBDA_NAME" ]; then
@@ -206,8 +206,7 @@ INVOICE_RULE_JSON=$(cat <<EOF
     {
       "S3Action": {
         "BucketName": "$BUCKET",
-        "ObjectKeyPrefix": "$INVOICE_PREFIX/",
-        "TopicArn": null
+        "ObjectKeyPrefix": "$INVOICE_PREFIX/"
       }
     }
   ],
@@ -228,7 +227,17 @@ echo "  Receipt rule created/updated."
 
 echo ""
 echo "==> Adding S3 bucket policy for SES (invoice prefix)..."
-EXISTING_POLICY=$(aws s3api get-bucket-policy --bucket "$BUCKET" --query Policy --output text 2>/dev/null || echo "{\"Statement\":[]}")
+# HARD-FAIL if we can't READ the current policy. The merge below rewrites the
+# WHOLE policy — running with credentials that can Put but not Get (e.g.
+# amplify-dev) would silently replace the bucket policy with only our
+# statement, breaking public reads + the logbook SES grant. This exact
+# incident happened on 2026-07-29; run with an admin profile:
+#   AWS_PROFILE=admin ./scripts/setup-ses-inbound.sh
+EXISTING_POLICY=$(aws s3api get-bucket-policy --bucket "$BUCKET" --query Policy --output text) || {
+  echo "ERROR: cannot read the current bucket policy (need s3:GetBucketPolicy)."
+  echo "Refusing to continue — a blind put would clobber existing statements."
+  exit 1
+}
 
 # The logbook statement is scoped to its own prefix, so check for THIS prefix.
 if echo "$EXISTING_POLICY" | grep -q "$INVOICE_PREFIX"; then
@@ -261,7 +270,12 @@ echo ""
 echo "==> Wiring S3 bucket notification → invoiceProcessor..."
 # Merge (don't clobber) — put-bucket-notification-configuration replaces the
 # whole config, so read the current one and append/refresh our entry.
-EXISTING_NOTIF=$(aws s3api get-bucket-notification-configuration --bucket "$BUCKET" 2>/dev/null || echo "{}")
+# HARD-FAIL if the read fails (same clobber hazard as the bucket policy above).
+EXISTING_NOTIF=$(aws s3api get-bucket-notification-configuration --bucket "$BUCKET") || {
+  echo "ERROR: cannot read the current bucket notification config (need s3:GetBucketNotification)."
+  echo "Refusing to continue — a blind put would drop the logbook trigger."
+  exit 1
+}
 python3 -c "
 import json
 config = json.loads('''$EXISTING_NOTIF''')
