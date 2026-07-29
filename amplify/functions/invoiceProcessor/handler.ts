@@ -333,8 +333,17 @@ async function processEmail(bucket: string, key: string): Promise<void> {
   }
   const client = await getClient();
 
+  // Per-source isolation: one bad source (extraction failure, malformed
+  // nested message) must NOT throw out of the handler — the S3 async invoke
+  // would retry the WHOLE object and re-create every body-rendered sibling
+  // (fresh Chromium bytes → new contentHash → dedup miss). That exact retry
+  // storm produced 25 duplicate invoices on 2026-07-29.
   for (const mail of sources) {
-    await processSource(client, bucket, raw, mail);
+    try {
+      await processSource(client, bucket, raw, mail);
+    } catch (err) {
+      console.error(`[invoiceProcessor] source "${mail.subject ?? "(no subject)"}" failed — continuing batch:`, err);
+    }
   }
 }
 
@@ -375,19 +384,38 @@ async function processSource(
     const s3KeyPdf      = `private/invoices/${invoiceId}/invoice.pdf`;
     const s3KeyOriginal = `private/invoices/${invoiceId}/original.eml`;
 
+    const { fields, error } = await extractInvoiceFields(pdf);
+
+    // Semantic dedup — the contentHash check above only catches identical
+    // bytes, which body-rendered PDFs never are (Chromium embeds fresh
+    // timestamps). Same vendor + same invoice number + same total (or same
+    // issue date when the vendor doesn't number invoices) is the same
+    // invoice. A revised invoice (same number, new total) intentionally
+    // passes and creates a second row for human review.
+    if (fields?.vendor && fields.total != null) {
+      const semanticFilter: any = { vendor: { eq: fields.vendor }, total: { eq: fields.total } };
+      if (fields.invoiceNumber) semanticFilter.invoiceNumber = { eq: fields.invoiceNumber };
+      else if (fields.issueDate) semanticFilter.issueDate = { eq: fields.issueDate };
+      const semanticDupes = await listAll<InvoiceRecord>(client.models.financeInvoice, semanticFilter);
+      if (semanticDupes.length > 0) {
+        console.log(`[invoiceProcessor] semantic duplicate (${fields.vendor} #${fields.invoiceNumber ?? fields.issueDate} ${fields.total}) — already invoice ${semanticDupes[0].id}; skipping`);
+        continue;
+      }
+    }
+
+    const parseStatus: "PARSED" | "NEEDS_REVIEW" | "ERROR" =
+      error ? "ERROR" : fields?.total != null ? "PARSED" : "NEEDS_REVIEW";
+    const parseError =
+      error ?? (fields?.total == null ? "total not found in document" : null);
+
+    // S3 writes deliberately AFTER the dedup gates so a skipped duplicate
+    // never orphans objects.
     await s3.send(new PutObjectCommand({
       Bucket: bucket, Key: s3KeyPdf, Body: pdf, ContentType: "application/pdf",
     }));
     await s3.send(new PutObjectCommand({
       Bucket: bucket, Key: s3KeyOriginal, Body: raw, ContentType: "message/rfc822",
     }));
-
-    const { fields, error } = await extractInvoiceFields(pdf);
-
-    const parseStatus: "PARSED" | "NEEDS_REVIEW" | "ERROR" =
-      error ? "ERROR" : fields?.total != null ? "PARSED" : "NEEDS_REVIEW";
-    const parseError =
-      error ?? (fields?.total == null ? "total not found in document" : null);
 
     const { data: created, errors } = await client.models.financeInvoice.create({
       id:            invoiceId,
