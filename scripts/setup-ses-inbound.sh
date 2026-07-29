@@ -67,11 +67,22 @@ aws ses create-receipt-rule-set \
   --rule-set-name "$RULE_SET_NAME" \
   --region $REGION 2>/dev/null || echo "  (already exists — skipping)"
 
-# Activate it
-aws ses set-active-receipt-rule-set \
-  --rule-set-name "$RULE_SET_NAME" \
-  --region $REGION
-echo "  Rule set activated."
+# Activate it — ONLY if no other set holds the active slot. SES allows one
+# active rule set per account+region; blindly activating ours would break
+# every other app's inbound mail (91dispatcher's set is the active one as
+# of 2026-07). If another set is active, add rules to THAT set instead
+# (section 6 does this automatically via ACTIVE_RULE_SET).
+CURRENT_ACTIVE=$(aws ses describe-active-receipt-rule-set --region $REGION --query "Metadata.Name" --output text 2>/dev/null || echo "None")
+if [ "$CURRENT_ACTIVE" = "None" ] || [ -z "$CURRENT_ACTIVE" ]; then
+  aws ses set-active-receipt-rule-set \
+    --rule-set-name "$RULE_SET_NAME" \
+    --region $REGION
+  echo "  Rule set activated."
+elif [ "$CURRENT_ACTIVE" = "$RULE_SET_NAME" ]; then
+  echo "  Rule set already active."
+else
+  echo "  NOT activating: '$CURRENT_ACTIVE' holds the active slot (shared with other apps)."
+fi
 
 # ── 3. Create receipt rule: logbookimport@ → S3 ───────────────────────────────
 echo ""
@@ -173,6 +184,17 @@ INVOICE_RULE_NAME="invoice-ingest"
 INVOICE_RECIPIENT="invoices@gennaroanesi.com"
 INVOICE_PREFIX="private/invoice-inbound"
 
+# SES allows exactly ONE active receipt rule set per account+region, and in
+# this account 91dispatcher's set ("91dispatcher-inbound") holds the slot.
+# A rule created in an inactive set silently bounces mail (550 5.1.1 —
+# 2026-07-29 incident). Always target the ACTIVE set, whatever its name.
+ACTIVE_RULE_SET=$(aws ses describe-active-receipt-rule-set --region $REGION --query "Metadata.Name" --output text)
+if [ -z "$ACTIVE_RULE_SET" ] || [ "$ACTIVE_RULE_SET" = "None" ]; then
+  echo "ERROR: no active SES receipt rule set in $REGION — activate one first."
+  exit 1
+fi
+echo "  Active rule set: $ACTIVE_RULE_SET"
+
 echo ""
 echo "==> Resolving invoiceProcessor Lambda ARN..."
 INVOICE_LAMBDA_NAME=$(aws lambda list-functions \
@@ -216,11 +238,11 @@ EOF
 )
 
 aws ses create-receipt-rule \
-  --rule-set-name "$RULE_SET_NAME" \
+  --rule-set-name "$ACTIVE_RULE_SET" \
   --rule "$INVOICE_RULE_JSON" \
   --region $REGION 2>/dev/null || \
 aws ses update-receipt-rule \
-  --rule-set-name "$RULE_SET_NAME" \
+  --rule-set-name "$ACTIVE_RULE_SET" \
   --rule "$INVOICE_RULE_JSON" \
   --region $REGION
 echo "  Receipt rule created/updated."
