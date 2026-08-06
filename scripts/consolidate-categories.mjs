@@ -34,7 +34,9 @@ const REMAP = {
   "Food & Drink": "Dining",
   "Bills & Utilities": "Utilities",
   "Fees & Adjustments": "Fees",
-  "Loan principal": "Loan Payment",
+  // NOTE: "Loan principal" is NOT remapped — it's a deliberate category (the
+  // positive loan-account principal leg, review.ts NON_INCOME_CATEGORIES), not a
+  // SimpleFIN leak. Merging it into "Loan Payment" pollutes debt-service math.
   "Dividends": "Investments",
   "Dividend reinvestment": "Investments",
   "Gas": "Gas/Transport",
