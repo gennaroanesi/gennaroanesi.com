@@ -45,6 +45,23 @@ export function isExcludedFromPnl(category: string): boolean {
   return EXCLUDED_FROM_PNL.has(category);
 }
 
+/** All distinct categories referenced by the rule table, sorted. */
+export const ALL_CATEGORIES: string[] = [
+  ...new Set(CATEGORY_RULES.map((r) => r.category)),
+].sort();
+
+/**
+ * Categories an LLM fallback classifier may assign from a description alone.
+ * Excludes the structural buckets (Transfers, Credit Card Payment, Loan
+ * Payment, Investments) — those are determined by transaction TYPE, not
+ * merchant text, so letting the model pick them from a description invites
+ * misclassification. Shared by the simplefinSync Lambda and the
+ * reclassify-uncategorized backfill script so both offer the same choices.
+ */
+export const CLASSIFIABLE_CATEGORIES: string[] = ALL_CATEGORIES.filter(
+  (c) => !EXCLUDED_FROM_PNL.has(c),
+);
+
 type InferInput = {
   description?: string | null;
   type?: string | null;

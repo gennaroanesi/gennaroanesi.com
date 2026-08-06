@@ -37,6 +37,7 @@ import {
   type TxDraft,
   type DedupIndex,
 } from "./engine";
+import { classifyTransactionsLLM } from "./classify-llm";
 
 type DataClient = ReturnType<typeof generateClient<Schema>>;
 let _client: DataClient | null = null;
@@ -256,6 +257,28 @@ export const handler = async (event: Payload = {}) => {
   const fresh = drafts.filter((d) => !isDuplicate(d, dedupByAccount.get(d.accountId)));
   const dupCount = drafts.length - fresh.length;
   console.log(`[simplefinSync] ${fresh.length} new, ${dupCount} duplicate`);
+
+  // ── LLM fallback classification ────────────────────────────────────────────
+  // Rules already ran in sfTxToDraft; anything still null would land as
+  // "Uncategorized". Batch those (expenses only — INCOME defaults to "Income",
+  // trades/transfers are structural) into one Claude call and fill the category
+  // in place. Never blocks the sync: on any failure the rows stay uncategorized.
+  const toClassify = fresh.filter((d) => !d.category && d.type === "EXPENSE");
+  if (toClassify.length > 0) {
+    const cats = await classifyTransactionsLLM(
+      toClassify.map((d) => ({ description: d.description, amount: d.amount })),
+    );
+    let classified = 0;
+    cats.forEach((cat, i) => {
+      if (cat) {
+        toClassify[i].category = cat;
+        classified++;
+      }
+    });
+    console.log(
+      `[simplefinSync] LLM classified ${classified}/${toClassify.length} previously-uncategorized`,
+    );
+  }
 
   // ── Balance + holding diffs ────────────────────────────────────────────────
   const balanceTargetById = new Map<string, { target: number; derived: boolean }>();

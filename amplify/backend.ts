@@ -480,6 +480,21 @@ simplefinFn.addEnvironment(
   simplefinSecret.secretValueFromJson("accessUrl").unsafeUnwrap(),
 );
 
+// Anthropic key (reuses the gennaroanesi/transcribe secret, same as
+// invoiceProcessor/parsePaycheckPdf) powers the LLM fallback classifier in
+// classify-llm.ts — categorizes transactions the rule table missed. Optional:
+// if unset the classifier no-ops and rows stay uncategorized.
+const anthropicSecretForSimplefin = Secret.fromSecretNameV2(
+  backend.stack,
+  "SimplefinSyncAnthropicSecret",
+  "gennaroanesi/transcribe",
+);
+anthropicSecretForSimplefin.grantRead(simplefinFn);
+simplefinFn.addEnvironment(
+  "ANTHROPIC_API_KEY",
+  anthropicSecretForSimplefin.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+);
+
 // 3×/day at 09:00 / 17:00 / 00:00 UTC ≈ 4 AM / 12 PM / 7 PM America/Chicago
 // during CDT. We tolerate the 1-hour DST skew (like financeSnapshots) instead
 // of running timezone-aware schedules — the 14-day dedup window means an hour

@@ -22,7 +22,7 @@ import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
 import { TransactionPanel } from "@/components/finance/TransactionPanel";
-import { CATEGORY_RULES } from "@/components/finance/categories";
+import { CATEGORY_RULES, effectiveCategory, UNCATEGORIZED } from "@/components/finance/categories";
 
 const CATEGORY_LIST_ID = "tx-category-options";
 
@@ -133,6 +133,9 @@ export default function TransactionsPage() {
   const [filterAccountType, setFilterAccountType] = useState<string>("");
   const [filterStatus,      setFilterStatus]      = useState<string>("");
   const [filterType,        setFilterType]        = useState<string>("");
+  // Category filter: "" = all, or an exact effective-category (incl.
+  // "Uncategorized") to surface rows needing attention.
+  const [filterCategory,    setFilterCategory]    = useState<string>("");
   // Recurring-link filter: "" = all, "unlinked" = no rule, "linked" = any
   // rule, or a specific recurring rule id.
   const [filterRecurring, setFilterRecurring] = useState<string>("");
@@ -237,6 +240,7 @@ export default function TransactionsPage() {
       .filter((t) => !filterAccountType || accountTypeById.get(t.accountId ?? "") === filterAccountType)
       .filter((t) => !filterStatus      || t.status    === filterStatus)
       .filter((t) => !filterType        || t.type      === filterType)
+      .filter((t) => !filterCategory    || effectiveCategory(t) === filterCategory)
       .filter((t) => !filterFromDate    || (t.date ?? "") >= filterFromDate)
       .filter((t) => !filterToDate      || (t.date ?? "") <= filterToDate)
       .filter((t) => {
@@ -245,7 +249,7 @@ export default function TransactionsPage() {
         if (filterRecurring === "linked")   return !!t.recurringId;
         return t.recurringId === filterRecurring;
       }),
-    [transactions, filterAccount, filterAccountType, filterStatus, filterType, filterFromDate, filterToDate, filterRecurring, accountTypeById],
+    [transactions, filterAccount, filterAccountType, filterStatus, filterType, filterCategory, filterFromDate, filterToDate, filterRecurring, accountTypeById],
   );
 
   const accountById = useMemo(() => {
@@ -424,7 +428,7 @@ export default function TransactionsPage() {
 
   const hasActiveFilter =
     !!filterAccount || !!filterAccountType || !!filterStatus || !!filterType ||
-    !!filterRecurring || !!filterFromDate || !!filterToDate || !!txCtl.search.trim();
+    !!filterCategory || !!filterRecurring || !!filterFromDate || !!filterToDate || !!txCtl.search.trim();
 
   const deleteSelected = useCallback(async () => {
     if (selected.size === 0 || deletingBulk) return;
@@ -563,6 +567,14 @@ export default function TransactionsPage() {
               <option value="TRANSFER">Transfer</option>
               <option value="BUY">Buy</option>
               <option value="SELL">Sell</option>
+            </select>
+            <select className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300"
+              value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+              <option value="">All categories</option>
+              <option value={UNCATEGORIZED}>⚠ {UNCATEGORIZED}</option>
+              {categoryVocab.filter((c) => c !== UNCATEGORIZED).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
             <select className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-1 text-gray-600 dark:text-gray-300"
               value={filterRecurring} onChange={(e) => setFilterRecurring(e.target.value)}>
