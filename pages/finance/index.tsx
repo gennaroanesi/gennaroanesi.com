@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import FinanceLayout from "@/layouts/finance";
+import { WeeklyOutlook } from "@/components/finance/WeeklyOutlook";
 import {
   client,
   AccountRecord, TransactionRecord, RecurringRecord, GoalRecord,
@@ -883,6 +884,9 @@ export default function FinanceDashboard() {
               </div>
             </section>
           )}
+
+          {/* ── Weekly Cashflow Outlook (same engine as the Monday email) ── */}
+          <WeeklyOutlook accounts={accounts} recurrings={recurrings} />
 
           {/* ── Upcoming (next 30 days) ────────────────────── */}
           <section>
