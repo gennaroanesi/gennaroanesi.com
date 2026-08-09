@@ -41,9 +41,9 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   });
   if (res.transfers.length) { T.push(`\nINTERNAL TRANSFERS (own accounts — not income/bills)`); res.transfers.forEach((t) => T.push(`  ${t.date}  ${money(t.amount)}  ${t.description} — ${t.accountName}`)); }
   if (res.statementsDue.length) { T.push(`\nCARD STATEMENTS DUE`); res.statementsDue.forEach((s) => T.push(`  ${s.card}: ~${money(s.approxAmount)} due ${s.dueDate}${s.approxDate ? " (est.)" : ""}`)); }
-  T.push(`\nWHAT TO DO WITH LEFTOVER CASH (buffer ${money(res.buffer)})`);
+  T.push(`\nWHAT TO DO WITH LEFTOVER CASH`);
   if (res.actions.length) {
-    T.push(`  Surplus above buffer: ${money(res.surplus)}`);
+    T.push(`  Surplus by end of window (above account buffers): ${money(res.surplus)}`);
     res.actions.forEach((a) => T.push(`  • Pay ${money(a.amount)} on ${a.card}  (${a.reason})`));
   } else {
     T.push(`  No surplus to sweep this window${res.surplus <= 0 && res.moves.length ? " — cover the shortfall above first." : "."}`);
@@ -70,7 +70,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
   H.push(`</ul>`);
   H.push(h2("Checking outlook"));
   H.push(`<ul style="margin:0;padding-left:18px;list-style:none">`);
-  res.projections.forEach((p) => H.push(li(`${p.name}: ${money(p.start)} → <strong style="color:${p.minBalance < 0 ? "#b02a2a" : p.minBalance < res.buffer ? "#c47d00" : "#1a7f37"}">low ${money(p.minBalance)}</strong> on ${p.minDate} → ${money(p.end)} at horizon`)));
+  res.projections.forEach((p) => H.push(li(`${p.name}: ${money(p.start)} → <strong style="color:${p.minBalance < 0 ? "#b02a2a" : p.minBalance < p.buffer ? "#c47d00" : "#1a7f37"}">low ${money(p.minBalance)}</strong> on ${p.minDate} → ${money(p.end)} at horizon`)));
   H.push(`</ul>`);
   if (res.incomeEvents.length) { H.push(h2("Income")); H.push(`<ul style="margin:0;padding-left:18px">${res.incomeEvents.map((e) => li(`${e.date} &nbsp; <strong style="color:#1a7f37">+${money(e.amount).replace("−", "")}</strong> &nbsp; ${e.description}`)).join("")}</ul>`); }
   H.push(h2("Due in the next 2 weeks"));
@@ -96,7 +96,7 @@ export function buildEmail(res: CashflowResult, accounts: Account[]): { subject:
     H.push(h2("Card statements due"));
     H.push(`<ul style="margin:0;padding-left:18px">${res.statementsDue.map((s) => { const id = cardId(s.card); const nm = id ? `<a href="${acctUrl(id)}" style="color:#1e2d4a">${s.card}</a>` : s.card; return li(`${nm}: ~<strong>${money(s.approxAmount)}</strong> due ${s.dueDate}${s.approxDate ? ` <span style="color:#c47d00;font-size:11px">(est. — set a due day)</span>` : ""}`); }).join("")}</ul>`);
   }
-  H.push(h2(`What to do with leftover cash <span style="font-weight:400;color:#999;font-size:12px">(buffer ${money(res.buffer)})</span>`));
+  H.push(h2(`What to do with leftover cash`));
   if (res.actions.length) {
     H.push(`<div style="color:#666">Surplus above buffer: <strong>${money(res.surplus)}</strong></div>`);
     H.push(`<ul style="margin:6px 0 0;padding-left:18px">${res.actions.map((a) => { const id = cardId(a.card); const nm = id ? `<a href="${acctUrl(id)}" style="color:#1e2d4a">${a.card}</a>` : a.card; return li(`Pay <strong>${money(a.amount)}</strong> on ${nm} <span style="color:#999">(${a.reason})</span>`); }).join("")}</ul>`);

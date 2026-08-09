@@ -479,6 +479,11 @@ const schema = a.schema({
       notes: a.string(),
       active: a.boolean().default(true),
       favorite: a.boolean().default(false),   // starred on dashboard; unstarred accounts still accessible from /finance/accounts
+      // Required cash buffer for cashflow projections (CHECKING/CASH). The
+      // weekly outlook warns when the projected balance dips below this and
+      // only counts cash ABOVE it as surplus for card paydowns. null/0 = no
+      // buffer (most accounts don't need one — only your operating account).
+      minBalance: a.float(),
       creditLimit: a.float(), // CREDIT accounts only
       statementClosingDay: a.integer(), // CREDIT only: day-of-month (1-31) the statement closes
       statementDueDay: a.integer(),     // CREDIT only: day-of-month (1-31) the payment is due (usually ~3 weeks after close)

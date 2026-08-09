@@ -437,6 +437,7 @@ export default function AccountDetailPage() {
         statementDueDay:     isCredit  ? accDraft.statementDueDay ?? null : null,
         apr:                 isCredit  ? accDraft.apr                 ?? null : null,
         apy:                 isSavings ? accDraft.apy                 ?? null : null,
+        minBalance:          (accDraft.type === "CHECKING" || accDraft.type === "CASH") ? (accDraft.minBalance ?? null) : null,
         simplefinAccountId:  accDraft.simplefinAccountId ?? null,
         ...(balanceChanged ? { balanceUpdatedAt: nowIso } : {}),
       };
@@ -1188,6 +1189,17 @@ export default function AccountDetailPage() {
                           : "Direct override — use sparingly"}
                       </p>
                     </div>
+                    {((accDraft.type ?? "CHECKING") === "CHECKING" || accDraft.type === "CASH") && (
+                      <div>
+                        <label className={labelCls}>Required buffer</label>
+                        <input type="number" step="0.01" min={0} className={inputCls} placeholder="e.g. 750"
+                          value={accDraft.minBalance ?? ""}
+                          onChange={(e) => setAccDraft((d) => ({ ...d, minBalance: parseFloat(e.target.value) || null as any }))} />
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          Minimum cash to keep here. The weekly outlook warns when the projection dips below it and only sweeps surplus above it. Blank = no buffer.
+                        </p>
+                      </div>
+                    )}
                     {(accDraft.type ?? "CHECKING") === "CREDIT" && (
                       <>
                         <div>

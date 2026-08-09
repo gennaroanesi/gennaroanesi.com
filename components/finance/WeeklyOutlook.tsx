@@ -32,7 +32,7 @@ export function WeeklyOutlook({
       .filter((a) => a.active !== false)
       .map((a) => ({
         id: a.id, name: a.name, type: a.type as string, currentBalance: a.currentBalance ?? 0,
-        creditLimit: a.creditLimit, apr: a.apr,
+        creditLimit: a.creditLimit, apr: a.apr, minBalance: a.minBalance,
         statementClosingDay: a.statementClosingDay, statementDueDay: a.statementDueDay,
       }));
     const recs = recurrings.map((r) => ({
@@ -103,7 +103,7 @@ export function WeeklyOutlook({
             <div className="text-[11px] font-mono uppercase tracking-widest text-gray-400 mb-1">Projected balances</div>
             <div className="flex flex-col divide-y divide-gray-100 dark:divide-darkBorder">
               {res.projections.map((p) => {
-                const low = p.minBalance < BUFFER;
+                const low = p.minBalance < p.buffer || p.minBalance < 0;
                 return (
                   <div key={p.id} className="flex items-center justify-between py-1.5 text-sm">
                     <span className="text-gray-700 dark:text-gray-200 truncate mr-2">{p.name}</span>

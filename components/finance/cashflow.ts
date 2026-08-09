@@ -26,6 +26,7 @@ export interface Account {
   apr?: number | null;          // decimal, e.g. 0.2749
   statementClosingDay?: number | null;
   statementDueDay?: number | null;   // day-of-month the payment is due (preferred over closing+grace)
+  minBalance?: number | null;        // required cash buffer (CHECKING/CASH); null/0 = no buffer
 }
 
 export interface Recurring {
@@ -154,6 +155,7 @@ export interface CashflowResult {
   };
   projections: Array<{
     id: string; name: string; start: number; minBalance: number; minDate: string; end: number;
+    buffer: number;   // this account's required buffer (0 = none)
     dips: Array<{ date: string; balance: number; description: string }>;
   }>;
   surplus: number;
@@ -265,18 +267,24 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
       if (running < minBalance) { minBalance = running; minDate = e.date; }
       if (running < 0) dips.push({ date: e.date, balance: running, description: e.description });
     }
-    return { id: acc.id, name: acc.name, start: acc.currentBalance ?? 0, minBalance, minDate, end: running, dips };
+    // Per-account required buffer (0 = none). Only accounts the user flags with
+    // a minBalance get buffer warnings — most checking/cash accounts don't.
+    const acctBuffer = Math.max(0, acc.minBalance ?? 0);
+    return { id: acc.id, name: acc.name, start: acc.currentBalance ?? 0, minBalance, minDate, end: running, buffer: acctBuffer, dips };
   });
 
-  // Surplus above buffer, using the MINIMUM projected balance so we never sweep
-  // cash an upcoming bill will need.
-  const surplus = projections.reduce((s, p) => s + Math.max(0, p.minBalance - buffer), 0);
+  // Surplus available for card paydowns: cash you'll have ABOVE each account's
+  // buffer by the END of the window (after income lands). End-based, not the
+  // trough — the dip warnings below handle any mid-window shortfall separately,
+  // and cards are paid at their due date once the paycheck has arrived.
+  const surplus = projections.reduce((s, p) => s + Math.max(0, p.end - p.buffer), 0);
 
-  // Money-move suggestions when a checking account dips below the buffer / zero.
+  // Money-move suggestions when an account dips below its own buffer (or goes
+  // negative even with no buffer set).
   const moves: string[] = [];
   for (const p of projections) {
-    if (p.minBalance < buffer) {
-      const need = buffer - p.minBalance;
+    if (p.minBalance < p.buffer || p.minBalance < 0) {
+      const need = Math.max(p.buffer, 0) - p.minBalance;
       const label = p.minBalance < 0 ? "goes negative" : "dips below buffer";
       moves.push(
         `${p.name} ${label} to ${fmt(p.minBalance)} on ${p.minDate} — move ~${fmt(Math.ceil(need / 50) * 50)} in before then (e.g. from Schwab brokerage or savings).`,

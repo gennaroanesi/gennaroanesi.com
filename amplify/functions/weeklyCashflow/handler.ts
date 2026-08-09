@@ -64,7 +64,7 @@ export const handler = async (event: any = {}) => {
     .filter((a) => a.active !== false)
     .map((a) => ({
       id: a.id, name: a.name, type: a.type, currentBalance: a.currentBalance ?? 0,
-      creditLimit: a.creditLimit, apr: a.apr,
+      creditLimit: a.creditLimit, apr: a.apr, minBalance: a.minBalance,
       statementClosingDay: a.statementClosingDay, statementDueDay: a.statementDueDay,
     }));
   const recurrings: Recurring[] = recurringsRaw.map((r) => ({
