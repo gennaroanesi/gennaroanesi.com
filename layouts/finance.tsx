@@ -30,7 +30,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
       { key: "transactions", label: "Transactions", href: "/finance/transactions" },
       { key: "invoices",     label: "Invoices",     href: "/finance/invoices" },
-      { key: "recurring",    label: "Scheduled",    href: "/finance/recurring" },
+      { key: "scheduled",    label: "Scheduled",    href: "/finance/scheduled" },
       { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
     ],
   },
@@ -64,7 +64,7 @@ function activeKey(pathname: string): string {
   if (pathname.includes("groups"))       return "groups";
   if (pathname.includes("accounts"))     return "accounts";
   if (pathname.includes("transactions")) return "transactions";
-  if (pathname.includes("recurring"))    return "recurring";
+  if (pathname.includes("scheduled"))    return "scheduled";
   if (pathname.includes("tax-outlook"))  return "tax-outlook";
   if (pathname.includes("paychecks"))    return "paychecks";
   if (pathname.includes("goals"))        return "goals";
@@ -180,7 +180,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
           </p>
           <div className="px-2 flex flex-col gap-1">
             <NextLink
-              href="/finance/recurring?new=1"
+              href="/finance/scheduled?new=1"
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-gray-100 dark:hover:bg-white/5"
               style={{ color: FINANCE_COLOR }}
             >

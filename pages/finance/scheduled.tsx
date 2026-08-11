@@ -111,7 +111,7 @@ export default function RecurringPage() {
         nextDate,
         matchPattern: s(q.matchPattern),
       });
-      router.replace("/finance/recurring", undefined, { shallow: true });
+      router.replace("/finance/scheduled", undefined, { shallow: true });
     }
   }, [router.isReady, router.query.new]);
 

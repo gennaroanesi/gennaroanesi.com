@@ -13,6 +13,13 @@ const nextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      // The "Recurring" section became "Scheduled" (route renamed). Preserve old
+      // bookmarks / deep links (?new=1 &c.) — query string is carried through.
+      { source: "/finance/recurring", destination: "/finance/scheduled", permanent: true },
+    ];
+  },
 };
 
 module.exports = nextConfig;

@@ -771,7 +771,7 @@ export default function ReviewPage() {
             {recurring.items.length === 0 ? (
               <p className="text-sm text-gray-400 py-2">
                 No recurring rules.{" "}
-                <NextLink href="/finance/recurring" className="hover:underline" style={{ color: FINANCE_COLOR }}>Add some</NextLink>{" "}
+                <NextLink href="/finance/scheduled" className="hover:underline" style={{ color: FINANCE_COLOR }}>Add some</NextLink>{" "}
                 (mortgage, car, insurance…) so these stop landing in discretionary spending.
               </p>
             ) : (
@@ -825,7 +825,7 @@ export default function ReviewPage() {
                         <span className="text-sm font-medium" style={{ color: EXPENSE_COLOR }}>{fmtCurrency(s.medianAmount)}</span>
                         <NextLink
                           href={{
-                            pathname: "/finance/recurring",
+                            pathname: "/finance/scheduled",
                             query: {
                               new: "1",
                               description:  s.label,
