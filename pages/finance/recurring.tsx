@@ -269,7 +269,7 @@ export default function RecurringPage() {
   }
 
   async function handleDelete(rec: RecurringRecord) {
-    if (!confirm(`Delete recurring "${rec.description}"?`)) return;
+    if (!confirm(`Delete scheduled "${rec.description}"?`)) return;
     setSaving(true);
     try {
       await mutate(client.models.financeRecurring.delete({ id: rec.id }));
@@ -325,15 +325,20 @@ export default function RecurringPage() {
       // user-shifted late payment date carries forward) rather than
       // snapping back to startDate's original anchor.
       const cadence = rec.cadence as Cadence;
-      let advancedNext = rec.nextDate ?? rec.startDate ?? today;
-      while (advancedNext <= today) {
-        advancedNext = advanceByCadence(advancedNext, cadence);
+      const patch: Partial<RecurringRecord> = {};
+      if (cadence === "ONCE") {
+        // A one-time event has no next occurrence — posting it retires the rule.
+        patch.active = false;
+      } else {
+        let advancedNext = rec.nextDate ?? rec.startDate ?? today;
+        while (advancedNext <= today) {
+          advancedNext = advanceByCadence(advancedNext, cadence);
+        }
+        // If the new next occurrence passes the recurrence's end date, deactivate it.
+        const endedOut = rec.endDate != null && advancedNext > rec.endDate;
+        patch.nextDate = advancedNext;
+        if (endedOut) patch.active = false;
       }
-
-      // If the new next occurrence passes the recurrence's end date, deactivate it.
-      const endedOut = rec.endDate != null && advancedNext > rec.endDate;
-      const patch: Partial<RecurringRecord> = { nextDate: advancedNext };
-      if (endedOut) patch.active = false;
 
       await mutate(client.models.financeRecurring.update({ id: rec.id, ...patch }));
       setRecurrings((p) => p.map((r) => r.id === rec.id ? { ...r, ...patch } as RecurringRecord : r));
@@ -542,7 +547,7 @@ export default function RecurringPage() {
 
           <div className="flex items-center justify-between mb-4 gap-2">
             <div>
-              <PageTitle>Recurring</PageTitle>
+              <PageTitle>Scheduled</PageTitle>
               {active.length > 0 && (
                 <p className="text-xs text-gray-400 mt-0.5">
                   Monthly net: <span className="font-semibold tabular-nums" style={{ color: amountColor(monthlyNet) }}>{fmtCurrency(monthlyNet, "USD", true)}</span>
@@ -550,14 +555,14 @@ export default function RecurringPage() {
               )}
             </div>
             <PrimaryButton onClick={() => openNew()}>
-              + Add Recurring
+              + Add Scheduled
             </PrimaryButton>
           </div>
 
           {loading ? (
             <PageLoading />
           ) : recurrings.length === 0 ? (
-            <EmptyState label="recurring transactions" onAdd={openNew} />
+            <EmptyState label="scheduled transactions" onAdd={openNew} />
           ) : (
             <div className="flex flex-col gap-6">
               {/* Active — grouped by category, subtotal per group */}
@@ -638,7 +643,7 @@ export default function RecurringPage() {
         {/* ── Side panel — create/edit ─────────────────────────────── */}
         {panel && (panel.kind === "new" || panel.kind === "edit") && (
           <SlideOverPanel
-            title={panel.kind === "new" ? "New Recurring" : "Edit Recurring"}
+            title={panel.kind === "new" ? "New Scheduled" : "Edit Scheduled"}
             onClose={() => setPanel(null)}
           >
               <div>
@@ -813,7 +818,7 @@ export default function RecurringPage() {
 
               <SaveButton saving={saving} onSave={handleSave}
                 disabled={Object.keys(validateDraft(draft)).length > 0}
-                label={panel.kind === "new" ? "Create Recurring" : "Save"} />
+                label={panel.kind === "new" ? "Create Scheduled" : "Save"} />
               {panel.kind === "edit" && (
                 <DeleteButton saving={saving} onDelete={() => handleDelete(panel.rec)} />
               )}

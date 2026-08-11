@@ -91,7 +91,10 @@ export function parseLotConsumptions(tx: TransactionRecord): LotConsumption[] {
 export const TX_STATUSES = ["POSTED", "PENDING"] as const;
 export type  TxStatus    = (typeof TX_STATUSES)[number];
 
-export const CADENCES    = ["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"] as const;
+// "ONCE" is a first-class cadence for a one-time scheduled cash event (e.g. an
+// RSU vest, a one-off deposit). It fires exactly once at its nextDate and then
+// falls out of every window/projection — never rolls forward like the others.
+export const CADENCES    = ["ONCE", "WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"] as const;
 export type  Cadence     = (typeof CADENCES)[number];
 
 export const ASSET_TYPES = ["STOCK", "ETF", "MUTUAL_FUND", "CRYPTO", "BOND", "OTHER"] as const;
@@ -159,6 +162,7 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
 };
 
 export const CADENCE_LABELS: Record<Cadence, string> = {
+  ONCE:         "One-time",
   WEEKLY:       "Weekly",
   BIWEEKLY:     "Bi-weekly",
   MONTHLY:      "Monthly",

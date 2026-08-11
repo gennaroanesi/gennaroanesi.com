@@ -736,7 +736,7 @@ export default function FinanceDashboard() {
                             const rpad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
                             const isCohort  = proj.method === "cohort";
                             const isAmort   = proj.method === "amortization";
-                            const detLabel  = isCohort ? "+ Cycle drift" : "+ Recurring";
+                            const detLabel  = isCohort ? "+ Cycle drift" : "+ Scheduled";
                             const stoLabel  = isCohort ? "" : isAmort ? "" : "+ Trailing";
                             const detValue  = isCohort ? proj.stochastic : proj.deterministic;
                             const methodNote =

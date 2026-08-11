@@ -30,7 +30,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "accounts",     label: "Accounts",     href: "/finance/accounts" },
       { key: "transactions", label: "Transactions", href: "/finance/transactions" },
       { key: "invoices",     label: "Invoices",     href: "/finance/invoices" },
-      { key: "recurring",    label: "Recurring",    href: "/finance/recurring" },
+      { key: "recurring",    label: "Scheduled",    href: "/finance/recurring" },
       { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
     ],
   },
@@ -185,7 +185,7 @@ export default function FinanceLayout({ children }: { children: React.ReactNode 
               style={{ color: FINANCE_COLOR }}
             >
               <span className="text-base leading-none">+</span>
-              Recurring
+              Scheduled
             </NextLink>
             <NextLink
               href="/finance/goals?new=1"

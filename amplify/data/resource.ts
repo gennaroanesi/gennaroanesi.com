@@ -598,7 +598,9 @@ const schema = a.schema({
       toAccountId: a.id(),
       category: a.string(),
       description: a.string().required(),
-      cadence: a.enum(["WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"]),
+      // "ONCE" = a one-time scheduled cash event (e.g. an RSU vest) — fires once
+      // on nextDate, then drops out of every window/projection (never rolls forward).
+      cadence: a.enum(["ONCE", "WEEKLY", "BIWEEKLY", "MONTHLY", "QUARTERLY", "SEMIANNUALLY", "ANNUALLY"]),
       startDate: a.date().required(), // YYYY-MM-DD
       endDate: a.date(),   // YYYY-MM-DD; null = no end (default). Inclusive: last occurrence may land on endDate.
       nextDate: a.date(), // next expected occurrence

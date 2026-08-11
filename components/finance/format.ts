@@ -85,6 +85,7 @@ export function addDays(isoDate: string, n: number): string {
 
 /** Months to advance for each cadence (null = not month-based). */
 export const CADENCE_MONTH_STEP: Record<Cadence, number | null> = {
+  ONCE:         null,
   WEEKLY:       null,
   BIWEEKLY:     null,
   MONTHLY:      1,
@@ -95,6 +96,7 @@ export const CADENCE_MONTH_STEP: Record<Cadence, number | null> = {
 
 /** Approximate monthly-equivalent factor for aggregating recurring amounts. */
 export const CADENCE_MONTHLY_FACTOR: Record<Cadence, number> = {
+  ONCE:         0,      // one-time — no monthly-equivalent obligation
   WEEKLY:       4.33,
   BIWEEKLY:     2.17,
   MONTHLY:      1,
@@ -109,6 +111,8 @@ export const CADENCE_MONTHLY_FACTOR: Record<Cadence, number> = {
  * startDate) so day-of-month is preserved across months with fewer days.
  */
 export function nextOccurrence(nextDate: string, cadence: Cadence, anchorDate?: string): string {
+  // One-time events don't roll forward — their date is fixed (past or future).
+  if (cadence === "ONCE") return nextDate;
   const today = todayIso();
   let cur = nextDate;
   const monthStep = CADENCE_MONTH_STEP[cadence];
@@ -134,6 +138,9 @@ export function nextOccurrence(nextDate: string, cadence: Cadence, anchorDate?: 
  * preserving the anchor day for month-based cadences.
  */
 export function advanceByCadence(isoDate: string, cadence: Cadence, anchorDate?: string): string {
+  // One-time events have no next occurrence — return the same date so the
+  // `next <= cur` stall-guards in every expansion loop break after one emit.
+  if (cadence === "ONCE") return isoDate;
   const monthStep = CADENCE_MONTH_STEP[cadence];
   if (monthStep != null) {
     const anchorDay = anchorDate
@@ -156,6 +163,11 @@ export function advanceByCadence(isoDate: string, cadence: Cadence, anchorDate?:
 export function isRecurrenceLive(rec: RecurringRecord): boolean {
   if (rec.active === false) return false;
   if (rec.endDate && rec.endDate < todayIso()) return false;
+  // A one-time event whose date has already passed has fired — no longer live.
+  if (rec.cadence === "ONCE") {
+    const d = (rec.nextDate as string | null) ?? (rec.startDate as string | null);
+    if (d && d < todayIso()) return false;
+  }
   return true;
 }
 

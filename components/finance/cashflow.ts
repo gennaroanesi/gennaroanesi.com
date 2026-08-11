@@ -87,6 +87,13 @@ export function occurrencesInWindow(rec: Recurring, fromIso: string, toIso: stri
   if (rec.active === false) return [];
   const anchor = rec.nextDate || rec.startDate;
   if (!anchor) return [];
+  // One-time event: fires exactly once, at its anchor date, if that date falls
+  // inside the window. Never rolls forward, so a past one-off just yields [].
+  if (rec.cadence === "ONCE") {
+    if (anchor < fromIso || anchor > toIso) return [];
+    if (rec.endDate && anchor > rec.endDate) return [];
+    return [{ id: rec.id, date: anchor, amount: rec.amount, type: rec.type, description: rec.description, category: rec.category ?? null, accountId: rec.accountId ?? null, toAccountId: rec.toAccountId ?? null }];
+  }
   const anchorDay = parseInt(anchor.split("-")[2], 10);
   let cur = anchor;
   let guard = 0;
