@@ -184,6 +184,15 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
   const savings = accounts.filter((a) => a.type === "SAVINGS");
   const cards = accounts.filter((a) => a.type === "CREDIT");
 
+  // Spendable-cash accounts. This is a *checking-liquidity* briefing, so only
+  // income landing in liquid cash counts toward the Income/Net tiles — a
+  // brokerage RSU vest (which then pays cards, never touching checking) is a
+  // net-worth event, not cashflow, and would otherwise balloon "Net". It still
+  // shows in Upcoming + the net-worth projection, just not here.
+  const LIQUID_TYPES = new Set(["CHECKING", "SAVINGS", "CASH"]);
+  const isLiquid = (accountId?: string | null) =>
+    LIQUID_TYPES.has(acctById.get(accountId ?? "")?.type ?? "");
+
   // All recurring occurrences in the window.
   const occ = recurrings.flatMap((r) => occurrencesInWindow(r, today, horizonIso));
 
@@ -201,7 +210,7 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
   // make the *current* week a salary week.
   const weekEndIso = addDaysIso(today, 7);
   const incomeEvents = occ
-    .filter((o) => (o.amount > 0 || o.type === "INCOME") && !xferIds.has(o.id))
+    .filter((o) => (o.amount > 0 || o.type === "INCOME") && !xferIds.has(o.id) && isLiquid(o.accountId))
     .map((o) => ({ date: o.date, amount: o.amount, description: o.description }))
     .sort((a, b) => a.date.localeCompare(b.date));
   const isSalary = (desc: string) => /salary|paycheck|payroll|meta/i.test(desc);
