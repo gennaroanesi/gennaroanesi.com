@@ -797,6 +797,14 @@ export default function AccountDetailPage() {
                                           Manual
                                         </span>
                                       )}
+                                      {agg.priceSource === "reported" && (
+                                        <span
+                                          className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-blue-400/15 text-blue-600 dark:text-blue-400"
+                                          title="Price derived from SimpleFIN's reported market value (no live quote for this symbol) — updates on sync"
+                                        >
+                                          SimpleFIN
+                                        </span>
+                                      )}
                                     </div>
                                     <p className="text-[10px] text-gray-400">
                                       {agg.assetType ? ASSET_TYPE_LABELS[agg.assetType] : ""}

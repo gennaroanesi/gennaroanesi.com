@@ -90,6 +90,7 @@ export type TickerAggregate = {
   unvestedValue: number | null;       // unvested qty × price (null if no quote)
   unvestedLotsCount: number;
   lotQtyDrift:  number;               // holding.quantity − Σ(vested lot qty); 0 when in sync or no holding
+  priceSource:  "quote" | "reported" | "none";   // "reported" = derived from SimpleFIN marketValue (no live quote)
 };
 
 /**
@@ -98,6 +99,26 @@ export type TickerAggregate = {
  * Pass `holding = null` for tickers that only exist as lots (e.g. unvested RSUs,
  * or positions not yet backfilled).
  */
+/**
+ * Effective per-share price for a holding: the live quote when we have one, else
+ * a price DERIVED from SimpleFIN's reported market value (marketValueReported /
+ * quantity). The fallback rescues opaque symbols that have no tradeable quote —
+ * e.g. masked Fidelity 401k fund tickers like "O5L8" — so their value stops
+ * silently dropping to $0. `source` lets the UI badge a reported (non-live) price.
+ */
+export function effectiveUnitPrice(
+  holding: HoldingRecord | null | undefined,
+  quote: TickerQuoteRecord | null | undefined,
+): { price: number | null; source: "quote" | "reported" | "none"; asOf: string | null } {
+  if (quote?.price != null) return { price: quote.price, source: "quote", asOf: quote.fetchedAt ?? null };
+  const mv = holding?.marketValueReported;
+  const qty = holding?.quantity ?? 0;
+  if (mv != null && Math.abs(qty) > 1e-9) {
+    return { price: mv / qty, source: "reported", asOf: holding?.updatedAt ?? null };
+  }
+  return { price: null, source: "none", asOf: null };
+}
+
 export function tickerAggregate(
   ticker: string,
   holding: HoldingRecord | null,
@@ -132,8 +153,9 @@ export function tickerAggregate(
     : vestedLotCost;
 
   const quote = quotes.get(tickerUpper) ?? null;
-  const price = quote?.price ?? null;
-  const fetchedAt = quote?.fetchedAt ?? null;
+  // Live quote when available, else SimpleFIN's reported value ÷ shares.
+  const { price, source: priceSource, asOf } = effectiveUnitPrice(holding, quote);
+  const fetchedAt = asOf;
   const marketValue = price != null ? price * totalQty : null;
   const gainLoss = marketValue != null && totalCost != null ? marketValue - totalCost : null;
   const gainLossPct = gainLoss != null && totalCost != null && totalCost !== 0
@@ -166,6 +188,7 @@ export function tickerAggregate(
     unvestedValue,
     unvestedLotsCount: unvestedLots.length,
     lotQtyDrift,
+    priceSource,
   };
 }
 
@@ -191,10 +214,11 @@ export function uniqueTickers(
 /**
  * Total value of an account including holdings.
  * For non-invested accounts this is just `currentBalance`.
- * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(holding qty * quote price).
- * Holdings are vested/liquid by definition — unvested RSUs live in lots and are
- * excluded here; see `unvestedValueByHorizon` for forward-looking projections.
- * Holdings with no quote contribute 0 — UI should surface unpriced tickers.
+ * For brokerage/retirement accounts it's `currentBalance` (cash) + Σ(holding qty * price),
+ * where price is the live quote, or SimpleFIN's reported value ÷ shares when no
+ * quote exists (rescues opaque 401k fund symbols). Unvested RSUs live in lots and
+ * are excluded here; see `unvestedValueByHorizon` for forward-looking projections.
+ * A holding with neither a quote nor a reported value contributes 0.
  */
 export function accountTotalValue(
   acc: AccountRecord,
@@ -206,8 +230,9 @@ export function accountTotalValue(
   const myHoldings = holdings.filter((h) => h.accountId === acc.id);
   const holdingsValue = myHoldings.reduce((s, h) => {
     const q = quotes.get((h.ticker ?? "").toUpperCase());
-    if (!q?.price) return s;
-    return s + (h.quantity ?? 0) * q.price;
+    const { price } = effectiveUnitPrice(h, q);
+    if (price == null) return s;
+    return s + (h.quantity ?? 0) * price;
   }, 0);
   return cash + holdingsValue;
 }

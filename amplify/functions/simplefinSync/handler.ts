@@ -282,9 +282,15 @@ export const handler = async (event: Payload = {}) => {
 
   // ── Balance + holding diffs ────────────────────────────────────────────────
   const balanceTargetById = new Map<string, { target: number; derived: boolean }>();
+  // Accounts SimpleFIN actually returned this run — their balance is *confirmed
+  // fresh* even when the number didn't move (e.g. a retirement account whose cash
+  // is a steady $0 with all value in positions). Drives the freshness stamp so
+  // such accounts stop reading "never updated".
+  const seenInFeed = new Set<string>();
   for (const sfAcc of sfAccounts) {
     const finAcc = byId.get(sfAcc.id);
     if (!finAcc) continue;
+    seenInFeed.add(finAcc.id);
     const { target, derived } = deriveTargetBalance(finAcc, sfAcc);
     if (balanceNeedsUpdate(finAcc.currentBalance ?? 0, target)) {
       balanceTargetById.set(finAcc.id, { target, derived });
@@ -410,7 +416,11 @@ export const handler = async (event: Payload = {}) => {
       id: a.id,
       lastSimplefinSyncAt: nowIso,
       lastSimplefinSyncDetails: JSON.stringify(details),
-      ...(bal ? { currentBalance: bal.target, balanceUpdatedAt: nowIso } : {}),
+      ...(bal ? { currentBalance: bal.target } : {}),
+      // Stamp freshness whenever SimpleFIN confirmed the account this run, not
+      // only when the number changed — an unchanged $0-cash retirement account is
+      // still "as of now" fresh.
+      ...(seenInFeed.has(a.id) ? { balanceUpdatedAt: nowIso } : {}),
     });
     if (e?.length) {
       errors.push(`account stamp ${a.name}: ${e[0].message}`);
