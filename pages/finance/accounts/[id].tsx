@@ -343,6 +343,7 @@ export default function AccountDetailPage() {
   }
 
   function openEditLot(lot: HoldingLotRecord) {
+    if (!lot) return;   // guard: a no-lot holding row must never open an edit panel with no lot
     setLotDraft({ ...lot });
     setPanel({ kind: "edit-lot", lot });
   }
@@ -838,10 +839,19 @@ export default function AccountDetailPage() {
                               <td className="px-4 py-2 text-right">
                                 {!hasMultipleLots && (
                                   <button
-                                    onClick={(e) => { e.stopPropagation(); openEditLot(agg.lots[0]); }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (agg.lots[0]) { openEditLot(agg.lots[0]); return; }
+                                      // Holding synced with no manual lot rows (e.g. Fidelity via
+                                      // SimpleFIN): seed a new lot from the holding so cost basis /
+                                      // purchase date can be recorded. Holding qty stays authoritative,
+                                      // so this never double-counts the position.
+                                      setLotDraft({ ticker: agg.ticker, assetType: (agg.assetType ?? "STOCK") as any, quantity: agg.totalQty });
+                                      setPanel({ kind: "new-lot" });
+                                    }}
                                     className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
                                   >
-                                    Edit
+                                    {agg.lots[0] ? "Edit" : "Add lot"}
                                   </button>
                                 )}
                               </td>
@@ -1039,7 +1049,7 @@ export default function AccountDetailPage() {
               <>
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-darkBorder flex-shrink-0">
                   <h2 className="text-base font-semibold dark:text-rose text-purple">
-                    {panel.kind === "new-lot" ? "New Lot" : `Edit ${panel.lot.ticker}`}
+                    {panel.kind === "new-lot" ? "New Lot" : `Edit ${panel.lot?.ticker ?? ""}`}
                   </h2>
                   <button onClick={() => setPanel(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none ml-2">×</button>
                 </div>
