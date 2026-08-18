@@ -551,7 +551,12 @@ export default function FinanceDashboard() {
       }
     }
 
-    return entries.sort((a, b) => a.next.localeCompare(b.next));
+    // Within a day, order inflows before outflows so the running-balance column
+    // reflects same-day money-in being available for same-day money-out (a +$23k
+    // deposit and −$15k sweep on the same date net to +$8k, never dip to −$15k).
+    return entries.sort((a, b) =>
+      a.next.localeCompare(b.next) ||
+      (a.amount < 0 ? 1 : 0) - (b.amount < 0 ? 1 : 0));
   }, [recurrings, transactions, today, in30]);
 
   // Upcoming: income/expense totals (respect account filter)

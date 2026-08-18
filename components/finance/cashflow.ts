@@ -273,7 +273,13 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
           : o.amount;
         return { date: o.date, description: o.description, effAmount: eff };
       })
-      .sort((a, b) => a.date.localeCompare(b.date));
+      // Within a day, apply inflows before outflows. Same-day money-in is
+      // available for same-day money-out (you don't schedule a sweep before the
+      // deposit lands), so this avoids a phantom mid-day negative — e.g. +$23k
+      // bonus and −$15k sweep on 08-28 must net to +$8k, not dip to −$15k first.
+      .sort((a, b) =>
+        a.date.localeCompare(b.date) ||
+        (a.effAmount < 0 ? 1 : 0) - (b.effAmount < 0 ? 1 : 0));
     let running = acc.currentBalance ?? 0;
     let minBalance = running;
     let minDate = today;
