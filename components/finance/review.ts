@@ -159,7 +159,7 @@ export function summarizeIncome(
   for (const tx of txs) {
     if (!inRange(tx.date, range)) continue;
     const v = isSalaryDeposit(tx, acctById);
-    if (v == null) continue;
+    if (v == null) continue;                 // RSU is added by the page via sources.rsu
     total += v;
     deposits.push({
       id: tx.id,
@@ -519,6 +519,27 @@ export const DEBT_SERVICE_CATEGORIES = new Set<string>(["Loan Payment"]);
  */
 export const EMPLOYER_TICKERS = ["META"];
 
+/**
+ * Realized proceeds if `tx` is an employer-equity (RSU) share sale, else null.
+ * Detects by structured fields (type=SELL + ticker) OR the manual "sell N TICKER"
+ * description — so SimpleFIN-synced sells ("META PLATFORMS INC CLASS A", type SELL,
+ * ticker META) count as income, not just hand-entered ones. The vest never lands
+ * as a cash deposit, so the sale is where employer equity becomes income.
+ */
+export function employerSellProceeds(tx: TransactionRecord): number | null {
+  if (!isPosted(tx)) return null;
+  const amt = tx.amount ?? 0;
+  if (amt <= 0) return null;
+  const desc = tx.description ?? "";
+  const isSell = tx.type === "SELL" || /^sell\s+[\d.]+/i.test(desc);
+  if (!isSell) return null;
+  const tk = ((tx as any).ticker ?? "").toString().toUpperCase();
+  const isEmployer =
+    EMPLOYER_TICKERS.includes(tk) ||
+    EMPLOYER_TICKERS.some((t) => new RegExp(`\\b${t}\\b`, "i").test(desc));
+  return isEmployer ? amt : null;
+}
+
 export type IncomeSources = {
   salary: number;      // regular payroll
   bonus: number;       // outsized off-cycle payroll deposits
@@ -579,12 +600,13 @@ export function summarizeIncomeSources(
     if (amt <= 0) continue;
     const desc = tx.description ?? "";
 
-    // Employer share sales = RSU proceeds. Other tickers are rebalancing.
-    if (/^sell\s+[\d.]+/i.test(desc)) {
-      if (EMPLOYER_TICKERS.some((t) => new RegExp(`\\b${t}\\b`, "i").test(desc))) {
-        rsu += amt;
-        rsuLines.push(line(tx));
-      }
+    // Employer share sales = RSU proceeds (detected by SELL type + ticker or the
+    // manual "sell N TICKER" memo). Non-employer sells fall through to the
+    // BUY/SELL skip below (rebalancing, not income).
+    const rsuAmt = employerSellProceeds(tx);
+    if (rsuAmt != null) {
+      rsu += rsuAmt;
+      rsuLines.push(line(tx));
       continue;
     }
     // Structural inflows (card payments, transfers, trade cash legs) aren't income.
