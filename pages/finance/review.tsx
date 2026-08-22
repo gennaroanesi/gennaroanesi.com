@@ -651,7 +651,7 @@ export default function ReviewPage() {
                       lopsided period (one huge tax bill, a renovation) is
                       obvious from the chart without reading every row. */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-stretch">
-                    <div className="min-w-0 flex flex-col md:h-[420px]">
+                    <div className="min-w-0 flex flex-col h-[360px] md:h-[420px]">
                       <p className="text-xs text-gray-400 mb-2">{oneOffs.items.length} purchases</p>
                       {/* All rows rendered; the fixed-height column scrolls. */}
                       <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto pr-1">
@@ -669,7 +669,7 @@ export default function ReviewPage() {
                         ))}
                       </div>
                     </div>
-                    <div className="min-w-0 flex flex-col md:h-[420px]">
+                    <div className="min-w-0 flex flex-col h-[360px] md:h-[420px]">
                       <p className="text-xs text-gray-400 mb-2">By category</p>
                       <div className="flex-1 min-h-0 min-w-0">
                         <BreakdownBars

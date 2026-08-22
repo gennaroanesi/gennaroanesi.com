@@ -971,7 +971,7 @@ export default function FinanceDashboard() {
               </p>
             ) : (
               <>
-                <div className="flex gap-4 mb-3 text-sm">
+                <div className="flex flex-wrap gap-4 mb-3 text-sm">
                   <span>
                     <span className="text-gray-400 text-xs mr-1">Income</span>
                     <span className="font-semibold tabular-nums" style={{ color: POSITIVE }}>{fmtCurrency(upcomingIncome)}</span>
@@ -990,7 +990,7 @@ export default function FinanceDashboard() {
                     </span>
                   </span>
                 </div>
-                <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-x-auto">
                   <table className="w-full text-sm">
                     {upcomingAccFilter.length > 0 && (
                       <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
@@ -1306,7 +1306,7 @@ export default function FinanceDashboard() {
           ) : recentPosted.length > 0 && (
             <section>
               <h2 className="text-xs uppercase tracking-widest text-gray-400 font-medium mb-3">Recent Transactions</h2>
-              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+              <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-x-auto">
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {recentPosted.map((tx) => {

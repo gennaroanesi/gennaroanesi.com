@@ -740,7 +740,7 @@ export default function AccountDetailPage() {
               {aggregates.length === 0 ? (
                 <EmptyState label="holdings" onAdd={openNewLot} />
               ) : (
-                <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 dark:bg-darkElevated border-b border-gray-200 dark:border-darkBorder">
                       <tr>

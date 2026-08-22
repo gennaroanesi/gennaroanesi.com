@@ -621,7 +621,7 @@ export default function RecurringPage() {
               {inactive.length > 0 && (
                 <div>
                   <p className="text-xs uppercase tracking-widest text-gray-400 mb-2">Inactive · {inactive.length}</p>
-                  <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden opacity-60">
+                  <div className="rounded-lg border border-gray-200 dark:border-darkBorder overflow-x-auto opacity-60">
                     <table className="w-full text-sm">
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                         {inactive.map((rec) => (
