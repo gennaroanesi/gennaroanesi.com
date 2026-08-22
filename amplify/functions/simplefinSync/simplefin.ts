@@ -11,7 +11,7 @@
 
 export type SfTransaction = {
   id: string;
-  posted: string;              // YYYY-MM-DD (UTC) — effective/posted date
+  posted: string | null;       // YYYY-MM-DD (UTC) — posted date, else transacted_at; null if neither
   transactedAt: string | null;
   amount: number;              // signed; positive = credit
   description: string;
@@ -108,8 +108,10 @@ function pickNum(obj: any, ...keys: string[]): number | null {
 function normalizeAccount(a: any): SfAccount {
   const txs: SfTransaction[] = (a.transactions ?? []).map((t: any) => ({
     id: t.id,
-    posted: unixToIsoDate(t.posted),
-    transactedAt: t.transacted_at ? unixToIsoDate(t.transacted_at) : null,
+    // Prefer posted; fall back to transacted_at (pending rows often have only
+    // the latter). null only when SimpleFIN gives neither — those get skipped.
+    posted: unixToIsoDate(t.posted) ?? unixToIsoDate(t.transacted_at),
+    transactedAt: unixToIsoDate(t.transacted_at),
     amount: parseFloat(t.amount ?? "0"),
     description: (t.description ?? "").trim(),
     payee: (t.payee ?? "").trim(),
@@ -140,14 +142,19 @@ function normalizeAccount(a: any): SfAccount {
     currency: a.currency ?? "USD",
     balance: parseFloat(a.balance ?? "0"),
     availableBalance: a["available-balance"] != null ? parseFloat(a["available-balance"]) : null,
-    balanceDate: a["balance-date"] ? unixToIsoDate(a["balance-date"]) : "",
+    balanceDate: unixToIsoDate(a["balance-date"]) ?? "",
     transactions: txs,
     holdings,
   };
 }
 
-function unixToIsoDate(unixSec: string | number): string {
-  return new Date(Number(unixSec) * 1000).toISOString().slice(0, 10);
+function unixToIsoDate(unixSec: string | number | null | undefined): string | null {
+  if (unixSec == null || unixSec === "") return null;
+  const n = Number(unixSec);
+  // 0 / NaN / negative → no real date. Returning null (not the 1970 epoch) stops
+  // dateless pending rows from being materialized and re-duplicated every sync.
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(n * 1000).toISOString().slice(0, 10);
 }
 
 /** Mask an access URL for logging: replaces user:pass with u***:***. */

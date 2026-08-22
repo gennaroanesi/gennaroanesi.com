@@ -89,7 +89,11 @@ export function importHash(date: string, amount: number, description: string): s
 
 // ── Draft building ────────────────────────────────────────────────────────────
 
-export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount): TxDraft {
+export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount): TxDraft | null {
+  // No usable date (SimpleFIN gave neither posted nor transacted_at) → skip.
+  // Materializing it would store a 1970 epoch row the windowed dedup can never
+  // see, so every sync would re-create it (the "8 ghost rows" bug).
+  if (!sfTx.posted) return null;
   const invested = isInvested(finAccount.type);
   const trade = invested
     ? classifyTrade({ description: sfTx.description, payee: sfTx.payee, amount: sfTx.amount })

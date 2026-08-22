@@ -229,11 +229,17 @@ export const handler = async (event: Payload = {}) => {
 
   // ── Build + classify drafts ────────────────────────────────────────────────
   const drafts: TxDraft[] = [];
+  let skippedNoDate = 0;
   for (const sfAcc of sfAccounts) {
     const finAcc = byId.get(sfAcc.id);
     if (!finAcc) continue;
-    for (const t of sfAcc.transactions) drafts.push(sfTxToDraft(t, finAcc));
+    for (const t of sfAcc.transactions) {
+      const d = sfTxToDraft(t, finAcc);
+      if (d) drafts.push(d);
+      else skippedNoDate++;
+    }
   }
+  if (skippedNoDate > 0) console.log(`[simplefinSync] skipped ${skippedNoDate} tx with no usable date`);
   const pairs = markSelfTransfers(drafts);
   if (pairs > 0) console.log(`[simplefinSync] marked ${pairs} self-transfer pair(s)`);
 
