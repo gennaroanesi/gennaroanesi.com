@@ -790,7 +790,7 @@ export default function AccountDetailPage() {
                                       <p className="font-semibold text-gray-800 dark:text-gray-100">{agg.ticker}</p>
                                       {isManual && (
                                         <span
-                                          className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
+                                          className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
                                           style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
                                           title="Manually overridden price — refreshes skip this ticker"
                                         >
@@ -799,7 +799,7 @@ export default function AccountDetailPage() {
                                       )}
                                       {agg.priceSource === "reported" && (
                                         <span
-                                          className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-blue-400/15 text-blue-600 dark:text-blue-400"
+                                          className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-blue-400/15 text-blue-600 dark:text-blue-400"
                                           title="Price derived from SimpleFIN's reported market value (no live quote for this symbol) — updates on sync"
                                         >
                                           SimpleFIN
@@ -811,7 +811,7 @@ export default function AccountDetailPage() {
                                       {agg.lots.length > 1 && ` · ${agg.lots.length} lots`}
                                       {agg.unvestedLotsCount > 0 && (
                                         <span
-                                          className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-amber-400/15 text-amber-600 dark:text-amber-400"
+                                          className="ml-1.5 inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-400/15 text-amber-600 dark:text-amber-400"
                                           title={`${agg.unvestedQty.toLocaleString("en-US", { maximumFractionDigits: 4 })} shares unvested${agg.unvestedValue != null ? ` · ${fmtCurrency(agg.unvestedValue, cur)}` : ""}`}
                                         >
                                           +{agg.unvestedLotsCount} unvested
@@ -857,7 +857,7 @@ export default function AccountDetailPage() {
                                       setLotDraft({ ticker: agg.ticker, assetType: (agg.assetType ?? "STOCK") as any, quantity: agg.totalQty });
                                       setPanel({ kind: "new-lot" });
                                     }}
-                                    className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
+                                    className="text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
                                   >
                                     {agg.lots[0] ? "Edit" : "Add lot"}
                                   </button>

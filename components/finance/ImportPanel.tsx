@@ -752,7 +752,7 @@ export function ImportPanel(props: ImportPanelProps) {
                           </td>
                           <td className="px-2 py-1 whitespace-nowrap text-gray-500">{fmtDate(row.date)}</td>
                           <td className="px-2 py-1">
-                            <span className="inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide"
+                            <span className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide"
                               style={{ backgroundColor: SCHWAB_ACTION_COLOR[row.action] + "22", color: SCHWAB_ACTION_COLOR[row.action] }}>
                               {labelForSchwabAction(row.action)}
                             </span>

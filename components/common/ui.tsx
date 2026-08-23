@@ -114,7 +114,7 @@ export function SecondaryButton({ className = "", ...props }: React.ButtonHTMLAt
 // standard status chip (sm) and the tight inline tag used in dense lists (xs).
 const BADGE_SIZE = {
   sm: "px-2 py-0.5 text-[10px]",
-  xs: "px-1.5 py-0.5 text-[9px]",
+  xs: "px-1.5 py-0.5 text-[10px]",
 } as const;
 
 export function Badge({

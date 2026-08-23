@@ -204,8 +204,8 @@ export function TableControls({
 
       {totalPages > 1 && (
         <div className="flex items-center gap-1">
-          <button onClick={() => setPage(1)}            disabled={page === 1}          className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors" title="First page">«</button>
-          <button onClick={() => setPage(page - 1)}     disabled={page === 1}          className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors">‹</button>
+          <button onClick={() => setPage(1)}            disabled={page === 1}          className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors" title="First page">«</button>
+          <button onClick={() => setPage(page - 1)}     disabled={page === 1}          className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors">‹</button>
 
           {Array.from({ length: totalPages }, (_, i) => i + 1)
             .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
@@ -222,7 +222,7 @@ export function TableControls({
                   key={p}
                   onClick={() => setPage(p as number)}
                   className={[
-                    "w-6 h-6 rounded text-center transition-colors",
+                    "w-8 h-8 rounded text-center transition-colors",
                     p === page
                       ? "bg-purple text-rose dark:bg-rose dark:text-purple font-semibold"
                       : "hover:bg-gray-100 dark:hover:bg-white/10",
@@ -233,8 +233,8 @@ export function TableControls({
               )
             )}
 
-          <button onClick={() => setPage(page + 1)}     disabled={page === totalPages} className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors">›</button>
-          <button onClick={() => setPage(totalPages)}   disabled={page === totalPages} className="px-1.5 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors" title="Last page">»</button>
+          <button onClick={() => setPage(page + 1)}     disabled={page === totalPages} className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors">›</button>
+          <button onClick={() => setPage(totalPages)}   disabled={page === totalPages} className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-white/10 disabled:opacity-30 transition-colors" title="Last page">»</button>
         </div>
       )}
 

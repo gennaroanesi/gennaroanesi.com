@@ -458,7 +458,7 @@ export default function RecurringPage() {
             {matchCount > 0 && (
               <button
                 onClick={() => openMatch(r)}
-                className="text-[10px] px-2 py-0.5 rounded border transition-colors"
+                className="text-[10px] px-2 py-1 rounded border transition-colors"
                 style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR, backgroundColor: withAlpha(FINANCE_COLOR, 0x18) }}
                 title={`${matchCount} candidate transaction${matchCount === 1 ? "" : "s"} to link`}
               >
@@ -468,7 +468,7 @@ export default function RecurringPage() {
             <button
               onClick={() => handlePostNow(r)}
               disabled={saving}
-              className="text-[10px] px-2 py-0.5 rounded border transition-colors"
+              className="text-[10px] px-2 py-1 rounded border transition-colors"
               style={{ borderColor: withAlpha(FINANCE_COLOR, 0x88), color: FINANCE_COLOR }}
               title="Post one occurrence now"
             >
@@ -476,7 +476,7 @@ export default function RecurringPage() {
             </button>
             <button
               onClick={() => openEdit(r)}
-              className="text-[10px] px-2 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-[10px] px-2 py-1 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-600 transition-colors"
             >
               Edit
             </button>

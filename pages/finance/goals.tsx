@@ -334,7 +334,7 @@ export default function GoalsPage() {
                         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">{goal.name}</h3>
                         {isVolatile && (
                           <span
-                            className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
+                            className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full flex-shrink-0"
                             style={{ backgroundColor: withAlpha(WARNING, 0x22), color: WARNING }}
                             title="Funded by a brokerage or retirement account — allocation fluctuates with the market"
                           >

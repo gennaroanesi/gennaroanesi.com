@@ -532,7 +532,7 @@ function KeyboardHints() {
 function Hint({ k, children }: { k: string; children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[9px] font-mono">{k}</kbd>
+      <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-mono">{k}</kbd>
       <span>{children}</span>
     </span>
   );
