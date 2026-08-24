@@ -606,6 +606,7 @@ const schema = a.schema({
       nextDate: a.date(), // next expected occurrence
       active: a.boolean().default(true),
       goalId: a.id(), // optional tag → financeSavingsGoal.id
+      spendGroupId: a.id(), // optional tag → financeSpendGroup.id (trip/project) — lets a scheduled event count toward a group's projected spend, and propagates to the posted transaction
       // Optional user-provided substring or /regex/ to match this rule against
       // noisy bank descriptions. When set, the matcher gives a large bonus on
       // hit and treats miss as a disqualifier (see scoreTransactionAgainstRecurring).

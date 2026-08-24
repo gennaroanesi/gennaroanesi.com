@@ -16,7 +16,7 @@ import {
   fetchTransactions,
   fetchTransactionsByRecurring,
   findMatchingTransactionsForRule, applyRecurringMatch,
-  type Cadence,
+  type Cadence, type SpendGroupRecord,
 } from "@/components/finance/_shared";
 import { withAlpha } from "@/lib/colors";
 import {
@@ -44,6 +44,7 @@ export default function RecurringPage() {
 
   const [accounts,   setAccounts]   = useState<AccountRecord[]>([]);
   const [recurrings, setRecurrings] = useState<RecurringRecord[]>([]);
+  const [spendGroups, setSpendGroups] = useState<SpendGroupRecord[]>([]);
   const [recentTxs,  setRecentTxs]  = useState<TransactionRecord[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
@@ -67,14 +68,16 @@ export default function RecurringPage() {
       // bulk-audit tool.
       const sinceIso = new Date(Date.now() - 180 * 24 * 3600 * 1000)
         .toISOString().slice(0, 10);
-      const [accs, recs, txs] = await Promise.all([
+      const [accs, recs, txs, groups] = await Promise.all([
         listAll(client.models.financeAccount),
         listAll(client.models.financeRecurring),
         fetchTransactions({ from: sinceIso }),
+        listAll(client.models.financeSpendGroup),
       ]);
       setAccounts(accs);
       setRecurrings(recs);
       setRecentTxs(txs);
+      setSpendGroups(groups as SpendGroupRecord[]);
     } finally {
       setLoading(false);
     }
@@ -238,6 +241,7 @@ export default function RecurringPage() {
           nextDate:     draftToSave.nextDate ?? draftToSave.startDate ?? todayIso(),
           active:       draftToSave.active ?? true,
           goalId:       draftToSave.goalId ?? null,
+          spendGroupId: draftToSave.spendGroupId ?? null,
           matchPattern: draftToSave.matchPattern?.trim() || null,
         }));
         if (newRec) setRecurrings((p) => [...p, newRec]);
@@ -256,6 +260,7 @@ export default function RecurringPage() {
           nextDate:     draftToSave.nextDate ?? draftToSave.startDate ?? todayIso(),
           active:       draftToSave.active ?? true,
           goalId:       draftToSave.goalId ?? null,
+          spendGroupId: draftToSave.spendGroupId ?? null,
           matchPattern: draftToSave.matchPattern?.trim() || null,
         }));
         setRecurrings((p) => p.map((r) => r.id === panel.rec.id ? { ...r, ...draftToSave } as RecurringRecord : r));
@@ -301,6 +306,7 @@ export default function RecurringPage() {
         date:        today,
         status:      "POSTED" as any,
         goalId:      rec.goalId ?? null,
+        spendGroupId: rec.spendGroupId ?? null,   // carry the trip/project tag onto the posted tx
         toAccountId: isTransfer ? (rec.toAccountId ?? null) : null,
         importHash:  null,
       }));
@@ -741,6 +747,17 @@ export default function RecurringPage() {
                   {categoryOptions.map((c) => <option key={c} value={c} />)}
                 </datalist>
               </div>
+              {spendGroups.length > 0 && (
+                <div>
+                  <label className={labelCls}>Spend group</label>
+                  <select className={inputCls} value={draft.spendGroupId ?? ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, spendGroupId: e.target.value || null }))}>
+                    <option value="">None</option>
+                    {spendGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Tag this to a trip/project so it counts toward that group&apos;s projected spend.</p>
+                </div>
+              )}
               <div>
                 <label className={labelCls}>Match pattern</label>
                 <input

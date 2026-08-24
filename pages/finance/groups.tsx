@@ -19,6 +19,8 @@ import {
   type TransactionRecord,
   type AccountRecord,
   type SpendGroupRecord,
+  type RecurringRecord,
+  isRecurrenceLive,
 } from "@/components/finance/_shared";
 import { NEGATIVE, withAlpha } from "@/lib/colors";
 import { effectiveCategory } from "@/components/finance/categories";
@@ -42,6 +44,7 @@ function outflowAmount(tx: TransactionRecord): number | null {
 type GroupStats = {
   actual: number;
   count: number;
+  scheduled: number;   // outflow from LIVE tagged scheduled events (upcoming, not yet posted)
   byCategory: { category: string; amount: number }[];
 };
 
@@ -50,6 +53,7 @@ export default function SpendGroupsPage() {
 
   const [groups, setGroups] = useState<SpendGroupRecord[]>([]);
   const [txs, setTxs] = useState<TransactionRecord[]>([]);
+  const [recurrings, setRecurrings] = useState<RecurringRecord[]>([]);
   const [accounts, setAccounts] = useState<AccountRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,14 +64,16 @@ export default function SpendGroupsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [gs, ts, accs] = await Promise.all([
+      const [gs, ts, accs, recs] = await Promise.all([
         listAll(client.models.financeSpendGroup as any),
         fetchTransactions(),
         listAll(client.models.financeAccount),
+        listAll(client.models.financeRecurring),
       ]);
       setGroups(gs as SpendGroupRecord[]);
       setTxs(ts as TransactionRecord[]);
       setAccounts(accs as AccountRecord[]);
+      setRecurrings(recs as RecurringRecord[]);
     } finally {
       setLoading(false);
     }
@@ -81,7 +87,7 @@ export default function SpendGroupsPage() {
   const statsByGroup = useMemo(() => {
     const m = new Map<string, GroupStats>();
     const cat = new Map<string, Map<string, number>>();
-    for (const g of groups) { m.set(g.id, { actual: 0, count: 0, byCategory: [] }); cat.set(g.id, new Map()); }
+    for (const g of groups) { m.set(g.id, { actual: 0, count: 0, scheduled: 0, byCategory: [] }); cat.set(g.id, new Map()); }
     for (const tx of txs) {
       const gid = (tx as any).spendGroupId as string | null | undefined;
       if (!gid || !m.has(gid)) continue;
@@ -93,12 +99,21 @@ export default function SpendGroupsPage() {
       const c = effectiveCategory(tx);
       cm.set(c, (cm.get(c) ?? 0) + v);
     }
+    // Scheduled (upcoming) outflow from tagged recurring events. Only LIVE rules
+    // — a fired ONCE event goes not-live and its posted tx lands in `actual`, so
+    // the two never double-count. Outflows only (income refunds aren't spend).
+    for (const r of recurrings) {
+      const gid = (r as any).spendGroupId as string | null | undefined;
+      if (!gid || !m.has(gid) || !isRecurrenceLive(r)) continue;
+      const amt = r.amount ?? 0;
+      if (r.type === "EXPENSE" || amt < 0) m.get(gid)!.scheduled += Math.abs(amt);
+    }
     for (const g of groups) {
       const cm = cat.get(g.id)!;
       m.get(g.id)!.byCategory = [...cm.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
     }
     return m;
-  }, [groups, txs]);
+  }, [groups, txs, recurrings]);
 
   function openNew() { setDraft({ kind: "TRIP" }); setPanel({ kind: "new" }); }
   function openEdit(g: SpendGroupRecord) { setDraft({ ...g }); setPanel({ kind: "edit", group: g }); }
@@ -208,11 +223,12 @@ export default function SpendGroupsPage() {
           {!loading && sortedGroups.length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-4">
               {sortedGroups.map((g) => {
-                const s = statsByGroup.get(g.id) ?? { actual: 0, count: 0, byCategory: [] };
+                const s = statsByGroup.get(g.id) ?? { actual: 0, count: 0, scheduled: 0, byCategory: [] };
+                const projected = s.actual + s.scheduled;   // spent + upcoming scheduled
                 const hasBudget = g.budget != null && g.budget > 0;
-                const pct = hasBudget ? Math.min(100, (s.actual / (g.budget as number)) * 100) : 0;
-                const over = hasBudget && s.actual > (g.budget as number);
-                const remaining = hasBudget ? (g.budget as number) - s.actual : 0;
+                const pct = hasBudget ? Math.min(100, (projected / (g.budget as number)) * 100) : 0;
+                const over = hasBudget && projected > (g.budget as number);
+                const remaining = hasBudget ? (g.budget as number) - projected : 0;
                 const maxCat = Math.max(1, ...s.byCategory.map((c) => c.amount));
                 return (
                   <Card key={g.id}>
@@ -241,6 +257,11 @@ export default function SpendGroupsPage() {
                           </span>
                         )}
                       </div>
+                      {s.scheduled > 0 && (
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {fmtCurrency(s.actual)} spent · <span style={{ color: FINANCE_COLOR }}>+{fmtCurrency(s.scheduled)} scheduled</span> = {fmtCurrency(projected)} projected
+                        </p>
+                      )}
                       {hasBudget && (
                         <div className="h-1.5 rounded-full bg-gray-100 dark:bg-white/10 mt-1.5 overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: over ? NEGATIVE : FINANCE_COLOR }} />
