@@ -9,9 +9,11 @@ import {
   FINANCE_COLOR,
   fmtCurrency, todayIso, amountColor,
   listAll,
+  inputCls,
   PAYCHECK_PERSON_LABELS,
   type PaycheckRecord, type PaycheckPerson,
 } from "@/components/finance/_shared";
+import { POSITIVE, WARNING, withAlpha } from "@/lib/colors";
 import {
   type FilingStatus,
   projectFromPaychecks, taxOwedFederal, taxGap, isPaycheckStale,
@@ -29,6 +31,7 @@ const SETTINGS_LOCAL_KEY    = "finance:paycheck-settings:v1";
 type PaycheckSettings = {
   filingStatus:   FilingStatus;
   rsuVestCadence: { ME?: RsuVestCadence; SPOUSE?: RsuVestCadence };
+  priorYearTax?:  number;   // last year's TOTAL federal tax — enables the 110%-of-prior-year safe-harbor test
 };
 
 const DEFAULT_SETTINGS: PaycheckSettings = {
@@ -549,6 +552,60 @@ export default function TaxOutlookPage() {
             <p className="text-[10px] text-gray-400 mt-2">
               MFJ brackets are progressive on combined wages — typically lower total tax than two single-filer projections summed.
             </p>
+
+            {/* Safe harbor — underpayment-penalty check */}
+            {(() => {
+              const tax = combined.taxOwed;
+              const wh  = combined.fedWh;
+              const owed = tax - wh;                                   // + = balance due
+              const t90 = 0.9 * tax;                                   // 90% of THIS year's tax
+              const prior = settings.priorYearTax && settings.priorYearTax > 0 ? settings.priorYearTax : null;
+              const t110 = prior != null ? 1.1 * prior : null;        // 110% of LAST year's tax
+              // Safe harbor = withholding clears the SMALLER of the two thresholds,
+              // or the balance owed is under the $1,000 de-minimis.
+              const floor = t110 != null ? Math.min(t90, t110) : t90;
+              const safe = wh >= floor - 0.5 || owed < 1000;
+              const shortfall = Math.max(0, floor - wh);
+              const binding = t110 != null && t110 < t90 ? "110% of last year's tax" : "90% of this year's tax";
+              const cushion = Math.max(0, tax - floor);               // penalty-free "owe" room
+              return (
+                <Card title="Safe harbor" subtitle="will you owe an underpayment penalty?" className="mt-3">
+                  <div className="rounded-lg border p-3 mb-2"
+                    style={{ borderColor: withAlpha(safe ? POSITIVE : WARNING, 0x55), backgroundColor: withAlpha(safe ? POSITIVE : WARNING, 0x14) }}>
+                    <div className="text-sm font-semibold mb-1" style={{ color: safe ? POSITIVE : WARNING }}>
+                      {safe ? "✓ On track — no penalty" : "⚠ Withholding short"}
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      {safe
+                        ? `Withholding (${fmtCurrency(wh)}) clears the safe-harbor floor of ${fmtCurrency(floor)} (${binding}). You can owe up to ${fmtCurrency(cushion)} at filing penalty-free — you're ${owed > 0 ? `at ${fmtCurrency(owed)}` : "getting a refund"}.`
+                        : `Withhold ~${fmtCurrency(shortfall)} more before year-end to clear the ${fmtCurrency(floor)} floor (${binding}) and avoid a penalty. Easiest lever: extra withholding on a Q4 RSU vest.`}
+                    </p>
+                  </div>
+                  <StatRow label="Safe-harbor floor" value={fmtCurrency(floor)} hint={`· ${binding}`} />
+                  <StatRow label="Projected withholding" value={fmtCurrency(wh)} color={safe ? POSITIVE : WARNING} />
+                  <div className="border-t border-gray-200 dark:border-darkBorder mt-1 pt-1.5">
+                    <StatRow label="90% of this year's tax" value={fmtCurrency(t90)} />
+                    {t110 != null
+                      ? <StatRow label="110% of last year's tax" value={fmtCurrency(t110)} />
+                      : null}
+                  </div>
+                  <div className="mt-2.5">
+                    <label className="text-xs text-gray-500 dark:text-gray-400">Last year's total federal tax</label>
+                    <input
+                      type="number" className={inputCls} placeholder="e.g. 273000"
+                      value={settings.priorYearTax ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value === "" ? undefined : parseFloat(e.target.value);
+                        setSettings((prev) => ({ ...prev, priorYearTax: Number.isFinite(v as number) ? (v as number) : undefined }));
+                      }}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Your prior-year return&apos;s <em>total tax</em> line (not the balance you paid). Enables the 110% backstop; leave blank to use only the 90% test.
+                    </p>
+                  </div>
+                </Card>
+              );
+            })()}
           </div>
         )}
       </div>
