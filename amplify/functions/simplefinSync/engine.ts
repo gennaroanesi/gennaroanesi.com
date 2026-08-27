@@ -5,7 +5,7 @@
  * script agree. Everything here is deterministic given its inputs; the handler
  * supplies the I/O (SimpleFIN fetch, model reads/writes).
  */
-import { inferCategory, INVESTMENT_CATEGORY } from "../../../components/finance/categories";
+import { inferCategory, INVESTMENT_CATEGORY, type CategoryRule } from "../../../components/finance/categories";
 import tickerMap from "../../../scripts/data/security_ticker_map.json";
 import type { SfAccount, SfTransaction } from "./simplefin";
 
@@ -89,7 +89,7 @@ export function importHash(date: string, amount: number, description: string): s
 
 // ── Draft building ────────────────────────────────────────────────────────────
 
-export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount): TxDraft | null {
+export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount, rules?: CategoryRule[]): TxDraft | null {
   // No usable date (SimpleFIN gave neither posted nor transacted_at) → skip.
   // Materializing it would store a 1970 epoch row the windowed dedup can never
   // see, so every sync would re-create it (the "8 ghost rows" bug).
@@ -114,7 +114,7 @@ export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount): TxDraf
     category = INVESTMENT_CATEGORY;
   } else {
     type = sfTx.amount >= 0 ? "INCOME" : "EXPENSE";
-    category = inferCategory({ type, description });
+    category = inferCategory({ type, description }, rules);
     // On investment accounts, never let an uncategorized row — or the generic
     // INCOME→"Income" fallback — pollute real income. Default to Investments so
     // brokerage cash movements drop out of the review's P&L.

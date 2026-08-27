@@ -38,6 +38,7 @@ import {
   type DedupIndex,
 } from "./engine";
 import { classifyTransactionsLLM } from "./classify-llm";
+import { rulesFromDbRows } from "../../../components/finance/categories";
 
 type DataClient = ReturnType<typeof generateClient<Schema>>;
 let _client: DataClient | null = null;
@@ -228,13 +229,19 @@ export const handler = async (event: Payload = {}) => {
   console.log(`[simplefinSync] pulled ${sfAccounts.length} account(s), ${txPulled} tx from SimpleFIN`);
 
   // ── Build + classify drafts ────────────────────────────────────────────────
+  // Load the editable classification rules from the DB (falls back to the
+  // bundled category-rules.json when the table is empty, via rulesFromDbRows).
+  const ruleRows = await listAll<any>(c.models.financeCategoryRule);
+  const rules = rulesFromDbRows(ruleRows);
+  console.log(`[simplefinSync] classifying with ${rules.length} rule(s) (${ruleRows.length} in DB)`);
+
   const drafts: TxDraft[] = [];
   let skippedNoDate = 0;
   for (const sfAcc of sfAccounts) {
     const finAcc = byId.get(sfAcc.id);
     if (!finAcc) continue;
     for (const t of sfAcc.transactions) {
-      const d = sfTxToDraft(t, finAcc);
+      const d = sfTxToDraft(t, finAcc, rules);
       if (d) drafts.push(d);
       else skippedNoDate++;
     }

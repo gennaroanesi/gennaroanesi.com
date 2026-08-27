@@ -22,6 +22,22 @@ export type CategoryRule = { pattern: string; category: string };
 /** Ordered inference rules (first match wins). */
 export const CATEGORY_RULES: CategoryRule[] = (rulesData.rules ?? []) as CategoryRule[];
 
+/**
+ * Normalize raw financeCategoryRule DB rows into the ordered, active-only list
+ * inferCategory expects (first-match-wins by sortOrder asc). Used by both the
+ * client and the sync Lambda; falls back to the bundled CATEGORY_RULES when the
+ * table is empty so classification never silently stops working.
+ */
+export function rulesFromDbRows(
+  rows: Array<{ pattern?: string | null; category?: string | null; sortOrder?: number | null; active?: boolean | null }>,
+): CategoryRule[] {
+  const usable = rows.filter((r) => r.active !== false && r.pattern && r.category);
+  if (usable.length === 0) return CATEGORY_RULES;
+  return usable
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((r) => ({ pattern: r.pattern as string, category: r.category as string }));
+}
+
 /** Bucket used when nothing matches and the field is empty. */
 export const UNCATEGORIZED = "Uncategorized";
 
@@ -74,7 +90,7 @@ type InferInput = {
  * else is a case-insensitive substring. Mirrors matchesUserPattern in
  * _shared.tsx but kept local so this module stays dependency-free.
  */
-function patternMatches(pattern: string, text: string): boolean {
+export function patternMatches(pattern: string, text: string): boolean {
   const p = pattern.trim();
   if (!p) return false;
   const regexForm = p.match(/^\/(.+)\/([imsu]*)$/);
@@ -113,14 +129,14 @@ export function stripProcessorPrefix(description: string): string {
  * prefix-dependent rules working — `tst\*` is itself the signal that a row is a
  * Toast restaurant charge.
  */
-export function inferCategory(tx: InferInput): string | null {
+export function inferCategory(tx: InferInput, rules: CategoryRule[] = CATEGORY_RULES): string | null {
   if (tx.type === "TRANSFER") return "Transfers";
   if (tx.type === "BUY" || tx.type === "SELL") return INVESTMENT_CATEGORY;
 
   const desc = (tx.description ?? "").trim();
   if (desc) {
     const stripped = stripProcessorPrefix(desc);
-    for (const rule of CATEGORY_RULES) {
+    for (const rule of rules) {
       if (patternMatches(rule.pattern, desc)) return rule.category;
       if (stripped !== desc && patternMatches(rule.pattern, stripped)) return rule.category;
     }

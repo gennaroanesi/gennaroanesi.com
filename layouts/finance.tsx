@@ -31,6 +31,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: "transactions", label: "Transactions", href: "/finance/transactions" },
       { key: "invoices",     label: "Invoices",     href: "/finance/invoices" },
       { key: "scheduled",    label: "Scheduled",    href: "/finance/scheduled" },
+      { key: "rules",        label: "Rules",        href: "/finance/rules" },
       { key: "paychecks",    label: "Paychecks",    href: "/finance/paychecks" },
     ],
   },
@@ -65,6 +66,7 @@ function activeKey(pathname: string): string {
   if (pathname.includes("accounts"))     return "accounts";
   if (pathname.includes("transactions")) return "transactions";
   if (pathname.includes("scheduled"))    return "scheduled";
+  if (pathname.includes("rules"))        return "rules";
   if (pathname.includes("tax-outlook"))  return "tax-outlook";
   if (pathname.includes("paychecks"))    return "paychecks";
   if (pathname.includes("goals"))        return "goals";

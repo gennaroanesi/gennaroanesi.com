@@ -649,6 +649,22 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.group("admins")]),
 
+  // ── Category Rule ────────────────────────────────────────────
+  // Editable transaction-classification rules (the live version of
+  // components/finance/category-rules.json). First-match-wins by `sortOrder`
+  // asc — order matters. `pattern` is "/regex/flags" or a plain substring; it's
+  // tested against the description (and a processor-prefix-stripped variant).
+  // The bundled JSON is the seed/fallback when this table is empty.
+  financeCategoryRule: a
+    .model({
+      pattern:   a.string().required(),   // "/regex/i" or substring
+      category:  a.string().required(),
+      sortOrder: a.integer().required(),  // first-match-wins order (asc)
+      active:    a.boolean().default(true),
+      notes:     a.string(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
   // ── Goal Funding Source ─────────────────────────────────────
   // Many-to-many mapping: which accounts fund which goals, and in what priority
   // when an account funds multiple goals.

@@ -10,6 +10,7 @@
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
 import type { TransactionRecord } from "./finance-core";
+import { rulesFromDbRows, type CategoryRule } from "./categories";
 
 export const client = generateClient<Schema>();
 
@@ -243,6 +244,13 @@ export async function fetchInvoices(): Promise<InvoiceRecord[]> {
   // `as any` erases the deep typed-model generic (TS2589 guard, CLAUDE.md §4
   // pattern); the result is re-typed via the explicit listAll<T> parameter.
   return listAll<InvoiceRecord>(client.models.financeInvoice as any);
+}
+
+/** Live classification rules from the DB, ordered first-match-wins; falls back
+ *  to the bundled category-rules.json when the table is empty. */
+export async function fetchCategoryRules(): Promise<CategoryRule[]> {
+  const rows = await listAll<any>(client.models.financeCategoryRule as any);
+  return rulesFromDbRows(rows as any);
 }
 
 /** Invoice ↔ transaction links, optionally scoped by either FK.

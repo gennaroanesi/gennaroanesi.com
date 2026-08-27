@@ -11,11 +11,12 @@ import {
   isInvestedAccount,
   listAll,
   fetchTransactions,
+  fetchCategoryRules,
   findRecurringMatches, applyRecurringMatch,
   RECURRING_MATCH_AUTO_THRESHOLD,
 } from "@/components/finance/_shared";
 import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
-import { inferCategory } from "@/components/finance/categories";
+import { inferCategory, type CategoryRule } from "@/components/finance/categories";
 import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import { SlideOverPanel } from "@/components/common/ui";
 import {
@@ -79,6 +80,10 @@ export function ImportPanel(props: ImportPanelProps) {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [saving,            setSaving]            = useState(false);
+  // Live classification rules (DB, falls back to bundled JSON). Loaded once so
+  // manual imports classify with the same rules the sync uses.
+  const [catRules,          setCatRules]          = useState<CategoryRule[] | undefined>(undefined);
+  useEffect(() => { fetchCategoryRules().then(setCatRules).catch(() => {}); }, []);
   const [bankFormat,        setBankFormat]        = useState("");
   const [bankRows,          setBankRows]          = useState<BankPreviewRow[]>([]);
   const [schwabRows,        setSchwabRows]        = useState<SchwabPreviewRow[]>([]);
@@ -277,7 +282,7 @@ export function ImportPanel(props: ImportPanelProps) {
           accountId:   importAccountId,
           amount:      amt,
           type:        type as any,
-          category:    row.category || inferCategory({ description: row.description, type, amount: amt }) || null,
+          category:    row.category || inferCategory({ description: row.description, type, amount: amt }, catRules) || null,
           description: row.description,
           date:        row.date,
           status:      "POSTED" as any,
