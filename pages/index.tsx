@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FaVolumeUp, FaVolumeMute } from "react-icons/fa";
+import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/data";
 import type { Schema } from "@/amplify/data/resource";
+import outputs from "@/amplify_outputs.json";
 import DefaultLayout from "@/layouts/default";
+
+// Configure Amplify in this module's scope too. _app.tsx configures it for the
+// browser, but getStaticProps runs in a Node context where _app never executes;
+// without this the module-scope generateClient() below has no config at build
+// time. Idempotent, so the double-configure with _app on the client is harmless.
+Amplify.configure(outputs);
 
 // Hard-coded SLIDES are gone — content now comes from homeCategory +
 // homeMedia. The admin manages both via /admin/homepage.
@@ -28,15 +36,46 @@ const IMAGE_INTERVAL_MS = 5000;
 
 const client = generateClient<Schema>();
 
-export default function IndexPage() {
-  const [slides, setSlides] = useState<Slide[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<string>("");   // active category slug
+/**
+ * Build the ordered carousel slides from raw homeCategory + homeMedia rows.
+ * Pure + shared by getStaticProps (build time) and the client refresh so both
+ * produce identical output. Drops inactive/inbox media and empty categories.
+ */
+function buildSlides(cats: HomeCategory[], media: HomeMedia[]): Slide[] {
+  const activeCats = cats
+    .filter((c) => c.isActive !== false)
+    .slice()
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const activeMedia = media.filter((m) => m.isActive !== false && !!m.categorySlug);
+  return activeCats
+    .map((c) => {
+      const items = activeMedia
+        .filter((m) => m.categorySlug === c.slug)
+        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+        .map((m) => ({
+          id:      m.id,
+          type:    (m.kind === "VIDEO" ? "video" : "image") as Item["type"],
+          src:     `${MEDIA_URL_PREFIX}${m.s3Key}`,
+          caption: m.caption ?? "",
+        }));
+      return { key: c.slug ?? "", label: c.label ?? c.slug ?? "", items };
+    })
+    .filter((s) => s.items.length > 0);
+}
+
+export default function IndexPage({ initialSlides }: { initialSlides: Slide[] }) {
+  const [slides, setSlides] = useState<Slide[]>(initialSlides);
+  const [loading, setLoading] = useState(initialSlides.length === 0);
+  const [active, setActive] = useState<string>(initialSlides[0]?.key ?? "");   // active category slug
   const [itemIdx, setItemIdx] = useState(0);
   const [muted, setMuted] = useState(true);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
-  // ── Public load via apiKey ─────────────────────────────────────────────
+  // ── Background refresh via apiKey ───────────────────────────────────────
+  // The slides are already server-rendered via getStaticProps (ISR), so this
+  // is a silent revalidation on mount — it picks up admin edits made since the
+  // last ISR regeneration without a visible spinner. Preserves the current
+  // active tab so a refresh mid-view doesn't yank the user back to the first.
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -46,30 +85,11 @@ export default function IndexPage() {
           client.models.homeMedia.list({ authMode: "apiKey", limit: 1000 }),
         ]);
         if (cancelled) return;
-        const cats = (catsRes.data ?? [])
-          .filter((c) => c.isActive !== false)
-          .slice()
-          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-        // Drop inbox (null categorySlug) + inactive items before grouping.
-        const mediaArr = (mediaRes.data ?? []).filter(
-          (m) => m.isActive !== false && !!m.categorySlug,
-        );
-        const built: Slide[] = cats.map((c) => {
-          const items = mediaArr
-            .filter((m) => m.categorySlug === c.slug)
-            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-            .map((m) => ({
-              id:      m.id,
-              type:    m.kind === "VIDEO" ? "video" : "image" as Item["type"],
-              src:     `${MEDIA_URL_PREFIX}${m.s3Key}`,
-              caption: m.caption ?? "",
-            }));
-          return { key: c.slug ?? "", label: c.label ?? c.slug ?? "", items };
-        }).filter((s) => s.items.length > 0);
+        const built = buildSlides(catsRes.data ?? [], mediaRes.data ?? []);
         setSlides(built);
-        if (built.length > 0) setActive(built[0].key);
+        setActive((cur) => (built.some((s) => s.key === cur) ? cur : built[0]?.key ?? ""));
       } catch (err) {
-        console.warn("[home] load failed:", err);
+        console.warn("[home] refresh failed:", err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -300,4 +320,28 @@ export default function IndexPage() {
       </div>
     </DefaultLayout>
   );
+}
+
+/**
+ * Pre-render the carousel content into the served HTML so the hero paints
+ * immediately instead of waiting on a client-side GraphQL round-trip.
+ *
+ * ISR: the page regenerates at most once every `revalidate` seconds. Reads use
+ * the public apiKey from amplify_outputs.json — which the Amplify pipeline
+ * regenerates with prod values at deploy time (sandbox locally), so this is
+ * automatically environment-correct. On failure we still ship an empty page and
+ * let the client refresh recover, with a shorter revalidate to retry sooner.
+ */
+export async function getStaticProps() {
+  try {
+    const [catsRes, mediaRes] = await Promise.all([
+      client.models.homeCategory.list({ authMode: "apiKey", limit: 100 }),
+      client.models.homeMedia.list({ authMode: "apiKey", limit: 1000 }),
+    ]);
+    const initialSlides = buildSlides(catsRes.data ?? [], mediaRes.data ?? []);
+    return { props: { initialSlides }, revalidate: 300 };
+  } catch (err) {
+    console.warn("[home] getStaticProps load failed:", err);
+    return { props: { initialSlides: [] as Slide[] }, revalidate: 60 };
+  }
 }
