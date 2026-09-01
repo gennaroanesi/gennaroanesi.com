@@ -1,4 +1,5 @@
-@import url("https://use.typekit.net/jmz6tea.css");
+/* Typekit is loaded via a <link> in pages/_document.tsx (parallel, non-blocking)
+   rather than a CSS @import here, which serialized on the critical path. */
 
 @tailwind base;
 @tailwind components;

@@ -16,7 +16,8 @@ export const Head = () => {
         content="viewport-fit=cover, width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
         name="viewport"
       />
-      <link href="/favicon.png" rel="icon" />
+      {/* Favicons are declared once in pages/_document.tsx so they apply to
+          every page, not only those wrapped in DefaultLayout. */}
     </NextHead>
   );
 };
