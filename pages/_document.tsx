@@ -9,8 +9,8 @@ export default function Document() {
             including pages that don't use DefaultLayout. SVG is the crisp
             primary; the small PNGs are fallbacks (the old /favicon.png was
             4146×3586 and browsers refused to render it). */}
-        <link href="/icon_svg.svg" rel="icon" type="image/svg+xml" />
-        <link href="/favicon-32.png" rel="icon" type="image/png" sizes="64x55" />
+        <link href="/favicon.svg" rel="icon" type="image/svg+xml" />
+        <link href="/favicon-32.png" rel="icon" type="image/png" sizes="64x64" />
         <link href="/apple-touch-icon.png" rel="apple-touch-icon" />
         {/* Load Adobe Typekit via a parallel <link> instead of a CSS @import in
             globals.css. The @import forced a serial waterfall (fetch+parse

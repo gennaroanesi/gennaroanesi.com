@@ -198,7 +198,7 @@ export const Navbar = () => {
               className={
                 isHomePage
                   ? "h-8 w-8 fill-white drop-shadow"
-                  : "h-8 w-8 fill-purple dark:fill-rose"
+                  : "h-8 w-8 fill-purple dark:fill-white"
               }
               src={IconSvg.src}
               wrapper="svg"
