@@ -109,7 +109,10 @@ Return ONLY a JSON array of objects — no commentary, no markdown fences, no ex
   "ytdAfterTax401k":      number | null,
   "ytdNet":               number | null,
   "ytdBonusGross":        number | null,
-  "ytdRsuGross":          number | null
+  "ytdRsuGross":          number | null,
+  "w4FilingStatus":       "SINGLE" | "MFJ" | "MFS" | "HOH" | null,
+  "w4ExtraWithholding":   number | null,
+  "w4Dependents":         number | null
 }
 
 Field guidance (same rules as the single-stub extractor — apply per row):
@@ -121,6 +124,7 @@ Field guidance (same rules as the single-stub extractor — apply per row):
 - "bonusGross": explicit Bonus / Annual Bonus / Sign-on Bonus rows. Excluded from gross.
 - "contrib401k": EMPLOYEE pre-tax 401k. Do NOT include employer match.
 - "contribAfterTax401k": employee after-tax / mega-backdoor 401k.
+- "w4FilingStatus" / "w4ExtraWithholding" / "w4Dependents": the Federal column of the W-4 elections box (Marital Status / Total Dependent Amount / Additional Withholding). Status → SINGLE, MFJ (incl. qualifying widow(er)), MFS, HOH. These are elections, not deductions. 0 when the stub shows 0; null when the box is absent.
 - For YTD values, use the YTD column on the row when present.
 
 If the document contains multiple persons, each row gets the right person tag — don't aggregate across people.
@@ -233,6 +237,9 @@ function coerceRow(raw) {
     ytdNet:              pickNumber(raw.ytdNet),
     ytdBonusGross:       pickNumber(raw.ytdBonusGross),
     ytdRsuGross:         pickNumber(raw.ytdRsuGross),
+    w4FilingStatus:      ["SINGLE", "MFJ", "MFS", "HOH"].includes(raw.w4FilingStatus) ? raw.w4FilingStatus : null,
+    w4ExtraWithholding:  pickNumber(raw.w4ExtraWithholding),
+    w4Dependents:        pickNumber(raw.w4Dependents),
   };
   // Strip nulls for fields not in the schema's required set (cleaner mutation
   // payload — Amplify will accept nulls but they bloat the request).

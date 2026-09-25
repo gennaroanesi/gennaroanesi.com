@@ -28,6 +28,7 @@ import { weeklyCashflow } from "./functions/weeklyCashflow/resource";
 import { parsePaycheckPdf } from "./functions/parsePaycheckPdf/resource";
 import { simplefinSync } from "./functions/simplefinSync/resource";
 import { invoiceProcessor } from "./functions/invoiceProcessor/resource";
+import { paycheckProcessor } from "./functions/paycheckProcessor/resource";
 
 const backend = defineBackend({
   auth,
@@ -42,6 +43,7 @@ const backend = defineBackend({
   parsePaycheckPdf,
   simplefinSync,
   invoiceProcessor,
+  paycheckProcessor,
   //storage,
 });
 
@@ -400,6 +402,46 @@ invoiceFn.addToRolePolicy(
 
 // …and allow S3 to invoke the Lambda when an object lands in the prefix.
 invoiceFn.addPermission("S3InvokeInvoiceProcessor", {
+  principal: new ServicePrincipal("s3.amazonaws.com"),
+  action:    "lambda:InvokeFunction",
+  sourceArn: customBucket.bucketArn,
+});
+
+// ── paycheckProcessor infrastructure ─────────────────────────────────────────
+// Same S3-triggered shape as invoiceProcessor: SES writes raw email for
+// paychecks@gennaroanesi.com into private/paycheck-inbound/, the bucket
+// notification (scripts/setup-ses-inbound.sh) invokes this Lambda, which
+// stages PDFs under attachments/PAYCHECK/staging/ and writes
+// financePaycheckInbox rows via schema-level allow.resource(paycheckProcessor).
+
+const paycheckInboundFn = backend.paycheckProcessor.resources.lambda as LambdaFunction;
+const anthropicSecretForPaycheckInbound = Secret.fromSecretNameV2(
+  backend.stack,
+  "PaycheckProcessorAnthropicSecret",
+  "gennaroanesi/transcribe",
+);
+anthropicSecretForPaycheckInbound.grantRead(paycheckInboundFn);
+paycheckInboundFn.addEnvironment(
+  "ANTHROPIC_API_KEY",
+  anthropicSecretForPaycheckInbound.secretValueFromJson("anthropicApiKey").unsafeUnwrap(),
+);
+
+paycheckInboundFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:GetObject"],
+    resources: [`${customBucket.bucketArn}/private/paycheck-inbound/*`],
+  }),
+);
+paycheckInboundFn.addToRolePolicy(
+  new PolicyStatement({
+    effect:  Effect.ALLOW,
+    actions: ["s3:PutObject"],
+    resources: [`${customBucket.bucketArn}/attachments/PAYCHECK/staging/*`],
+  }),
+);
+
+paycheckInboundFn.addPermission("S3InvokePaycheckProcessor", {
   principal: new ServicePrincipal("s3.amazonaws.com"),
   action:    "lambda:InvokeFunction",
   sourceArn: customBucket.bucketArn,

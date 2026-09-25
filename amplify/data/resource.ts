@@ -7,6 +7,7 @@ import { weeklyCashflow } from "../functions/weeklyCashflow/resource";
 import { simplefinSync } from "../functions/simplefinSync/resource";
 import { parsePaycheckPdf } from "../functions/parsePaycheckPdf/resource";
 import { invoiceProcessor } from "../functions/invoiceProcessor/resource";
+import { paycheckProcessor } from "../functions/paycheckProcessor/resource";
 
 const schema = a.schema({
   // ── Inventory ────────────────────────────────────────────────────────────
@@ -1112,6 +1113,14 @@ const schema = a.schema({
       supplementalFedWh:    a.float(),  // this period
       ytdSupplementalFedWh: a.float(),  // running YTD
 
+      // W-4 elections in effect for this stub (the "Federal" box on Workday
+      // stubs). These are settings, not amounts deducted — the extra
+      // withholding is already inside `fedWh`; storing it separately lets
+      // us split formula WH from the voluntary top-up.
+      w4FilingStatus:       a.string(), // SINGLE | MFJ | MFS | HOH
+      w4ExtraWithholding:   a.float(),  // Step 4(c) per-period extra
+      w4Dependents:         a.float(),  // Step 3 total dependent amount ($)
+
       // Long-tail deductions / earnings the headline columns don't capture.
       // Shape: [{ name, amount, ytd?, type: PRETAX|POSTTAX|IMPUTED|EMPLOYER_PAID|EARNING|OTHER }]
       lineItems:            a.json(),
@@ -1121,6 +1130,34 @@ const schema = a.schema({
     .secondaryIndexes((index) => [
       index("person").sortKeys(["payDate"]),   // "all my paychecks in 2026" / "all spouse's"
     ])
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Paycheck inbox ───────────────────────────────────────────────────────
+  // Staging rows for paystubs forwarded to paychecks@gennaroanesi.com
+  // (SES → S3 → paycheckProcessor). Deliberately NOT financePaycheck rows:
+  // paychecks feed tax-outlook / planning / the agent, so unreviewed Claude
+  // output must never land there. The paychecks page lists NEEDS_REVIEW /
+  // ERROR rows; "Review" pre-fills the normal create form from `draft`, and
+  // saving flips this row to IMPORTED (kept, not deleted, so contentHash
+  // dedup still catches a re-forward of an already-imported stub).
+  financePaycheckInbox: a
+    .model({
+      // Raw extraction JSON (same shape parsePaycheckPdf returns). Null on ERROR.
+      draft:         a.json(),
+      // Staged PDF under attachments/PAYCHECK/staging/ — becomes the
+      // paycheck's attachment on import. Null only when the email had no PDF.
+      s3KeyPdf:      a.string(),
+      filename:      a.string(),
+      sizeBytes:     a.integer(),
+      s3KeyOriginal: a.string(),   // raw email as SES stored it
+      contentHash:   a.string(),   // sha256 of the PDF — dedup on re-forward
+      emailFrom:     a.string(),
+      emailSubject:  a.string(),
+      receivedAt:    a.datetime(),
+      status:        a.enum(["NEEDS_REVIEW", "ERROR", "IMPORTED", "DISMISSED"]),
+      parseError:    a.string(),
+      paycheckId:    a.id(),       // FK → financePaycheck.id once IMPORTED
+    })
     .authorization((allow) => [allow.group("admins")]),
 
   // ── Gennaro agent conversation log ───────────────────────────────────────
@@ -1358,6 +1395,7 @@ const schema = a.schema({
   allow.resource(weeklyCashflow),
   allow.resource(simplefinSync),
   allow.resource(invoiceProcessor),
+  allow.resource(paycheckProcessor),
 ]);
 
 export type Schema = ClientSchema<typeof schema>;

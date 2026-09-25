@@ -13,8 +13,9 @@ import {
   listAll,
   PAYCHECK_PERSONS, PAYCHECK_PERSON_LABELS,
   type PaycheckRecord, type AttachmentRecord, type PaycheckPerson, type PaycheckLineItem,
+  type PaycheckInboxRecord,
 } from "@/components/finance/_shared";
-import { withAlpha } from "@/lib/colors";
+import { withAlpha, WARNING } from "@/lib/colors";
 import {
   ColDef, DataTable, SearchInput, TableControls, useTableControls,
 } from "@/components/common/table";
@@ -33,6 +34,7 @@ const NUMERIC_FIELDS = [
   "ytdGross", "ytdTaxableWage", "ytdFedWh", "ytdOasdi", "ytdMedicare",
   "ytd401k", "ytdAfterTax401k", "ytdNet",
   "ytdBonusGross", "ytdRsuGross",
+  "w4ExtraWithholding", "w4Dependents",
 ] as const;
 type NumericField = (typeof NUMERIC_FIELDS)[number];
 
@@ -43,7 +45,18 @@ const NUMERIC_FIELD_GROUPS: Array<{ heading: string; fields: NumericField[] }> =
   { heading: "Contributions",   fields: ["contrib401k", "contribAfterTax401k", "hsa", "fsa"] },
   { heading: "Premiums",        fields: ["medical", "dental", "vision"] },
   { heading: "Year-to-date",    fields: ["ytdGross", "ytdTaxableWage", "ytdFedWh", "ytdOasdi", "ytdMedicare", "ytd401k", "ytdAfterTax401k", "ytdNet", "ytdBonusGross", "ytdRsuGross"] },
+  { heading: "W-4 elections",   fields: ["w4ExtraWithholding", "w4Dependents"] },
 ];
+
+// W-4 filing status as elected on the stub (not necessarily how the
+// household files — Workday lets each spouse pick independently).
+const W4_FILING_STATUSES = ["SINGLE", "MFJ", "MFS", "HOH"] as const;
+const W4_FILING_STATUS_LABELS: Record<(typeof W4_FILING_STATUSES)[number], string> = {
+  SINGLE: "Single",
+  MFJ:    "Married filing jointly",
+  MFS:    "Married filing separately",
+  HOH:    "Head of household",
+};
 
 const FIELD_LABELS: Record<NumericField, string> = {
   gross:               "Gross (cash)",
@@ -72,6 +85,8 @@ const FIELD_LABELS: Record<NumericField, string> = {
   ytdNet:              "YTD Net",
   ytdBonusGross:       "YTD Bonus",
   ytdRsuGross:         "YTD RSU",
+  w4ExtraWithholding:  "Extra WH / check",
+  w4Dependents:        "Dependents ($)",
 };
 
 type Draft = Partial<PaycheckRecord> & {
@@ -79,6 +94,8 @@ type Draft = Partial<PaycheckRecord> & {
   // Pending attachment from the upload flow — saved alongside the paycheck
   // row once the user confirms.
   pendingAttachment?: { s3Key: string; filename: string; contentType: string; sizeBytes: number } | null;
+  // Set when reviewing an emailed stub — saving flips that inbox row to IMPORTED.
+  inboxId?: string | null;
 };
 
 type PanelState =
@@ -91,6 +108,7 @@ export default function PaychecksPage() {
 
   const [paychecks,       setPaychecks]       = useState<PaycheckRecord[]>([]);
   const [attachmentsById, setAttachmentsById] = useState<Map<string, AttachmentRecord[]>>(new Map());
+  const [inbox,           setInbox]           = useState<PaycheckInboxRecord[]>([]);
   const [loading,         setLoading]         = useState(true);
   const [saving,          setSaving]          = useState(false);
   const [panel,           setPanel]           = useState<PanelState>(null);
@@ -116,6 +134,8 @@ export default function PaychecksPage() {
       // filter on attachments is fine.
       const rows = await listAll<PaycheckRecord>(client.models.financePaycheck as any);
       const atts = await listAll<AttachmentRecord>(client.models.attachment as any);
+      // Emailed stubs awaiting review (paychecks@ → paycheckProcessor).
+      const inboxRows = await listAll<PaycheckInboxRecord>(client.models.financePaycheckInbox as any);
       const byParent = new Map<string, AttachmentRecord[]>();
       for (const a of atts) {
         if (a.parentType !== "PAYCHECK") continue;
@@ -125,6 +145,11 @@ export default function PaychecksPage() {
       }
       setPaychecks(rows);
       setAttachmentsById(byParent);
+      setInbox(
+        inboxRows
+          .filter((r) => r.status === "NEEDS_REVIEW" || r.status === "ERROR")
+          .sort((a, b) => (b.receivedAt ?? "").localeCompare(a.receivedAt ?? "")),
+      );
     } finally {
       setLoading(false);
     }
@@ -185,6 +210,35 @@ export default function PaychecksPage() {
     setParseStatus("idle");
   }, []);
 
+  // ── Emailed-stub inbox ──────────────────────────────────────────────────
+  // Review opens the normal "new" panel pre-filled from the stored draft;
+  // the staged PDF rides along as pendingAttachment exactly like an upload.
+  const openInboxReview = useCallback((row: PaycheckInboxRecord) => {
+    const base = row.draft
+      ? draftFromExtraction(row.draft, "ME", row.s3KeyPdf ? {
+          s3Key:       row.s3KeyPdf,
+          filename:    row.filename ?? "paystub.pdf",
+          contentType: "application/pdf",
+          sizeBytes:   row.sizeBytes ?? 0,
+        } : null)
+      : { person: "ME" as any, payDate: todayIso(), lineItems: [] };
+    setDraft({ ...base, inboxId: row.id });
+    setParseError(row.status === "ERROR" ? (row.parseError ?? "Extraction failed — enter manually.") : null);
+    setParseStatus("idle");
+    setPanel({ kind: "new" });
+  }, []);
+
+  const dismissInbox = useCallback(async (row: PaycheckInboxRecord) => {
+    if (!confirm(`Dismiss "${row.filename ?? row.emailSubject ?? "emailed paystub"}"?`)) return;
+    try {
+      await mutate(client.models.financePaycheckInbox.update({ id: row.id, status: "DISMISSED" as any }));
+      setInbox((rows) => rows.filter((r) => r.id !== row.id));
+      if (draft.inboxId === row.id) closePanel();
+    } catch (err) {
+      reportError(err, "Dismiss");
+    }
+  }, [draft.inboxId, closePanel]);
+
   // ── Upload + parse flow ─────────────────────────────────────────────────
   // 1. Upload PDF to S3 under `attachments/PAYCHECK/staging/`.
   // 2. Call parsePaycheckPdf mutation with the s3Key.
@@ -241,40 +295,12 @@ export default function PaychecksPage() {
       // `a.json()` return field as a JSON string — parse it back into an
       // object before field access. Defensive: also accept the case where
       // a future schema/client change starts handing us an object directly.
-      const draftRaw: unknown = result.draft;
-      let raw: Record<string, unknown> = {};
-      if (typeof draftRaw === "string") {
-        try { raw = JSON.parse(draftRaw) as Record<string, unknown>; }
-        catch { raw = {}; }
-      } else if (draftRaw && typeof draftRaw === "object") {
-        raw = draftRaw as Record<string, unknown>;
-      }
-      // Honor the parser's detected person (matched off the employee name
-      // on the stub) over the user's pre-upload selection. The user can
-      // still edit it manually before saving. Falls back to the dropdown
-      // when the parser returns null.
-      const detectedPerson = stringField(raw, "person");
-      const resolvedPerson = (detectedPerson === "ME" || detectedPerson === "SPOUSE")
-        ? (detectedPerson as PaycheckPerson)
-        : personArg;
-      const next: Draft = {
-        person:      resolvedPerson as any,
-        payDate:     stringField(raw, "payDate") ?? todayIso(),
-        periodStart: stringField(raw, "periodStart"),
-        periodEnd:   stringField(raw, "periodEnd"),
-        lineItems:   coerceLineItems(raw["lineItems"]),
-        pendingAttachment: {
-          s3Key,
-          filename:    file.name,
-          contentType: "application/pdf",
-          sizeBytes:   file.size,
-        },
-      };
-      for (const f of NUMERIC_FIELDS) {
-        const v = numericField(raw, f);
-        if (v !== null) (next as any)[f] = v;
-      }
-      setDraft(next);
+      setDraft(draftFromExtraction(result.draft, personArg, {
+        s3Key,
+        filename:    file.name,
+        contentType: "application/pdf",
+        sizeBytes:   file.size,
+      }));
       setParseStatus("idle");
     } catch (err) {
       console.error("[paychecks] parse failed", err);
@@ -294,6 +320,7 @@ export default function PaychecksPage() {
     try {
       const payload: any = { ...draft };
       delete payload.pendingAttachment;
+      delete payload.inboxId;
       // Strip server-managed fields when editing
       delete payload.id;
       delete payload.createdAt;
@@ -328,6 +355,14 @@ export default function PaychecksPage() {
           filename:    draft.pendingAttachment.filename,
           contentType: draft.pendingAttachment.contentType,
           sizeBytes:   draft.pendingAttachment.sizeBytes,
+        }));
+      }
+
+      if (saved && draft.inboxId) {
+        await mutate(client.models.financePaycheckInbox.update({
+          id:         draft.inboxId,
+          status:     "IMPORTED" as any,
+          paycheckId: saved.id,
         }));
       }
 
@@ -395,7 +430,7 @@ export default function PaychecksPage() {
   // Open a paycheck PDF in a new tab via a short-lived signed URL. Same
   // pattern as components/common/AttachmentsSection.tsx — the bucket
   // requires Cognito auth, so direct S3 URLs don't work.
-  const openPdf = useCallback(async (att: AttachmentRecord) => {
+  const openPdf = useCallback(async (att: { s3Key?: string | null }) => {
     if (!att.s3Key) return;
     try {
       const { url } = await getUrl({
@@ -515,7 +550,7 @@ export default function PaychecksPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Paychecks</h1>
               <p className="text-xs text-gray-400 mt-0.5">
-                Drop a PDF — Claude extracts the fields, you review and save. Or enter manually.
+                Drop a PDF or forward it to paychecks@gennaroanesi.com — Claude extracts the fields, you review and save.
               </p>
             </div>
             <button
@@ -526,6 +561,16 @@ export default function PaychecksPage() {
               + Add paycheck
             </button>
           </div>
+
+          {inbox.length > 0 && (
+            <InboxSection
+              rows={inbox}
+              activeId={draft.inboxId ?? null}
+              onReview={openInboxReview}
+              onDismiss={dismissInbox}
+              onOpenPdf={openPdf}
+            />
+          )}
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap mb-4">
@@ -586,13 +631,34 @@ export default function PaychecksPage() {
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
-                  {panel.kind === "edit" ? "Edit paycheck" : "New paycheck"}
+                  {panel.kind === "edit" ? "Edit paycheck" : draft.inboxId ? "Review emailed paystub" : "New paycheck"}
                 </h2>
                 <button onClick={closePanel} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg">×</button>
               </div>
 
               {/* Upload PDF (only for new paychecks) */}
-              {panel.kind === "new" && (
+              {panel.kind === "new" && draft.inboxId && (
+                <div className="mb-4 rounded-lg border border-dashed border-gray-300 dark:border-darkBorder p-3">
+                  <p className="text-[11px] uppercase tracking-widest text-gray-400 font-medium mb-1">From email</p>
+                  {draft.pendingAttachment ? (
+                    <button
+                      onClick={() => void openPdf({ s3Key: draft.pendingAttachment?.s3Key })}
+                      className="text-xs hover:underline truncate max-w-full text-left"
+                      style={{ color: FINANCE_COLOR }}
+                      title={draft.pendingAttachment.filename}
+                    >
+                      📎 {draft.pendingAttachment.filename}
+                    </button>
+                  ) : (
+                    <p className="text-xs text-gray-400">No PDF attached</p>
+                  )}
+                  {parseError && (
+                    <p className="text-[10px] text-red-500 mt-2">{parseError}</p>
+                  )}
+                </div>
+              )}
+
+              {panel.kind === "new" && !draft.inboxId && (
                 <div className="mb-4 rounded-lg border border-dashed border-gray-300 dark:border-darkBorder p-3">
                   <p className="text-[11px] uppercase tracking-widest text-gray-400 font-medium mb-2">Upload PDF</p>
                   <input
@@ -671,6 +737,21 @@ export default function PaychecksPage() {
                 <div key={g.heading} className="mb-3">
                   <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium mb-2">{g.heading}</p>
                   <div className="grid grid-cols-2 gap-3">
+                    {g.heading === "W-4 elections" && (
+                      <div className="col-span-2">
+                        <label className={labelCls}>Filing status</label>
+                        <select
+                          value={draft.w4FilingStatus ?? ""}
+                          onChange={(e) => setDraft((d) => ({ ...d, w4FilingStatus: e.target.value || null }))}
+                          className={inputCls}
+                        >
+                          <option value="">—</option>
+                          {W4_FILING_STATUSES.map((s) => (
+                            <option key={s} value={s}>{W4_FILING_STATUS_LABELS[s]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     {g.fields.map((f) => (
                       <div key={f}>
                         <label className={labelCls}>{FIELD_LABELS[f]}</label>
@@ -726,6 +807,83 @@ export default function PaychecksPage() {
 }
 
 // ── Subcomponents ────────────────────────────────────────────────────────
+
+function InboxSection({
+  rows, activeId, onReview, onDismiss, onOpenPdf,
+}: {
+  rows: PaycheckInboxRecord[];
+  activeId: string | null;
+  onReview: (row: PaycheckInboxRecord) => void;
+  onDismiss: (row: PaycheckInboxRecord) => void;
+  onOpenPdf: (att: { s3Key?: string | null }) => void;
+}) {
+  return (
+    <div
+      className="mb-4 rounded-lg border p-3"
+      style={{ borderColor: withAlpha(WARNING, 0x66), backgroundColor: withAlpha(WARNING, 0x11) }}
+    >
+      <p className="text-[11px] uppercase tracking-widest font-medium mb-2" style={{ color: WARNING }}>
+        Needs review · {rows.length} emailed
+      </p>
+      <ul className="divide-y divide-gray-200 dark:divide-darkBorder">
+        {rows.map((r) => {
+          const d = parseDraftJson(r.draft);
+          const person = stringField(d, "person");
+          const gross  = numericField(d, "gross");
+          const net    = numericField(d, "net");
+          const isError = r.status === "ERROR";
+          return (
+            <li
+              key={r.id}
+              className="py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
+              style={activeId === r.id ? { backgroundColor: withAlpha(FINANCE_COLOR, 0x11) } : undefined}
+            >
+              <div className="min-w-0 flex-1">
+                {isError ? (
+                  <p className="text-sm text-red-500 truncate" title={r.parseError ?? ""}>
+                    Couldn't read — {r.parseError ?? "extraction failed"}
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-700 dark:text-gray-200 tabular-nums">
+                    {fmtDate(stringField(d, "payDate") ?? null)}
+                    {person && <span className="text-gray-400"> · {PAYCHECK_PERSON_LABELS[person as PaycheckPerson] ?? person}</span>}
+                    {gross != null && <span className="text-gray-400"> · gross {fmtCurrency(gross)}</span>}
+                    {net   != null && <span> · net {fmtCurrency(net)}</span>}
+                  </p>
+                )}
+                <p className="text-[11px] text-gray-400 truncate" title={r.emailSubject ?? ""}>
+                  {r.s3KeyPdf ? (
+                    <button onClick={() => onOpenPdf({ s3Key: r.s3KeyPdf })} className="hover:underline">
+                      📎 {r.filename ?? "PDF"}
+                    </button>
+                  ) : "no PDF"}
+                  {r.emailSubject && <> · {r.emailSubject}</>}
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                {r.s3KeyPdf && (
+                  <button
+                    onClick={() => onReview(r)}
+                    className="px-4 py-3 sm:px-3 sm:py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: FINANCE_COLOR, color: "#fff" }}
+                  >
+                    Review
+                  </button>
+                )}
+                <button
+                  onClick={() => onDismiss(r)}
+                  className="px-4 py-3 sm:px-3 sm:py-2 rounded-lg text-xs font-semibold border border-gray-300 dark:border-darkBorder text-gray-500 hover:bg-gray-50 dark:hover:bg-white/5"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 function FilterPill({
   active, onClick, children,
@@ -805,6 +963,52 @@ function LineItemsEditor({
 }
 
 // ── Coercion helpers for AI-extracted JSON ───────────────────────────────
+
+// AppSync serializes `a.json()` fields as JSON strings — parse back into an
+// object. Defensive: also accept an object in case a future client change
+// starts handing us one directly.
+function parseDraftJson(v: unknown): Record<string, unknown> {
+  if (typeof v === "string") {
+    try {
+      const parsed = JSON.parse(v);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch { return {}; }
+  }
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+
+/**
+ * Extraction JSON (from parsePaycheckPdf or an inbox row) → typed form draft.
+ * The parser's detected person (matched off the employee name on the stub)
+ * wins over `fallbackPerson`; the user can still change it before saving.
+ */
+function draftFromExtraction(
+  draftJson: unknown,
+  fallbackPerson: PaycheckPerson,
+  attachment: Draft["pendingAttachment"],
+): Draft {
+  const raw = parseDraftJson(draftJson);
+  const detectedPerson = stringField(raw, "person");
+  const person = (detectedPerson === "ME" || detectedPerson === "SPOUSE")
+    ? (detectedPerson as PaycheckPerson)
+    : fallbackPerson;
+  const next: Draft = {
+    person:      person as any,
+    payDate:     stringField(raw, "payDate") ?? todayIso(),
+    periodStart: stringField(raw, "periodStart"),
+    periodEnd:   stringField(raw, "periodEnd"),
+    lineItems:   coerceLineItems(raw["lineItems"]),
+    w4FilingStatus: (W4_FILING_STATUSES as readonly string[]).includes(stringField(raw, "w4FilingStatus") ?? "")
+      ? stringField(raw, "w4FilingStatus")
+      : undefined,
+    pendingAttachment: attachment,
+  };
+  for (const f of NUMERIC_FIELDS) {
+    const v = numericField(raw, f);
+    if (v !== null) (next as any)[f] = v;
+  }
+  return next;
+}
 
 function stringField(raw: Record<string, unknown>, key: string): string | undefined {
   const v = raw[key];

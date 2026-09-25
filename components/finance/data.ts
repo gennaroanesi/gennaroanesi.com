@@ -321,6 +321,7 @@ export type AccountSnapshotRecord = Schema["financeAccountSnapshot"]["type"];
 export type HoldingSnapshotRecord = Schema["financeHoldingSnapshot"]["type"];
 export type GoalSnapshotRecord    = Schema["financeGoalSnapshot"]["type"];
 export type PaycheckRecord       = Schema["financePaycheck"]["type"];
+export type PaycheckInboxRecord  = Schema["financePaycheckInbox"]["type"];
 export type AttachmentRecord     = Schema["attachment"]["type"];
 export type InvoiceRecord        = Schema["financeInvoice"]["type"];
 export type InvoiceLinkRecord    = Schema["financeInvoiceLink"]["type"];

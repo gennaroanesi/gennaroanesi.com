@@ -316,7 +316,136 @@ print(json.dumps(config))
 " | aws s3api put-bucket-notification-configuration --bucket "$BUCKET" --notification-configuration file:///dev/stdin
 echo "  Bucket notification wired."
 
-# ── 7. Print Route53 instructions ────────────────────────────────────────────
+# ── 7. Paycheck ingestion: paychecks@ → S3 → paycheckProcessor Lambda ───────
+# Identical shape to section 6 (reuses ACTIVE_RULE_SET). Rows land in
+# financePaycheckInbox as NEEDS_REVIEW; the paychecks page imports them.
+
+PAYCHECK_RULE_NAME="paycheck-ingest"
+PAYCHECK_RECIPIENT="paychecks@gennaroanesi.com"
+PAYCHECK_PREFIX="private/paycheck-inbound"
+
+echo ""
+echo "==> Resolving paycheckProcessor Lambda ARN..."
+PAYCHECK_LAMBDA_NAME=$(aws lambda list-functions \
+  --region $REGION \
+  --query "Functions[?contains(FunctionName, 'paycheckProcessor') && contains(FunctionName, 'd3hzztqj54ajlt')].FunctionName" \
+  --output text | tr '\t' '\n' | head -1)
+
+if [ -z "$PAYCHECK_LAMBDA_NAME" ]; then
+  echo "ERROR: Could not find paycheckProcessor Lambda. Deploy the backend first."
+  exit 1
+fi
+
+PAYCHECK_LAMBDA_ARN=$(aws lambda get-function \
+  --function-name "$PAYCHECK_LAMBDA_NAME" \
+  --region $REGION \
+  --query "Configuration.FunctionArn" \
+  --output text)
+
+echo "  Lambda name: $PAYCHECK_LAMBDA_NAME"
+echo "  Lambda ARN:  $PAYCHECK_LAMBDA_ARN"
+
+echo ""
+echo "==> Creating receipt rule: $PAYCHECK_RULE_NAME..."
+PAYCHECK_RULE_JSON=$(cat <<EOF
+{
+  "Name": "$PAYCHECK_RULE_NAME",
+  "Enabled": true,
+  "TlsPolicy": "Optional",
+  "Recipients": ["$PAYCHECK_RECIPIENT"],
+  "Actions": [
+    {
+      "S3Action": {
+        "BucketName": "$BUCKET",
+        "ObjectKeyPrefix": "$PAYCHECK_PREFIX/"
+      }
+    }
+  ],
+  "ScanEnabled": false
+}
+EOF
+)
+
+aws ses create-receipt-rule \
+  --rule-set-name "$ACTIVE_RULE_SET" \
+  --rule "$PAYCHECK_RULE_JSON" \
+  --region $REGION 2>/dev/null || \
+aws ses update-receipt-rule \
+  --rule-set-name "$ACTIVE_RULE_SET" \
+  --rule "$PAYCHECK_RULE_JSON" \
+  --region $REGION
+echo "  Receipt rule created/updated."
+
+echo ""
+echo "==> Adding S3 bucket policy for SES (paycheck prefix)..."
+# HARD-FAIL if we can't READ the current policy. The merge below rewrites the
+# WHOLE policy — running with credentials that can Put but not Get (e.g.
+# amplify-dev) would silently replace the bucket policy with only our
+# statement, breaking public reads + the logbook SES grant. This exact
+# incident happened on 2026-07-29; run with an admin profile:
+#   AWS_PROFILE=admin ./scripts/setup-ses-inbound.sh
+EXISTING_POLICY=$(aws s3api get-bucket-policy --bucket "$BUCKET" --query Policy --output text) || {
+  echo "ERROR: cannot read the current bucket policy (need s3:GetBucketPolicy)."
+  echo "Refusing to continue — a blind put would clobber existing statements."
+  exit 1
+}
+
+# The logbook statement is scoped to its own prefix, so check for THIS prefix.
+if echo "$EXISTING_POLICY" | grep -q "$PAYCHECK_PREFIX"; then
+  echo "  SES bucket policy for $PAYCHECK_PREFIX already present — skipping."
+else
+  SES_PAYCHECK_STATEMENT=$(cat <<EOF
+{
+  "Sid": "AllowSESPutObjectPaychecks",
+  "Effect": "Allow",
+  "Principal": { "Service": "ses.amazonaws.com" },
+  "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::$BUCKET/$PAYCHECK_PREFIX/*",
+  "Condition": {
+    "StringEquals": { "AWS:SourceAccount": "$ACCOUNT" }
+  }
+}
+EOF
+)
+  python3 -c "
+import json, sys
+policy = json.loads('''$EXISTING_POLICY''')
+stmt = json.loads('''$SES_PAYCHECK_STATEMENT''')
+policy['Statement'].append(stmt)
+print(json.dumps(policy))
+" | aws s3api put-bucket-policy --bucket "$BUCKET" --policy file:///dev/stdin
+  echo "  S3 bucket policy updated."
+fi
+
+echo ""
+echo "==> Wiring S3 bucket notification → paycheckProcessor..."
+# Merge (don't clobber) — put-bucket-notification-configuration replaces the
+# whole config, so read the current one and append/refresh our entry.
+# HARD-FAIL if the read fails (same clobber hazard as the bucket policy above).
+EXISTING_NOTIF=$(aws s3api get-bucket-notification-configuration --bucket "$BUCKET") || {
+  echo "ERROR: cannot read the current bucket notification config (need s3:GetBucketNotification)."
+  echo "Refusing to continue — a blind put would drop the logbook trigger."
+  exit 1
+}
+python3 -c "
+import json
+config = json.loads('''$EXISTING_NOTIF''')
+lambdas = config.get('LambdaFunctionConfigurations', [])
+# Drop any stale entry for this id, then re-add with the current ARN.
+lambdas = [l for l in lambdas if l.get('Id') != 'paycheck-inbound-to-paycheckProcessor']
+lambdas.append({
+    'Id': 'paycheck-inbound-to-paycheckProcessor',
+    'LambdaFunctionArn': '$PAYCHECK_LAMBDA_ARN',
+    'Events': ['s3:ObjectCreated:*'],
+    'Filter': {'Key': {'FilterRules': [{'Name': 'prefix', 'Value': '$PAYCHECK_PREFIX/'}]}},
+})
+config['LambdaFunctionConfigurations'] = lambdas
+config.pop('ResponseMetadata', None)
+print(json.dumps(config))
+" | aws s3api put-bucket-notification-configuration --bucket "$BUCKET" --notification-configuration file:///dev/stdin
+echo "  Bucket notification wired."
+
+# ── 8. Print Route53 instructions ────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════"
 echo "  MANUAL STEP REQUIRED: Add this MX record in Route53"
