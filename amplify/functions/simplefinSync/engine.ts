@@ -114,7 +114,10 @@ export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount, rules?:
     category = INVESTMENT_CATEGORY;
   } else {
     type = sfTx.amount >= 0 ? "INCOME" : "EXPENSE";
-    category = inferCategory({ type, description }, rules);
+    // amount is passed alongside type so inferCategory's direction check (which
+    // turns a money-IN merchant match into a Refund) doesn't have to rely on the
+    // type we just derived from that same sign.
+    category = inferCategory({ type, description, amount: sfTx.amount }, rules);
     // On investment accounts, never let an uncategorized row — or the generic
     // INCOME→"Income" fallback — pollute real income. Default to Investments so
     // brokerage cash movements drop out of the review's P&L.

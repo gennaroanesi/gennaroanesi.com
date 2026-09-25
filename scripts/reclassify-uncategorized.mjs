@@ -41,7 +41,10 @@ const cfg = getConfig();
 // ── Ported rule logic (keep in sync with components/finance/categories.ts) ────
 const rulesData = JSON.parse(readFileSync(join(__dirname, "../components/finance/category-rules.json"), "utf8"));
 const CATEGORY_RULES = rulesData.rules ?? [];
-const EXCLUDED = new Set(["Transfers", "Credit Card Payment", "Loan Payment", "Investments"]);
+// "Refund" joins the structural buckets here: it's decided by the direction of
+// the money, not the merchant name, so the LLM must never pick it from a
+// description. Mirrors CLASSIFIABLE_CATEGORIES in components/finance/categories.ts.
+const EXCLUDED = new Set(["Transfers", "Credit Card Payment", "Loan Payment", "Investments", "Refund"]);
 const ALL_CATEGORIES = [...new Set(CATEGORY_RULES.map((r) => r.category))].sort();
 const CLASSIFIABLE_CATEGORIES = ALL_CATEGORIES.filter((c) => !EXCLUDED.has(c));
 const PROCESSOR_PREFIX = /^(paypal\s*\*|sq\s*\*|sp\s+|aplpay\s+|pwp\s+|dojo\s*\*|zettle\s*\*|tst\s*\*|py\s*\*|ic\*\s*)+/i;

@@ -43,6 +43,85 @@ describe("inferCategory", () => {
   });
 });
 
+describe("inferCategory — direction (refunds)", () => {
+  it("files a money-in match on a spending rule as Refund, not as that category", () => {
+    // Same merchant string, opposite directions.
+    expect(inferCategory({ description: "Nike", type: "EXPENSE", amount: -334.69 })).toBe("Apparel");
+    expect(inferCategory({ description: "Nike", type: "INCOME",  amount:  334.69 })).toBe("Refund");
+    expect(inferCategory({ description: "Trupanion", type: "INCOME", amount: 132.31 })).toBe("Refund");
+    expect(inferCategory({ description: "Lululemon Athletica", type: "INCOME", amount: 75 })).toBe("Refund");
+    expect(inferCategory({ description: "Amazon", type: "INCOME", amount: 173.19 })).toBe("Refund");
+    // A reversed fee is a refund of that fee.
+    expect(inferCategory({ description: "Interest Charge", type: "INCOME", amount: 12 })).toBe("Refund");
+  });
+
+  it("infers direction from the sign when no type is given", () => {
+    expect(inferCategory({ description: "Nike", amount:  50 })).toBe("Refund");
+    expect(inferCategory({ description: "Nike", amount: -50 })).toBe("Apparel");
+  });
+
+  it("never rewrites structural buckets or real income", () => {
+    expect(inferCategory({ description: "META PAYROLL", type: "INCOME", amount: 9000 })).toBe("Income");
+    expect(inferCategory({ description: "Interest Paid", type: "INCOME", amount: 4 })).toBe("Income");
+    expect(inferCategory({ description: "Chase Credit Card", type: "INCOME", amount: 2865.14 })).toBe("Credit Card Payment");
+    expect(inferCategory({ description: "Online Transfer from CHK", type: "INCOME", amount: 500 })).toBe("Transfers");
+    expect(inferCategory({ description: "Mortgage Payment", type: "INCOME", amount: 100 })).toBe("Loan Payment");
+  });
+
+  it("matches explicit refund wording in either direction", () => {
+    expect(inferCategory({ description: "Refund from WAL-MART #0475     SE2", type: "INCOME", amount: 29.17 })).toBe("Refund");
+    // "refundable" must not trip the \brefund\b word boundary.
+    expect(inferCategory({ description: "REFUNDABLE DEPOSIT HOTEL", type: "EXPENSE", amount: -200 })).toBe("Travel");
+  });
+
+  it("files card statement credits as Refund rather than as the perk's category", () => {
+    for (const d of [
+      "Platinum Digital Entertainment Credit",
+      "Platinum Walmart+ Credit",
+      "Platinum Hotel Credit",
+      "Platinum Resy Credit",
+      "AMEX Airline Fee Reimbursement",
+      "AMEX TRAVEL PAY WITH POINTS CREDIT",
+      "UNITED CREDIT $125/YEAR",
+      "UA INFLIGHT/INCLUB CREDIT",
+    ]) {
+      expect(inferCategory({ description: d, type: "INCOME", amount: 25 }), d).toBe("Refund");
+    }
+  });
+});
+
+describe("inferCategory — bare card payments", () => {
+  it("files a description that is just \"Payment\" as Credit Card Payment, not Income", () => {
+    for (const d of ["Payment", "payment", "  Payment  ", "Pay off card balance"]) {
+      expect(inferCategory({ description: d, type: "INCOME", amount: 10000 }), d).toBe("Credit Card Payment");
+    }
+  });
+
+  it("does not swallow descriptions that merely contain the word", () => {
+    expect(inferCategory({ description: "Return Payment Fee", type: "EXPENSE", amount: -29 })).toBe("Fees");
+    expect(inferCategory({ description: "VENMO PAYMENT 1042005633463", type: "EXPENSE", amount: -35 })).toBe("Transfers");
+    expect(inferCategory({ description: "Mortgage Payment", type: "EXPENSE", amount: -3000 })).toBe("Loan Payment");
+  });
+});
+
+describe("inferCategory — payment reversals", () => {
+  it("files a returned payment as Credit Card Payment so it cancels the original", () => {
+    expect(inferCategory({ description: "Returned Check Decliank Transactions", type: "EXPENSE", amount: -1500 }))
+      .toBe("Credit Card Payment");
+    expect(inferCategory({ description: "PAYMENT RETURNED", type: "EXPENSE", amount: -200 })).toBe("Credit Card Payment");
+    expect(inferCategory({ description: "NSF - insufficient funds", type: "EXPENSE", amount: -50 })).toBe("Credit Card Payment");
+  });
+
+  it("keeps the FEE for a returned payment in Fees", () => {
+    expect(inferCategory({ description: "Return Payment Fee", type: "EXPENSE", amount: -29 })).toBe("Fees");
+    expect(inferCategory({ description: "Returned Check Fee", type: "EXPENSE", amount: -35 })).toBe("Fees");
+  });
+
+  it("drops both sides of a reversal out of the P&L", () => {
+    expect(isExcludedFromPnl("Credit Card Payment")).toBe(true);
+  });
+});
+
 describe("stripProcessorPrefix", () => {
   it("removes known processor prefixes", () => {
     expect(stripProcessorPrefix("PAYPAL *FALKEUSAONL")).toBe("FALKEUSAONL");

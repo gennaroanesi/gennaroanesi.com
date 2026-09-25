@@ -78,6 +78,19 @@ function patternMatches(pattern, text) {
 const PROCESSOR_PREFIX =
   /^(paypal\s*\*|sq\s*\*|sp\s+|aplpay\s+|pwp\s+|dojo\s*\*|zettle\s*\*|tst\s*\*|py\s*\*|ic\*\s*)+/i;
 
+// Mirrors NON_REFUNDABLE / isInflow in components/finance/categories.ts — keep in
+// sync. A money-IN row matching a spending rule is a refund of that spend, not
+// new spend and not income; structural buckets and Income are left alone.
+const NON_REFUNDABLE = new Set([
+  "Transfers", "Credit Card Payment", "Loan Payment", "Investments", "Income", "Refund",
+]);
+
+function isInflow(tx) {
+  if (tx.type === "EXPENSE") return false;
+  if (tx.type === "INCOME") return true;
+  return (tx.amount ?? 0) > 0;
+}
+
 function inferByRules(tx) {
   if (tx.type === "TRANSFER") return "Transfers";
   if (tx.type === "BUY" || tx.type === "SELL") return "Investments";
@@ -85,8 +98,12 @@ function inferByRules(tx) {
   if (desc) {
     const stripped = desc.replace(PROCESSOR_PREFIX, "").trim();
     for (const rule of CATEGORY_RULES) {
-      if (patternMatches(rule.pattern, desc)) return rule.category;
-      if (stripped !== desc && patternMatches(rule.pattern, stripped)) return rule.category;
+      if (
+        patternMatches(rule.pattern, desc) ||
+        (stripped !== desc && patternMatches(rule.pattern, stripped))
+      ) {
+        return isInflow(tx) && !NON_REFUNDABLE.has(rule.category) ? "Refund" : rule.category;
+      }
     }
   }
   if (tx.type === "INCOME") return "Income";

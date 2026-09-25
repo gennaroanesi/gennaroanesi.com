@@ -8,7 +8,7 @@ import {
   client, listAll, inputCls, labelCls, FINANCE_COLOR,
 } from "@/components/finance/_shared";
 import {
-  CATEGORY_RULES, ALL_CATEGORIES, inferCategory, patternMatches,
+  CATEGORY_RULES, ALL_CATEGORIES, inferCategory, patternMatches, stripProcessorPrefix,
 } from "@/components/finance/categories";
 import { mutate, reportError } from "@/components/common/mutate";
 import { withAlpha, POSITIVE, WARNING } from "@/lib/colors";
@@ -21,6 +21,10 @@ export default function CategoryRulesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
   const [test, setTest]       = useState("");
+  // Direction matters to the classifier: a money-IN row that matches a spending
+  // rule is rewritten to "Refund" (see inferCategory). The test box has to be
+  // able to exercise both directions or refund behaviour is untestable here.
+  const [testIn, setTestIn]   = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -43,11 +47,17 @@ export default function CategoryRulesPage() {
   const testResult = useMemo(() => {
     const desc = test.trim();
     if (!desc) return null;
-    const cat = inferCategory({ description: desc, type: "EXPENSE" }, liveRules) ?? null;
+    const tx = testIn
+      ? { description: desc, type: "INCOME",  amount:  1 }
+      : { description: desc, type: "EXPENSE", amount: -1 };
+    const cat = inferCategory(tx, liveRules) ?? null;
     // Find the winning rule index (mirrors inferCategory's raw+stripped test).
-    const idx = liveRules.findIndex((r) => patternMatches(r.pattern, desc));
+    const idx = liveRules.findIndex(
+      (r) => patternMatches(r.pattern, desc)
+          || patternMatches(r.pattern, stripProcessorPrefix(desc)),
+    );
     return { cat, idx };
-  }, [test, liveRules]);
+  }, [test, testIn, liveRules]);
 
   const categoryOptions = useMemo(() => {
     const s = new Set<string>(ALL_CATEGORIES);
@@ -127,7 +137,9 @@ export default function CategoryRulesPage() {
         <p className="text-xs text-gray-400 mb-4">
           First match wins, top to bottom. Pattern is <code>/regex/flags</code> or a plain substring, tested against the
           transaction description. Anything no rule catches falls to the AI classifier at sync time. Changes apply to
-          transactions synced <em>after</em> you save.
+          transactions synced <em>after</em> you save. Rules only see the description — the classifier adds direction on
+          top: a money-in row matching a spending rule is filed as <strong>Refund</strong>, so there is no need for
+          per-merchant refund rules.
         </p>
 
         {/* Test box */}
@@ -135,6 +147,10 @@ export default function CategoryRulesPage() {
           <label className={labelCls}>Test a description</label>
           <input className={inputCls} placeholder="e.g. above and beyondaustin tx via payrix"
             value={test} onChange={(e) => setTest(e.target.value)} />
+          <label className="flex items-center gap-2 mt-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer p-1">
+            <input type="checkbox" checked={testIn} onChange={(e) => setTestIn(e.target.checked)} />
+            Money in (refund / credit) — a spending rule that matches an inflow becomes <span className="font-semibold">Refund</span>
+          </label>
           {testResult && (
             <p className="text-xs mt-1.5">
               {testResult.cat

@@ -42,7 +42,7 @@ import {
   buildQuoteMap,
   type QuoteMap,
 } from "./finance-core";
-import { effectiveCategory, isExcludedFromPnl, categoryContributions } from "./categories";
+import { effectiveCategory, isExcludedFromPnl, categoryContributions, REFUND_CATEGORY } from "./categories";
 
 // ── Period & range ────────────────────────────────────────────────────────────
 
@@ -507,7 +507,13 @@ export const TAX_CATEGORIES = new Set<string>(["Taxes"]);
  * of a loan payment recorded on the loan account — a balance-sheet artifact, not
  * money earned.
  */
-export const NON_INCOME_CATEGORIES = new Set<string>(["Loan principal"]);
+export const NON_INCOME_CATEGORIES = new Set<string>([
+  "Loan principal",
+  // A refund is spend coming back, not money earned. Counting it as income
+  // double-flattered the P&L: the original charge stayed in spend AND the
+  // credit showed up as "other income".
+  REFUND_CATEGORY,
+]);
 
 /** Debt-service categories — real cash out, but they build equity. */
 export const DEBT_SERVICE_CATEGORIES = new Set<string>(["Loan Payment"]);

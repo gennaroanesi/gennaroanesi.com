@@ -45,6 +45,13 @@ export const UNCATEGORIZED = "Uncategorized";
 export const INVESTMENT_CATEGORY = "Investments";
 
 /**
+ * Money coming back for spend that already posted: merchant refunds, returned
+ * merchandise, and card statement credits (AMEX Platinum perks, United annual
+ * credits). Sign-determined, not description-determined — see inferCategory.
+ */
+export const REFUND_CATEGORY = "Refund";
+
+/**
  * Categories that are NOT spending or earning — money moving between the user's
  * own accounts (transfers), paying down a card (the charge was already counted),
  * or investing. Excluded from the Review's income/expense P&L so totals reflect
@@ -71,11 +78,14 @@ export const ALL_CATEGORIES: string[] = [
  * Excludes the structural buckets (Transfers, Credit Card Payment, Loan
  * Payment, Investments) — those are determined by transaction TYPE, not
  * merchant text, so letting the model pick them from a description invites
- * misclassification. Shared by the simplefinSync Lambda and the
- * reclassify-uncategorized backfill script so both offer the same choices.
+ * misclassification. Refund is excluded for the same reason: it's decided by
+ * the direction of the money, not by the merchant name (a "Nike" row is
+ * Apparel when it's an outflow and a Refund when it's an inflow). Shared by
+ * the simplefinSync Lambda and the reclassify-uncategorized backfill script so
+ * both offer the same choices.
  */
 export const CLASSIFIABLE_CATEGORIES: string[] = ALL_CATEGORIES.filter(
-  (c) => !EXCLUDED_FROM_PNL.has(c),
+  (c) => !EXCLUDED_FROM_PNL.has(c) && c !== REFUND_CATEGORY,
 );
 
 type InferInput = {
@@ -119,6 +129,33 @@ export function stripProcessorPrefix(description: string): string {
 }
 
 /**
+ * Buckets a money-IN row must NOT be rewritten to Refund. The structural ones
+ * are already direction-agnostic (a card payment is a card payment whichever
+ * way it points), and Income/Refund are the two outcomes the refund rewrite
+ * chooses between — rewriting them would either loop or destroy real income.
+ */
+const NON_REFUNDABLE = new Set<string>([
+  ...EXCLUDED_FROM_PNL,
+  "Income",
+  REFUND_CATEGORY,
+]);
+
+/**
+ * Is this row money coming IN? Mirrors the Review's outflow test (review.ts
+ * spendOf) so classification and P&L agree on direction: an explicit EXPENSE is
+ * never an inflow, an explicit INCOME always is, and otherwise the sign decides.
+ *
+ * `amount` is optional on InferInput — a caller that passes only a type (the
+ * sync Lambda's engine.ts does, because it derives type from the sign anyway)
+ * still gets the right answer.
+ */
+function isInflow(tx: InferInput): boolean {
+  if (tx.type === "EXPENSE") return false;
+  if (tx.type === "INCOME") return true;
+  return (tx.amount ?? 0) > 0;
+}
+
+/**
  * Infer a category for a transaction. Returns null when no rule matches and the
  * type carries no implicit bucket — callers decide whether to fall back to
  * UNCATEGORIZED. TRANSFER → "Transfers", BUY/SELL → "Investments" regardless of
@@ -128,6 +165,15 @@ export function stripProcessorPrefix(description: string): string {
  * in rule order. Testing both (rather than only the stripped form) keeps
  * prefix-dependent rules working — `tst\*` is itself the signal that a row is a
  * Toast restaurant charge.
+ *
+ * Direction matters for one case: a money-IN row that matches a *spending* rule
+ * is a refund of that spend, not new spend and not income. "Nike" is Apparel as
+ * an outflow and Refund as an inflow; likewise a Trupanion reimbursement, an
+ * Amazon return, or a reversed fee. The rule table can't express this on its own
+ * because it only ever sees the description — a returned pair of shoes and a new
+ * pair of shoes carry the identical merchant string. Rules that resolve to a
+ * structural bucket or to Income are left alone (see NON_REFUNDABLE), so payroll,
+ * dividends, transfers and card payments are unaffected.
  */
 export function inferCategory(tx: InferInput, rules: CategoryRule[] = CATEGORY_RULES): string | null {
   if (tx.type === "TRANSFER") return "Transfers";
@@ -137,8 +183,14 @@ export function inferCategory(tx: InferInput, rules: CategoryRule[] = CATEGORY_R
   if (desc) {
     const stripped = stripProcessorPrefix(desc);
     for (const rule of rules) {
-      if (patternMatches(rule.pattern, desc)) return rule.category;
-      if (stripped !== desc && patternMatches(rule.pattern, stripped)) return rule.category;
+      if (
+        patternMatches(rule.pattern, desc) ||
+        (stripped !== desc && patternMatches(rule.pattern, stripped))
+      ) {
+        return isInflow(tx) && !NON_REFUNDABLE.has(rule.category)
+          ? REFUND_CATEGORY
+          : rule.category;
+      }
     }
   }
   // Income with no rule hit still reads as income.
