@@ -22,7 +22,7 @@ import {
   type RecurringRecord,
   isRecurrenceLive,
 } from "@/components/finance/_shared";
-import { NEGATIVE, withAlpha } from "@/lib/colors";
+import { NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { effectiveCategory } from "@/components/finance/categories";
 import { SlideOverPanel, PageTitle, PageLoading, Card } from "@/components/common/ui";
 
@@ -41,11 +41,25 @@ function outflowAmount(tx: TransactionRecord): number | null {
   return Math.abs(amt);
 }
 
+/**
+ * Why a tagged row contributes nothing to the group total — null when it does.
+ * The breakdown above is outflow-only and posted-only, so a group can hold rows
+ * its headline number ignores; without a reason shown next to them the list and
+ * the total look like they disagree.
+ */
+function excludedReason(tx: TransactionRecord): string | null {
+  if (outflowAmount(tx) != null) return null;
+  if (tx.status === "PENDING") return "pending";
+  if (tx.type === "TRANSFER" || tx.type === "BUY" || tx.type === "SELL") return "transfer";
+  return "credit";
+}
+
 type GroupStats = {
   actual: number;
   count: number;
   scheduled: number;   // outflow from LIVE tagged scheduled events (upcoming, not yet posted)
   byCategory: { category: string; amount: number }[];
+  rows: TransactionRecord[];   // every tagged row, counted or not, oldest first
 };
 
 export default function SpendGroupsPage() {
@@ -60,6 +74,7 @@ export default function SpendGroupsPage() {
 
   const [panel, setPanel] = useState<Panel>(null);
   const [draft, setDraft] = useState<Partial<SpendGroupRecord>>({});
+  const [openRows, setOpenRows] = useState<string | null>(null);   // group id whose ledger is expanded
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -87,13 +102,14 @@ export default function SpendGroupsPage() {
   const statsByGroup = useMemo(() => {
     const m = new Map<string, GroupStats>();
     const cat = new Map<string, Map<string, number>>();
-    for (const g of groups) { m.set(g.id, { actual: 0, count: 0, scheduled: 0, byCategory: [] }); cat.set(g.id, new Map()); }
+    for (const g of groups) { m.set(g.id, { actual: 0, count: 0, scheduled: 0, byCategory: [], rows: [] }); cat.set(g.id, new Map()); }
     for (const tx of txs) {
       const gid = (tx as any).spendGroupId as string | null | undefined;
       if (!gid || !m.has(gid)) continue;
+      const s = m.get(gid)!;
+      s.rows.push(tx);
       const v = outflowAmount(tx);
       if (v == null) continue;
-      const s = m.get(gid)!;
       s.actual += v; s.count += 1;
       const cm = cat.get(gid)!;
       const c = effectiveCategory(tx);
@@ -109,8 +125,11 @@ export default function SpendGroupsPage() {
       if (r.type === "EXPENSE" || amt < 0) m.get(gid)!.scheduled += Math.abs(amt);
     }
     for (const g of groups) {
+      const st = m.get(g.id)!;
       const cm = cat.get(g.id)!;
-      m.get(g.id)!.byCategory = [...cm.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+      st.byCategory = [...cm.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+      // Oldest first: for a trip the ledger reads as the itinerary.
+      st.rows.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || Math.abs(b.amount ?? 0) - Math.abs(a.amount ?? 0));
     }
     return m;
   }, [groups, txs, recurrings]);
@@ -190,8 +209,22 @@ export default function SpendGroupsPage() {
     }
   }
 
+  /** Remove one transaction from its group without leaving the Groups page. */
+  async function untag(tx: TransactionRecord) {
+    setSaving(true);
+    try {
+      await mutate(client.models.financeTransaction.update({ id: tx.id, spendGroupId: null } as any));
+      setTxs((p) => p.map((t) => (t.id === tx.id ? ({ ...t, spendGroupId: null } as TransactionRecord) : t)));
+    } catch (e) {
+      reportError(e, "Untag");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (authState !== "authenticated") return null;
 
+  const accountName = new Map(accounts.map((a) => [a.id, a.name]));
   const sortedGroups = [...groups].sort((a, b) => (b.startDate ?? "").localeCompare(a.startDate ?? "") || a.name.localeCompare(b.name));
 
   return (
@@ -223,13 +256,15 @@ export default function SpendGroupsPage() {
           {!loading && sortedGroups.length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-4">
               {sortedGroups.map((g) => {
-                const s = statsByGroup.get(g.id) ?? { actual: 0, count: 0, scheduled: 0, byCategory: [] };
+                const s: GroupStats = statsByGroup.get(g.id) ?? { actual: 0, count: 0, scheduled: 0, byCategory: [], rows: [] };
                 const projected = s.actual + s.scheduled;   // spent + upcoming scheduled
                 const hasBudget = g.budget != null && g.budget > 0;
                 const pct = hasBudget ? Math.min(100, (projected / (g.budget as number)) * 100) : 0;
                 const over = hasBudget && projected > (g.budget as number);
                 const remaining = hasBudget ? (g.budget as number) - projected : 0;
                 const maxCat = Math.max(1, ...s.byCategory.map((c) => c.amount));
+                const uncounted = s.rows.length - s.count;
+                const expanded = openRows === g.id;
                 return (
                   <Card key={g.id}>
                     <div className="flex items-start justify-between gap-2">
@@ -242,6 +277,7 @@ export default function SpendGroupsPage() {
                         </div>
                         <p className="text-[11px] text-gray-400 mt-0.5">
                           {g.startDate ? fmtDate(g.startDate) : "—"}{g.endDate ? ` → ${fmtDate(g.endDate)}` : ""} · {s.count} tx
+                          {uncounted > 0 && <span className="text-gray-500"> · {uncounted} not counted</span>}
                         </p>
                       </div>
                       <button onClick={() => openEdit(g)} className="text-xs hover:underline flex-shrink-0" style={{ color: FINANCE_COLOR }}>Edit</button>
@@ -284,10 +320,75 @@ export default function SpendGroupsPage() {
                       </div>
                     )}
 
-                    {g.startDate && g.endDate && (
-                      <button onClick={() => autoAssign(g)} disabled={saving} className="text-[11px] mt-3 hover:underline disabled:opacity-50" style={{ color: FINANCE_COLOR }}>
-                        Auto-tag spending in date range
-                      </button>
+                    <div className="flex items-center justify-between gap-3 flex-wrap mt-1">
+                      {g.startDate && g.endDate ? (
+                        <button onClick={() => autoAssign(g)} disabled={saving} className="text-[11px] py-3 hover:underline disabled:opacity-50" style={{ color: FINANCE_COLOR }}>
+                          Auto-tag spending in date range
+                        </button>
+                      ) : <span />}
+                      {s.rows.length > 0 && (
+                        <button
+                          onClick={() => setOpenRows(expanded ? null : g.id)}
+                          aria-expanded={expanded}
+                          className="text-[11px] py-3 px-1 hover:underline"
+                          style={{ color: FINANCE_COLOR }}
+                        >
+                          {expanded ? "Hide" : "View"} {s.rows.length} transaction{s.rows.length === 1 ? "" : "s"} {expanded ? "▴" : "▾"}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Tagged ledger — oldest first, so a trip reads as its itinerary. */}
+                    {expanded && (
+                      <div className="mt-1 -mx-1 border-t border-gray-100 dark:border-darkBorder pt-1 max-h-96 overflow-y-auto">
+                        {s.rows.map((t) => {
+                          const reason = excludedReason(t);
+                          return (
+                            <div key={t.id} className="flex items-center gap-2 px-1 rounded hover:bg-gray-50 dark:hover:bg-white/5">
+                              <div className="min-w-0 flex-1 py-2">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0">{fmtDate(t.date)}</span>
+                                  <span className="text-xs truncate">{t.description || "—"}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{effectiveCategory(t)}</span>
+                                  <span className="text-[10px] text-gray-400 dark:text-gray-500">· {accountName.get(t.accountId) ?? "—"}</span>
+                                  {reason && (
+                                    <span
+                                      className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded"
+                                      style={{ backgroundColor: withAlpha(WARNING, 0x22), color: WARNING }}
+                                      title="Not included in the group total"
+                                    >
+                                      {reason}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <span
+                                className="text-xs tabular-nums flex-shrink-0"
+                                style={{ color: reason ? "#9ca3af" : amountColor(t.amount ?? 0) }}
+                              >
+                                {fmtCurrency(Math.abs(t.amount ?? 0))}
+                              </span>
+                              <button
+                                onClick={() => untag(t)}
+                                disabled={saving}
+                                title="Remove from this group"
+                                aria-label={`Remove ${t.description ?? "transaction"} from ${g.name}`}
+                                className="flex-shrink-0 p-3 -mr-1 text-gray-400 hover:text-red-500 disabled:opacity-40 leading-none"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {uncounted > 0 && (
+                          <p className="text-[10px] text-gray-400 px-1 py-2">
+                            {uncounted} row{uncounted === 1 ? " is" : "s are"} tagged but excluded from the {fmtCurrency(s.actual)} total —
+                            pending charges, transfers and credits don&apos;t count as spend.
+                          </p>
+                        )}
+                      </div>
                     )}
                   </Card>
                 );
