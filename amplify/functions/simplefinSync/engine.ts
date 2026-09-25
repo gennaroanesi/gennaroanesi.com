@@ -105,10 +105,22 @@ export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount, rules?:
   let category: string | null;
   let ticker: string | null = null;
 
-  // For trades, prefer the security name (SF description) over the generic
-  // payee ("Charles Schwab") so the ledger row is self-describing.
-  const description =
-    (trade.isTrade ? sfTx.description || sfTx.payee : sfTx.payee || sfTx.description) || "(no description)";
+  // SimpleFIN sends both a raw bank descriptor (`description`) and its own
+  // cleaned merchant name (`payee`). We keep the RAW one.
+  //
+  // The cleanup is lossy in a way we can't undo: it cuts the merchant at the
+  // wrong boundary and title-cases the remainder, so "AplPay SANT
+  // AMBROEUSSOUTHAMPTON NY" reaches us as "Aplpay Sant" and "IN *TEXAS TOP
+  // AVIATINEW BRAUNFELS TX" as "Texas Top Aviatinew" — the city glued onto a
+  // truncated name. Storing the raw keeps the merchant, the city and the state,
+  // and loses nothing: anything payee knew is still in the string it was
+  // derived from. Rules are written against the raw text accordingly (bank
+  // abbreviations like NTTA, UA INFLT, ATT PAYMENT are in category-rules.json).
+  //
+  // The cost is noisier bank rows — "AFFIRM.COM PAYME … WEB ID: XXXXXX8598"
+  // where payee said "Affirm" — accepted deliberately in exchange for never
+  // silently discarding merchant detail again.
+  const description = sfTx.description || sfTx.payee || "(no description)";
 
   if (trade.isTrade) {
     type = trade.side as TxType;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  buildDedupIndex, reconcileDraft, storedSfId, shouldRecategorize,
+  buildDedupIndex, reconcileDraft, storedSfId, shouldRecategorize, sfTxToDraft,
   type ExistingTx, type TxDraft,
 } from "../engine";
 
@@ -115,5 +115,32 @@ describe("shouldRecategorize", () => {
   });
   it("says nothing when the new description infers nothing", () => {
     expect(shouldRecategorize("Meta Payroll", "mystery", "Income", infer)).toBeUndefined();
+  });
+});
+
+describe("sfTxToDraft — description source", () => {
+  const acct = { id: "acc1", name: "AMEX", type: "CREDIT", currentBalance: 0 };
+  const tx = (over: any = {}) => ({
+    id: "TRN-1", posted: "2026-09-21", transactedAt: null, amount: -66.95,
+    description: "AplPay SANT AMBROEUSSOUTHAMPTON NY", payee: "Aplpay Sant",
+    memo: "", pending: false, ...over,
+  });
+
+  it("stores the raw bank descriptor, not SimpleFIN's cleaned payee", () => {
+    const d = sfTxToDraft(tx() as any, acct as any, []);
+    expect(d?.description).toBe("AplPay SANT AMBROEUSSOUTHAMPTON NY");
+  });
+
+  it("keeps the city glued to a truncated merchant rather than losing it", () => {
+    const d = sfTxToDraft(
+      tx({ description: "IN *TEXAS TOP AVIATINEW BRAUNFELS TX", payee: "Texas Top Aviatinew" }) as any,
+      acct as any, [],
+    );
+    expect(d?.description).toContain("NEW BRAUNFELS TX");
+  });
+
+  it("falls back to payee when the feed sends no descriptor", () => {
+    const d = sfTxToDraft(tx({ description: "" }) as any, acct as any, []);
+    expect(d?.description).toBe("Aplpay Sant");
   });
 });

@@ -215,3 +215,28 @@ describe("categoryContributions", () => {
     expect(categoryContributions(tx, 25)).toEqual([{ category: "Amazon", amount: 25 }]);
   });
 });
+
+describe("rules against raw bank descriptors", () => {
+  const cases: Array<[string, string]> = [
+    ["UA INFLT    XXXXXXXXX2867",                        "Travel"],
+    ["UNITED      XXXXXXXXX8502",                        "Travel"],
+    ["CROWNE PLAZA MIDTOWNNEW YORK NY",                  "Travel"],
+    ["AVIS RENT-A-CAR",                                  "Travel"],   // not Rent/Mortgage
+    ["ATT PAYMENT PPD ID: XXXXXX1004",                   "Utilities"],
+    ["NTTA AUTOCHARGE 972-818-6882 TX",                  "Gas/Transport"],
+    ["QT 4135 OUTSIDE/QUIKROUND ROCK TX",                "Gas/Transport"],
+    ["AplPay NJT RAIL MY-TNEWARK NJ",                    "Gas/Transport"],
+    ["NATIONWIDE PET 800-540-2016 OH",                   "Insurance"],
+    ["PREM CAR RENTAL PROTECTION 800-228-6855",          "Insurance"],
+    ["CITI CARD ONLINE PAYMENT XXXXXXXXXXX3717",         "Credit Card Payment"],
+    ["ONLINE PAYMENT, THANK YOU",                        "Credit Card Payment"],
+  ];
+  it.each(cases)("%s → %s", (description, expected) => {
+    expect(inferCategory({ description, type: "EXPENSE", amount: -1 })).toBe(expected);
+  });
+
+  it("still reads a real rent payment as Rent/Mortgage", () => {
+    expect(inferCategory({ description: "RENT PAYMENT APRIL", type: "EXPENSE", amount: -2000 })).toBe("Rent/Mortgage");
+    expect(inferCategory({ description: "MONTHLY RENT", type: "EXPENSE", amount: -2000 })).toBe("Rent/Mortgage");
+  });
+});

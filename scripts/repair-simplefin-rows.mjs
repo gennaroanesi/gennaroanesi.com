@@ -21,6 +21,11 @@
  *   C  stale singles  — a PENDING row with no settled copy (the dedup dropped
  *                       it). Refresh status/description/date from the feed.
  *   D  id backfill    — copy the legacy `sf:<id>` note into sfTransactionId.
+   F  raw descriptors — adopt SimpleFIN's raw `description` in place of the
+                       lossy `payee` we used to store (see engine.ts). Matched
+                       by transaction id, so it is exact. Recomputes importHash
+                       and re-infers the category only where the stored one
+                       looks machine-assigned.
    E  exact clones    — several rows sharing one SimpleFIN id AND the same
                        date, amount and description: the same transaction
                        written more than once when it fell outside the dedup
@@ -36,6 +41,10 @@
  *   node --env-file=.env.local scripts/repair-simplefin-rows.mjs --dry
  *   node --env-file=.env.local scripts/repair-simplefin-rows.mjs --phase=A,B,C,D
  */
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import { fetchAccounts } from "./_simplefin.mjs";
 import { CognitoIdentityProviderClient, InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
 import { getConfig } from "./aws-config.mjs";
@@ -197,6 +206,62 @@ if (PHASES.has("E")) {
   }
 }
 
+// ── F. adopt the raw descriptor ──────────────────────────────────────────────
+// Rule engine ported from components/finance/categories.ts — keep in sync.
+// (The .ts module can't be imported from a plain .mjs script; the same porting
+// pattern is used by scripts/reclassify-uncategorized.mjs.)
+const RULES = JSON.parse(readFileSync(join(__dirname, "../components/finance/category-rules.json"), "utf8")).rules;
+const NON_REFUNDABLE = new Set(["Transfers", "Credit Card Payment", "Loan Payment", "Investments", "Income", "Refund"]);
+const PROC_PREFIX = /^(paypal\s*\*|sq\s*\*|sp\s+|aplpay\s+|pwp\s+|dojo\s*\*|zettle\s*\*|tst\s*\*|py\s*\*|ic\*\s*)+/i;
+const stripPfx = (d) => (d ?? "").replace(PROC_PREFIX, "").trim();
+function ruleMatches(pattern, text) {
+  const p = (pattern ?? "").trim(); if (!p) return false;
+  const rx = p.match(/^\/(.+)\/([imsu]*)$/);
+  if (rx) { try { return new RegExp(rx[1], rx[2]).test(text); } catch { /* substring */ } }
+  return text.toLowerCase().includes(p.toLowerCase());
+}
+function inferCategory(description, amount, type) {
+  const inflow = type === "EXPENSE" ? false : (type === "INCOME" ? true : (amount ?? 0) > 0);
+  const d = (description ?? "").trim();
+  if (d) {
+    const st = stripPfx(d);
+    for (const r of RULES) {
+      if (ruleMatches(r.pattern, d) || (st !== d && ruleMatches(r.pattern, st)))
+        return inflow && !NON_REFUNDABLE.has(r.category) ? "Refund" : r.category;
+    }
+  }
+  return type === "INCOME" ? "Income" : null;
+}
+/** Mirrors shouldRecategorize in engine.ts: only refresh a machine-assigned category. */
+function nextCategory(oldDesc, newDesc, stored, amount, type) {
+  const fromOld = inferCategory(oldDesc, amount, type);
+  const fromNew = inferCategory(newDesc, amount, type);
+  if (fromNew === null || fromNew === fromOld) return undefined;
+  const cur = (stored ?? "").trim();
+  if (cur === "") return fromNew;
+  if (cur === (fromOld ?? "")) return fromNew;
+  return undefined;   // user-owned
+}
+
+if (PHASES.has("F")) {
+  const doomed = new Set(deletes.map((d) => d.row.id));
+  const already = new Map(updates.map((u) => [u.row.id, u]));
+  for (const t of txs) {
+    if (doomed.has(t.id)) continue;
+    const sfId = sfIdOf(t);
+    const f = sfId ? feed.get(sfId) : null;
+    if (!f) continue;
+    const raw = (f.description || f.payee || "").trim();
+    if (!raw || raw === (t.description ?? "").trim()) continue;
+    const patch = { description: raw };
+    const cat = nextCategory(t.description ?? "", raw, t.category, t.amount, t.amount >= 0 ? "INCOME" : "EXPENSE");
+    if (cat !== undefined) patch.category = cat;
+    const u = already.get(t.id);
+    if (u) { Object.assign(u.patch, patch); u.why += " + raw descriptor"; }
+    else updates.push({ row: t, patch, why: "raw descriptor" });
+  }
+}
+
 // ── report ───────────────────────────────────────────────────────────────────
 const idOnly = updates.filter((u) => Object.keys(u.patch).length === 1 && u.patch.sfTransactionId);
 const real   = updates.filter((u) => !idOnly.includes(u));
@@ -210,8 +275,8 @@ console.log(`  net amount removed: $${deletes.reduce((s, d) => s + d.row.amount,
 console.log(`  of these ${delPending.length} are PENDING (already excluded from every posted-only total); ` +
             `${deletes.length - delPending.length} are POSTED clones worth $${deletes.filter((d) => d.row.status !== "PENDING").reduce((s, d) => s + d.row.amount, 0).toFixed(2)}`);
 
-console.log(`\n=== C  UPDATE ${real.length} rows in place ===`);
-for (const u of real.sort((a, b) => (a.row.date ?? "").localeCompare(b.row.date ?? ""))) {
+console.log(`\n=== C  UPDATE ${real.filter((u) => !u.why.startsWith("raw descriptor")).length} rows in place ===`);
+for (const u of real.filter((u) => !u.why.startsWith("raw descriptor")).sort((a, b) => (a.row.date ?? "").localeCompare(b.row.date ?? ""))) {
   const p = u.patch;
   console.log(`  ${u.row.date} ${money(u.row.amount)}  ${(accName.get(u.row.accountId) ?? "?").padEnd(18)} "${u.row.description}"`);
   const bits = [];
@@ -220,6 +285,18 @@ for (const u of real.sort((a, b) => (a.row.date ?? "").localeCompare(b.row.date 
   if (p.description) bits.push(`desc → "${p.description}"`);
   console.log(`        ${bits.join("  ·  ")}`);
 }
+const descOnly = real.filter((u) => u.why.includes("raw descriptor"));
+console.log(`\n=== F  RAW DESCRIPTOR on ${descOnly.length} rows ===`);
+for (const u of descOnly.slice(0, 20)) {
+  console.log(`  "${u.row.description}"\n      → "${u.patch.description}"${u.patch.category !== undefined ? `   [${u.row.category || "-"} → ${u.patch.category}]` : ""}`);
+}
+const catMoves = descOnly.filter((u) => u.patch.category !== undefined);
+console.log(`\n  --- ${catMoves.length} rows ALSO change category ---`);
+for (const u of catMoves) {
+  console.log(`  ${u.row.date} ${money(u.row.amount)}  [${u.row.category || "(none)"} → ${u.patch.category}]`);
+  console.log(`      "${u.row.description}"  →  "${u.patch.description}"`);
+}
+if (descOnly.length > 25) console.log(`  … and ${descOnly.length - 25} more`);
 console.log(`\n=== D  BACKFILL sfTransactionId on ${idOnly.length} rows ===`);
 console.log(`\n=== SKIPPED ${skipped.length} (need a human) ===`);
 for (const s of skipped.slice(0, 20)) console.log(`  ${s.row.date} ${money(s.row.amount)} "${s.row.description}" — ${s.why}`);
