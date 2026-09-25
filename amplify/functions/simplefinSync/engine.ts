@@ -36,6 +36,8 @@ export type TxDraft = {
   toAccountId?: string | null;
   importHash: string;
   notes: string;
+  /** SimpleFIN's transaction id — the row's stable identity across pending → posted. */
+  sfTransactionId: string;
 };
 
 // ── Security-name → ticker classification ─────────────────────────────────────
@@ -137,6 +139,7 @@ export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount, rules?:
     ticker,
     importHash: importHash(sfTx.posted, sfTx.amount, description),
     notes: `sf:${sfTx.id}`,
+    sfTransactionId: sfTx.id,
   };
 }
 
@@ -172,15 +175,172 @@ export function markSelfTransfers(drafts: TxDraft[]): number {
   return paired;
 }
 
-// ── Dedup ─────────────────────────────────────────────────────────────────────
+// ── Dedup / reconciliation ────────────────────────────────────────────────────
 
-export type DedupIndex = { hashes: Set<string>; dateAmt: Set<string> };
+/** The subset of a stored row the sync needs in order to reconcile against it. */
+export type ExistingTx = {
+  id: string;
+  date?: string | null;
+  amount?: number | null;
+  description?: string | null;
+  status?: string | null;
+  category?: string | null;
+  importHash?: string | null;
+  sfTransactionId?: string | null;
+  notes?: string | null;
+};
 
-export function isDuplicate(draft: TxDraft, idx: DedupIndex | undefined): boolean {
-  if (!idx) return false;
-  if (idx.hashes.has(draft.importHash)) return true;
-  if (idx.dateAmt.has(`${draft.date}|${draft.amount.toFixed(2)}`)) return true;
-  return false;
+export type DedupIndex = {
+  /** Fingerprint → a stored row matching it. Values matter: a collision only
+   *  means "already imported" when the row it hit has no identity of its own. */
+  hashes:  Map<string, ExistingTx>;
+  dateAmt: Map<string, ExistingTx>;
+  /** SimpleFIN transaction id → the stored row carrying it. */
+  bySfId:  Map<string, ExistingTx>;
+};
+
+/**
+ * SimpleFIN's transaction id for a stored row. Prefers the dedicated column;
+ * falls back to the legacy `sf:<id>` notes convention so rows written before
+ * `sfTransactionId` existed still reconcile instead of duplicating.
+ */
+export function storedSfId(row: ExistingTx): string | null {
+  if (row.sfTransactionId) return row.sfTransactionId;
+  const n = row.notes ?? "";
+  return n.startsWith("sf:") ? n.slice(3) : null;
+}
+
+export function buildDedupIndex(rows: ExistingTx[]): DedupIndex {
+  const idx: DedupIndex = { hashes: new Map(), dateAmt: new Map(), bySfId: new Map() };
+  for (const r of rows) {
+    if (r.importHash && !idx.hashes.has(r.importHash)) idx.hashes.set(r.importHash, r);
+    if (r.date != null && r.amount != null) {
+      const k = `${r.date}|${Number(r.amount).toFixed(2)}`;
+      // Prefer an id-less row as the representative: it is the only kind the
+      // fingerprint fallback is allowed to match against.
+      if (!idx.dateAmt.has(k) || (storedSfId(idx.dateAmt.get(k)!) && !storedSfId(r))) {
+        idx.dateAmt.set(k, r);
+      }
+    }
+    const sfId = storedSfId(r);
+    // First writer wins: on the duplicate rows this bug already created, we
+    // reconcile against one of them and leave the rest to the backfill.
+    if (sfId && !idx.bySfId.has(sfId)) idx.bySfId.set(sfId, r);
+  }
+  return idx;
+}
+
+/** A masked descriptor such as "ACCT XXXXXX" — less informative than what it replaces. */
+export function isRedacted(description: string): boolean {
+  return /x{4,}/i.test(description);
+}
+
+/** Fields a settled transaction can legitimately change after it was first seen. */
+export type TxPatch = {
+  date?: string;
+  description?: string;
+  status?: "POSTED" | "PENDING";
+  importHash?: string;
+  category?: string | null;
+  sfTransactionId?: string;
+};
+
+export type Reconciliation =
+  | { action: "create"; draft: TxDraft }
+  | { action: "update"; id: string; patch: TxPatch; draft: TxDraft }
+  | { action: "skip";   draft: TxDraft };
+
+/**
+ * Decide what a freshly-pulled draft should do to the stored ledger.
+ *
+ * Identity first: when SimpleFIN's transaction id is already on a stored row,
+ * that row IS this transaction — whatever changed (a pending charge settling,
+ * its description filling out, its date shifting) is an update, never a new
+ * row and never a "duplicate" to drop. Only when the id is unknown do we fall
+ * back to the old fingerprint heuristics, which exist for pre-id rows.
+ *
+ * `inferForDescription` lets the caller re-categorize a row whose description
+ * changed. It is applied conservatively — see shouldRecategorize.
+ */
+export function reconcileDraft(
+  draft: TxDraft,
+  idx: DedupIndex | undefined,
+  inferForDescription?: (description: string) => string | null,
+): Reconciliation {
+  const existing = idx?.bySfId.get(draft.sfTransactionId);
+
+  if (existing) {
+    const patch: TxPatch = {};
+    if (!existing.sfTransactionId) patch.sfTransactionId = draft.sfTransactionId;
+    if (draft.date && existing.date !== draft.date) patch.date = draft.date;
+
+    // A pending row's payee is often a truncated prefix of the settled one, so
+    // the settled text normally wins — but never accept an empty one, and never
+    // trade a real merchant name for a redacted placeholder ("Feedamerica
+    // Chicago Usa" → "Feedamerica Xxxxxx"), which some institutions start
+    // returning once a charge clears.
+    const newDesc = (draft.description ?? "").trim();
+    const oldDesc = (existing.description ?? "").trim();
+    if (newDesc && newDesc !== oldDesc && !(isRedacted(newDesc) && !isRedacted(oldDesc))) {
+      patch.description = newDesc;
+    }
+
+    const newStatus = draft.status;
+    if ((existing.status ?? "") !== newStatus) patch.status = newStatus;
+
+    if (patch.date || patch.description) patch.importHash = draft.importHash;
+
+    if (patch.description && inferForDescription) {
+      const next = shouldRecategorize(oldDesc, newDesc, existing.category ?? null, inferForDescription);
+      if (next !== undefined) patch.category = next;
+    }
+
+    return Object.keys(patch).length > 0
+      ? { action: "update", id: existing.id, patch, draft }
+      : { action: "skip", draft };
+  }
+
+  // No stored row carries this id. The fingerprint heuristics are the only
+  // thing left, and they are deliberately weak: they may only suppress a draft
+  // when the row they collide with has NO identity of its own — i.e. it could
+  // plausibly BE this transaction, imported before ids were kept. A collision
+  // against a row that already belongs to some other SimpleFIN transaction is
+  // just two genuinely separate charges that share a date and amount (two $3
+  // subway taps, two identical tolls), and must still be created.
+  if (idx) {
+    const byHash = idx.hashes.get(draft.importHash);
+    if (byHash && !storedSfId(byHash)) return { action: "skip", draft };
+    const byDateAmt = idx.dateAmt.get(`${draft.date}|${draft.amount.toFixed(2)}`);
+    if (byDateAmt && !storedSfId(byDateAmt)) return { action: "skip", draft };
+  }
+  return { action: "create", draft };
+}
+
+/**
+ * The new category for a row whose description changed, or undefined to leave
+ * it alone.
+ *
+ * A stored category is only overwritten when it still equals what the OLD
+ * description would have inferred — i.e. it looks machine-assigned. Anything
+ * else (a hand-picked category, an LLM fallback that no rule reproduces) is
+ * treated as deliberate and preserved. This matters because the descriptions
+ * being repaired are exactly the ones that were classified from truncated text:
+ * "Certificate of Origin Meta" becoming "Meta Payroll" should re-file as
+ * payroll, but a row the user manually moved to "Dolce" should stay there.
+ */
+export function shouldRecategorize(
+  oldDescription: string,
+  newDescription: string,
+  storedCategory: string | null,
+  infer: (description: string) => string | null,
+): string | null | undefined {
+  const fromOld = infer(oldDescription);
+  const fromNew = infer(newDescription);
+  if (fromNew === null || fromNew === fromOld) return undefined;      // nothing better to say
+  const stored = (storedCategory ?? "").trim();
+  if (stored === "" ) return fromNew;                                  // never categorized
+  if (stored === (fromOld ?? "")) return fromNew;                      // machine-assigned → refresh
+  return undefined;                                                    // user-owned → leave alone
 }
 
 // ── Balance derivation ────────────────────────────────────────────────────────

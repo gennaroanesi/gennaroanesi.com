@@ -27,7 +27,8 @@ import { fetchAccounts, maskAccessUrl } from "./simplefin";
 import {
   sfTxToDraft,
   markSelfTransfers,
-  isDuplicate,
+  buildDedupIndex,
+  reconcileDraft,
   deriveTargetBalance,
   balanceNeedsUpdate,
   desiredHoldingsFromSf,
@@ -36,9 +37,10 @@ import {
   type FinAccount,
   type TxDraft,
   type DedupIndex,
+  type Reconciliation,
 } from "./engine";
 import { classifyTransactionsLLM } from "./classify-llm";
-import { rulesFromDbRows } from "../../../components/finance/categories";
+import { rulesFromDbRows, inferCategory } from "../../../components/finance/categories";
 
 type DataClient = ReturnType<typeof generateClient<Schema>>;
 let _client: DataClient | null = null;
@@ -78,6 +80,20 @@ function isoDaysAgo(n: number): string {
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
+function isoDaysBefore(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Extra history to read when building the reconcile index, beyond the pull
+ * window. A transaction first seen as pending is stored under a provisional
+ * date that can be days earlier than the date it finally posts on, so the row
+ * we must update may sit just outside the window we pulled. Reading a little
+ * further back costs one wider query and prevents a second row being created.
+ */
+const RECONCILE_LOOKBACK_DAYS = 30;
 
 type Payload = {
   days?: number;
@@ -136,6 +152,7 @@ export const handler = async (event: Payload = {}) => {
       accountsChecked: 0,
       txPulled: 0,
       txInserted: 0,
+      txUpdated: 0,
       txDuplicate: 0,
       txFailed: 0,
       balancesUpdated: 0,
@@ -167,6 +184,7 @@ export const handler = async (event: Payload = {}) => {
       accountsChecked: 0,
       txPulled: 0,
       txInserted: 0,
+      txUpdated: 0,
       txDuplicate: 0,
       txFailed: 0,
       balancesUpdated: 0,
@@ -203,6 +221,7 @@ export const handler = async (event: Payload = {}) => {
       accountsChecked: mapped.length,
       txPulled: 0,
       txInserted: 0,
+      txUpdated: 0,
       txDuplicate: 0,
       txFailed: 0,
       balancesUpdated: 0,
@@ -251,25 +270,38 @@ export const handler = async (event: Payload = {}) => {
   if (pairs > 0) console.log(`[simplefinSync] marked ${pairs} self-transfer pair(s)`);
 
   // ── Dedup index per account ────────────────────────────────────────────────
+  // The window is date-bounded, but a row we need to reconcile against may be
+  // stored under its stale PENDING date — which can sit days BEFORE the date
+  // the settled version reports. Widen the read window so a settling
+  // transaction still finds its own earlier row instead of creating a second.
+  const reconcileFrom = isoDaysBefore(windowFrom, RECONCILE_LOOKBACK_DAYS);
   const dedupByAccount = new Map<string, DedupIndex>();
   for (const a of mapped) {
     const existing = await listAll(
       c.models.financeTransaction,
-      { and: [{ accountId: { eq: a.id } }, { date: { ge: windowFrom } }] },
+      { and: [{ accountId: { eq: a.id } }, { date: { ge: reconcileFrom } }] },
       5_000,
     );
-    const idx: DedupIndex = { hashes: new Set(), dateAmt: new Set() };
-    for (const it of existing as any[]) {
-      if (it.importHash) idx.hashes.add(it.importHash);
-      if (it.date != null && it.amount != null) {
-        idx.dateAmt.add(`${it.date}|${Number(it.amount).toFixed(2)}`);
-      }
-    }
-    dedupByAccount.set(a.id, idx);
+    dedupByAccount.set(a.id, buildDedupIndex(existing as any[]));
   }
-  const fresh = drafts.filter((d) => !isDuplicate(d, dedupByAccount.get(d.accountId)));
-  const dupCount = drafts.length - fresh.length;
-  console.log(`[simplefinSync] ${fresh.length} new, ${dupCount} duplicate`);
+
+  const inferForDescription = (description: string) =>
+    inferCategory({ description, type: "EXPENSE", amount: -1 }, rules);
+
+  const plans: Reconciliation[] = drafts.map((d) =>
+    reconcileDraft(d, dedupByAccount.get(d.accountId), inferForDescription),
+  );
+  const fresh   = plans.filter((p) => p.action === "create").map((p) => p.draft);
+  const updates = plans.filter((p): p is Extract<Reconciliation, { action: "update" }> => p.action === "update");
+  const dupCount = plans.filter((p) => p.action === "skip").length;
+  console.log(
+    `[simplefinSync] ${fresh.length} new, ${updates.length} updated, ${dupCount} unchanged`,
+  );
+  if (updates.length > 0) {
+    const settled = updates.filter((u) => u.patch.status === "POSTED").length;
+    const redesc  = updates.filter((u) => u.patch.description).length;
+    console.log(`[simplefinSync]   ${settled} pending→posted, ${redesc} description corrected`);
+  }
 
   // ── LLM fallback classification ────────────────────────────────────────────
   // Rules already ran in sfTxToDraft; anything still null would land as
@@ -365,6 +397,7 @@ export const handler = async (event: Payload = {}) => {
       accountsChecked: mapped.length,
       txPulled,
       txInserted: 0,
+      txUpdated: 0,
       txDuplicate: dupCount,
       txFailed: 0,
       balancesUpdated: balanceTargetById.size,
@@ -380,6 +413,7 @@ export const handler = async (event: Payload = {}) => {
       dryRun: true,
       accountsChecked: mapped.length,
       txNew: fresh.length,
+      txToUpdate: updates.length,
       balancesToUpdate: balanceTargetById.size,
       holdingsChanged,
     };
@@ -401,6 +435,7 @@ export const handler = async (event: Payload = {}) => {
       toAccountId: d.toAccountId ?? null,
       ticker: d.ticker,
       importHash: d.importHash,
+      sfTransactionId: d.sfTransactionId,
       notes: d.notes,
     });
     if (e?.length) {
@@ -410,6 +445,32 @@ export const handler = async (event: Payload = {}) => {
       txInserted++;
     }
   }
+
+  // ── Settled / corrected rows ───────────────────────────────────────────────
+  // A row whose SimpleFIN id we already hold is the same transaction we stored
+  // earlier, so its changes are applied in place. Only the fields SimpleFIN
+  // owns move; category is touched only when reconcileDraft judged the stored
+  // one machine-assigned, and user-owned fields (spendGroupId, goalId, notes)
+  // are never written here.
+  let txUpdated = 0;
+  for (const u of updates) {
+    const { errors: e } = await c.models.financeTransaction.update({
+      id: u.id,
+      ...(u.patch.date            !== undefined ? { date: u.patch.date } : {}),
+      ...(u.patch.description     !== undefined ? { description: u.patch.description } : {}),
+      ...(u.patch.status          !== undefined ? { status: u.patch.status as any } : {}),
+      ...(u.patch.importHash      !== undefined ? { importHash: u.patch.importHash } : {}),
+      ...(u.patch.category        !== undefined ? { category: u.patch.category } : {}),
+      ...(u.patch.sfTransactionId !== undefined ? { sfTransactionId: u.patch.sfTransactionId } : {}),
+    } as any);
+    if (e?.length) {
+      txFailed++;
+      errors.push(`tx update ${u.id}: ${e[0].message}`);
+    } else {
+      txUpdated++;
+    }
+  }
+  if (txUpdated > 0) console.log(`[simplefinSync] updated ${txUpdated} existing row(s)`);
 
   // One update() per mapped account: balance (when changed) + sync stamps.
   let balancesUpdated = 0;
@@ -472,7 +533,7 @@ export const handler = async (event: Payload = {}) => {
   const status: "OK" | "PARTIAL" =
     txFailed > 0 || errors.length > 0 ? "PARTIAL" : "OK";
   console.log(
-    `[simplefinSync] done: ${txInserted} tx (${txFailed} failed), ${balancesUpdated} balances, ` +
+    `[simplefinSync] done: ${txInserted} new, ${txUpdated} updated (${txFailed} failed), ${balancesUpdated} balances, ` +
       `${holdingsWritten}/${holdingsChanged} holdings, ${errors.length} errors`,
   );
 
@@ -485,6 +546,7 @@ export const handler = async (event: Payload = {}) => {
     accountsChecked: mapped.length,
     txPulled,
     txInserted,
+    txUpdated,
     txDuplicate: dupCount,
     txFailed,
     balancesUpdated,
@@ -518,6 +580,7 @@ async function writeSyncLog(row: {
   accountsChecked: number;
   txPulled: number;
   txInserted: number;
+  txUpdated?: number;
   txDuplicate: number;
   txFailed: number;
   balancesUpdated: number;
@@ -540,6 +603,7 @@ async function writeSyncLog(row: {
       accountsChecked: row.accountsChecked,
       txPulled: row.txPulled,
       txInserted: row.txInserted,
+      txUpdated:  row.txUpdated ?? 0,
       txDuplicate: row.txDuplicate,
       txFailed: row.txFailed,
       balancesUpdated: row.balancesUpdated,

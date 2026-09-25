@@ -123,7 +123,7 @@ function toUnixSeconds(v) {
 function normalizeAccount(a) {
   const txs = (a.transactions ?? []).map((t) => ({
     id:           t.id,
-    posted:       unixToIsoDate(t.posted),
+    posted:       unixToIsoDate(t.posted) ?? unixToIsoDate(t.transacted_at),
     transactedAt: t.transacted_at ? unixToIsoDate(t.transacted_at) : null,
     amount:       parseFloat(t.amount ?? "0"),
     description:  (t.description ?? "").trim(),
@@ -172,7 +172,15 @@ function normalizeAccount(a) {
 }
 
 function unixToIsoDate(unixSec) {
-  return new Date(Number(unixSec) * 1000).toISOString().slice(0, 10);
+  // Mirrors the guarded copy in amplify/functions/simplefinSync/simplefin.ts.
+  // 0 / NaN / negative mean "no date" — SimpleFIN sends posted: 0 for a pending
+  // transaction that hasn't settled. Returning the 1970 epoch instead of null
+  // materialises a row the windowed dedup can never see, so every sync
+  // re-creates it (the ghost rows this repair had to delete).
+  if (unixSec == null || unixSec === "") return null;
+  const n = Number(unixSec);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(n * 1000).toISOString().slice(0, 10);
 }
 
 /**

@@ -533,6 +533,16 @@ const schema = a.schema({
       spendGroupId: a.id(), // optional tag → financeSpendGroup.id (trip/project/event)
       toAccountId: a.id(), // TRANSFER destination account
       importHash: a.string(), // dedup fingerprint: hash(date+amount+description)
+      // SimpleFIN's own transaction id ("TRN-…"). The stable identity of a
+      // synced row across its whole life: a pending charge and the settled
+      // charge it becomes share this id even though their date, description and
+      // status all change. Dedup keys on it so the sync can UPDATE a row in
+      // place instead of seeing the settled version as a new-but-duplicate
+      // transaction and dropping it (which froze rows at their pending-time
+      // description and left them PENDING forever).
+      // Legacy rows carry the same value as "sf:<id>" in `notes`; the sync
+      // falls back to parsing that, so this can be backfilled lazily.
+      sfTransactionId: a.string(),
       // Optional link to the financeRecurring rule this tx realizes. Set by
       // the auto-matcher on create or by the user via "Link to rule" action.
       // Never set by the "Post now" flow — that path already advances the
@@ -859,7 +869,8 @@ const schema = a.schema({
       accountsChecked: a.integer(),
       txPulled:        a.integer(), // rows SimpleFIN returned in the window
       txInserted:      a.integer(), // new rows written
-      txDuplicate:     a.integer(), // skipped as already-imported
+      txUpdated:       a.integer(), // existing rows reconciled in place (pending→posted, description/date corrected)
+      txDuplicate:     a.integer(), // seen before and unchanged
       txFailed:        a.integer(),
       balancesUpdated: a.integer(),
       holdingsChanged: a.integer(), // creates + updates + deletes
