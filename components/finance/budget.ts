@@ -516,3 +516,55 @@ export function unassignedCategories(
     .map(([category, spent]) => ({ category, spent }))
     .sort((a, b) => b.spent - a.spent);
 }
+
+// ── Income forecast ───────────────────────────────────────────────────────────
+
+/**
+ * Expected inflow per funding source for a window.
+ *
+ * Equity and bonus come only from what the user has actually entered — ONCE
+ * INCOME recurring rules carrying a fundingSource. Nothing is inferred: a
+ * guessed vest would silently inflate a pool and every pace number drawn
+ * against it, and the whole point of entering the vest by hand is that only the
+ * user knows the number.
+ *
+ * Salary is the exception, because it is the one inflow with a real cadence.
+ * When no salary rule exists it falls back to the trailing salaryPerMonth that
+ * review.ts summarizeIncomeSources already computes, scaled to the window.
+ */
+export function forecastBySource(
+  recurrings: RecurringRecord[],
+  window: DateRange,
+  occurrencesOf: (r: RecurringRecord, from: string, to: string) => number,
+  fallbackSalaryPerMonth?: number,
+): Partial<Record<FundingSource, number>> {
+  const out: Partial<Record<FundingSource, number>> = {};
+  for (const r of recurrings) {
+    if (r.active === false) continue;
+    const src = (r as any).fundingSource as FundingSource | null | undefined;
+    if (!src) continue;
+    const amt = r.amount ?? 0;
+    const isInflow = r.type === "INCOME" || amt > 0;
+    if (!isInflow) continue;
+    const n = occurrencesOf(r, window.fromIso, window.toIso);
+    if (n <= 0) continue;
+    out[src] = (out[src] ?? 0) + Math.abs(amt) * n;
+  }
+  if (out.SALARY == null && fallbackSalaryPerMonth != null) {
+    const months = Math.max(0, daysBetween(window.fromIso, window.toIso)) / 30.44;
+    out.SALARY = fallbackSalaryPerMonth * months;
+  }
+  return out;
+}
+
+/** Vest dates the user has entered — ONCE INCOME rules tagged RSU. Drives the CYCLE window. */
+export function enteredVestDates(recurrings: RecurringRecord[]): string[] {
+  return recurrings
+    .filter((r) => r.active !== false
+      && (r as any).fundingSource === "RSU"
+      && r.cadence === "ONCE"
+      && (r.type === "INCOME" || (r.amount ?? 0) > 0))
+    .map((r) => r.nextDate ?? r.startDate ?? "")
+    .filter(Boolean)
+    .sort();
+}

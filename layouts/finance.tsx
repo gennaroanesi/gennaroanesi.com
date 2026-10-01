@@ -39,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Planning",
     items: [
       { key: "review",      label: "Review",      href: "/finance/review" },
+      { key: "budget",      label: "Budget",      href: "/finance/budget" },
       { key: "groups",      label: "Groups",      href: "/finance/groups" },
       { key: "tax-outlook", label: "Tax outlook", href: "/finance/tax-outlook" },
       { key: "goals",       label: "Goals",       href: "/finance/goals" },
