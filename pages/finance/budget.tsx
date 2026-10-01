@@ -152,19 +152,28 @@ export default function BudgetPage() {
     };
   }, [budgets, txs, recurrings, window, today, vestDates, occurrencesOf]);
 
-  // Every category the user could put in a bucket, plus who already owns it.
+  // The categories a bucket can cover depend on its direction: an income line
+  // needs the categories money ARRIVES under, and listing spend categories for
+  // it (as this did) offers nothing selectable at all.
   const categoryOptions = useMemo(() => {
+    const kind = draft?.kind ?? "EXPENSE";
+    const allTime = { fromIso: "1900-01-01", toIso: "2999-12-31", label: "" };
     const all = new Set<string>();
-    for (const [c] of spendByCategory(txs, { fromIso: "1900-01-01", toIso: "2999-12-31", label: "" })) all.add(c);
-    for (const b of budgets) for (const c of bucketCategories(b)) all.add(c);
+    for (const [c] of actualByCategory(txs, allTime, kind)) all.add(c);
+    // Categories already in a bucket of this kind, even if nothing has landed
+    // in them lately, so an existing selection never disappears from the list.
+    for (const b of budgets) if (budgetKind(b) === kind) for (const c of bucketCategories(b)) all.add(c);
+
+    // Ownership is per kind: the same category in two spending buckets would
+    // double-count, but a category appearing in both an income and an expense
+    // bucket counts different directions of money and is not a conflict.
     const owner = new Map<string, BudgetLine>();
-    if (window) {
-      for (const l of resolveBudgetLines(budgets, window.fromIso)) {
-        for (const c of bucketCategories(l)) owner.set(c, l);
-      }
+    for (const l of resolveBudgetLines(budgets, window.fromIso)) {
+      if (budgetKind(l) !== kind) continue;
+      for (const c of bucketCategories(l)) owner.set(c, l);
     }
     return { list: [...all].sort(), owner };
-  }, [txs, budgets, window]);
+  }, [txs, budgets, window, draft?.kind]);
 
   function openNew() {
     setDraft({
@@ -201,7 +210,10 @@ export default function BudgetPage() {
     if (!draft || !panel) return;
     if (!draft.name.trim())       { notifyError("Name is required"); return; }
     if (draft.amount == null)     { notifyError("Amount is required"); return; }
-    if (draft.categories.length === 0) { notifyError("Pick at least one category"); return; }
+    if (draft.kind !== "INCOME" && draft.categories.length === 0) {
+      notifyError("Pick at least one category — a spending bucket with none measures nothing");
+      return;
+    }
     setSaving(true);
     try {
       if (panel.kind === "edit" && editMode === "correct") {
@@ -440,7 +452,8 @@ export default function BudgetPage() {
                 <SaveButton
                   onSave={handleSave}
                   saving={saving}
-                  disabled={!draft.name.trim() || draft.amount == null || draft.categories.length === 0}
+                  disabled={!draft.name.trim() || draft.amount == null
+                    || (draft.kind !== "INCOME" && draft.categories.length === 0)}
                 />
               </div>
             }
@@ -532,13 +545,20 @@ export default function BudgetPage() {
             </div>
 
             <div>
-              <label className={labelCls}>Categories * ({draft.categories.length})</label>
+              <label className={labelCls}>
+                Categories{draft.kind === "INCOME" ? "" : " *"} ({draft.categories.length})
+              </label>
               <p className="text-[11px] text-gray-400 mb-1.5">
                 {draft.kind === "INCOME"
-                  ? "Which categories count as this income arriving, so the declared amount can be checked against reality."
-                  : "A category can sit in only one budget — its spend cannot be split between two."}
+                  ? "Optional — which categories count as this income arriving, so the declared amount can be checked against what actually landed. Leave empty to just declare the pool."
+                  : "A category can sit in only one spending budget — its spend cannot be split between two."}
               </p>
               <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder divide-y divide-gray-100 dark:divide-gray-700">
+                {categoryOptions.list.length === 0 && (
+                  <p className="px-3 py-3 text-xs text-gray-400">
+                    No {draft.kind === "INCOME" ? "income" : "spending"} categories seen yet.
+                  </p>
+                )}
                 {categoryOptions.list.map((cat) => {
                   const owner = categoryOptions.owner.get(cat);
                   const takenBy = owner && owner.seriesId !== draft.seriesId ? owner.name : null;

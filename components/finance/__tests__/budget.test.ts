@@ -624,3 +624,42 @@ describe("monthsInRange — calendar-aligned vs rolling windows", () => {
     expect(isMonthAligned(R("2028-02-01", "2028-02-29"))).toBe(true);   // leap
   });
 });
+
+describe("income and expense buckets don't collide", () => {
+  const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+
+  it("lets the same category sit in an income and an expense bucket", () => {
+    // Refunds: money out under "Shopping", money back under "Shopping". Those
+    // are opposite directions, not two budgets fighting over one number.
+    const spend = line({
+      id: "e", seriesId: "disc", name: "Discretionary", kind: "EXPENSE", categories: ["Shopping"],
+    });
+    const back = line({
+      id: "i", seriesId: "refunds", name: "Refunds", kind: "INCOME", categories: ["Shopping"],
+    });
+    expect(validateBudgetHistory([spend, back], "2026-09-15")).toEqual([]);
+  });
+
+  it("still flags two SPENDING buckets sharing a category", () => {
+    const a = line({ id: "a", seriesId: "x", name: "Discretionary", categories: ["Shopping"] });
+    const b = line({ id: "b", seriesId: "y", name: "Fun money",     categories: ["Shopping"] });
+    expect(validateBudgetHistory([a, b], "2026-09-15").some((i) => i.kind === "shared-category")).toBe(true);
+  });
+
+  it("flags two INCOME buckets sharing a category too", () => {
+    const a = line({ id: "a", seriesId: "x", name: "Salary",  kind: "INCOME", categories: ["Income"] });
+    const b = line({ id: "b", seriesId: "y", name: "Bonuses", kind: "INCOME", categories: ["Income"] });
+    expect(validateBudgetHistory([a, b], "2026-09-15").some((i) => i.kind === "shared-category")).toBe(true);
+  });
+
+  it("an income line with no categories still declares its pool", () => {
+    // Declaring "salary is $12k" is useful even with nothing to check it against.
+    const inc = line({ id: "i", kind: "INCOME", name: "Meta Salary", categories: [], amount: 12000 });
+    const v = computeLineView(inc, w, new Map(), new Map(), "2026-09-15");
+    expect(v.budgeted).toBe(12000);
+    expect(v.spent).toBe(0);
+    const [pool] = summarizePools([v]);
+    expect(pool.declared).toBe(true);
+    expect(pool.forecast).toBe(12000);
+  });
+});

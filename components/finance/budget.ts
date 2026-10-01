@@ -180,16 +180,20 @@ export function validateBudgetHistory(lines: BudgetLine[], onDate?: string): Bud
   // a transaction cannot be split between them. Checked on a date because two
   // buckets may legitimately have covered it at different times.
   if (onDate) {
+    // Keyed by kind as well as category: the same category in two spending
+    // buckets double-counts, but appearing in both an income and an expense
+    // bucket counts opposite directions of money and is not a conflict.
     const owner = new Map<string, BudgetLine>();
     for (const l of resolveBudgetLines(lines, onDate)) {
       for (const cat of bucketCategories(l)) {
-        const prev = owner.get(cat);
+        const key = `${budgetKind(l)}\u0000${cat}`;
+        const prev = owner.get(key);
         if (prev && prev.seriesId !== l.seriesId) {
           issues.push({
             seriesId: l.seriesId, name: l.name, kind: "shared-category", lineIds: [prev.id, l.id],
             detail: `"${cat}" is also covered by "${prev.name}" — its spend would count against both`,
           });
-        } else owner.set(cat, l);
+        } else owner.set(key, l);
       }
     }
   }
