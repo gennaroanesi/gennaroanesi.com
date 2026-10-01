@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isInForce, resolveBudgetLines, validateBudgetHistory, planBudgetChange,
-  budgetWindow, cycleWindow, elapsedFraction, spendByCategory, committedByCategory,
+  elapsedFraction, spendByCategory, committedByCategory,
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
   budgetedForRange, monthsSpanned, monthsInRange, isMonthAligned, actualByCategory, budgetKind,
@@ -162,27 +162,9 @@ describe("planBudgetChange", () => {
 });
 
 describe("windows", () => {
-  it("MONTHLY spans the calendar month, including a leap February", () => {
-    expect(budgetWindow("MONTHLY", "2026-09-30")).toEqual({
-      fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09",
-    });
+  it("handles month ends, including a leap February", () => {
     expect(monthEnd("2028-02-10")).toBe("2028-02-29");
     expect(monthEnd("2026-02-10")).toBe("2026-02-28");
-  });
-
-  it("CYCLE runs from the last vest to the next", () => {
-    const w = cycleWindow("2026-09-30", ["2026-08-15", "2026-11-15", "2027-02-15"]);
-    expect(w).toEqual({ fromIso: "2026-08-15", toIso: "2026-11-15", label: "2026-08-15 → 2026-11-15" });
-  });
-
-  it("returns null when no future vest is known rather than assuming a cadence", () => {
-    // An invented boundary would silently rescale every pace number on the page.
-    expect(cycleWindow("2026-09-30", ["2026-08-15"])).toBeNull();
-    expect(budgetWindow("CYCLE", "2026-09-30", [])).toBeNull();
-  });
-
-  it("starts the cycle at today when there is no prior vest on record", () => {
-    expect(cycleWindow("2026-09-30", ["2026-11-15"])?.fromIso).toBe("2026-09-30");
   });
 
   it("measures elapsed fraction and clamps it", () => {
@@ -196,8 +178,8 @@ describe("windows", () => {
 
   it("defaults the period from the funding source", () => {
     expect(DEFAULT_PERIOD.SALARY).toBe("MONTHLY");
-    expect(DEFAULT_PERIOD.RSU).toBe("CYCLE");
-    expect(DEFAULT_PERIOD.BONUS).toBe("CYCLE");
+    expect(DEFAULT_PERIOD.RSU).toBe("QUARTERLY");
+    expect(DEFAULT_PERIOD.BONUS).toBe("ANNUALLY");
   });
 
   it("handles date helpers across month and year boundaries", () => {
@@ -416,37 +398,41 @@ describe("summarizePools & unassignedCategories", () => {
 });
 
 describe("budgetedForRange — asking a budget about an arbitrary period", () => {
-  const monthly = line({ id: "m", amount: 500, period: "MONTHLY" });
-  const cyc = line({ id: "c", amount: 3000, period: "CYCLE", fundingSource: "RSU" });
   const R = (f: string, t: string) => ({ fromIso: f, toIso: t, label: "" });
+  const monthly   = line({ id: "m", amount: 500,  period: "MONTHLY" });
+  const quarterly = line({ id: "q", amount: 600,  period: "QUARTERLY" });
+  const yearly    = line({ id: "y", amount: 6000, period: "ANNUALLY" });
 
   it("scales a monthly budget by whole calendar months", () => {
-    expect(budgetedForRange(monthly, R("2026-07-01", "2026-07-31"), [])).toBe(500);
-    expect(budgetedForRange(monthly, R("2026-07-01", "2026-09-30"), [])).toBe(1500);
-    expect(budgetedForRange(monthly, R("2026-01-01", "2026-12-31"), [])).toBe(6000);
+    expect(budgetedForRange(monthly, R("2026-07-01", "2026-07-31"))).toBe(500);
+    expect(budgetedForRange(monthly, R("2026-07-01", "2026-09-30"))).toBe(1500);
+    expect(budgetedForRange(monthly, R("2026-01-01", "2026-12-31"))).toBe(6000);
+  });
+
+  it("converts between recurrences", () => {
+    expect(budgetedForRange(quarterly, R("2026-07-01", "2026-07-31"))).toBe(200);     // a third
+    expect(budgetedForRange(quarterly, R("2026-07-01", "2026-09-30"))).toBe(600);     // itself
+    expect(budgetedForRange(quarterly, R("2026-01-01", "2026-12-31"))).toBe(2400);    // four of them
+    expect(budgetedForRange(yearly,    R("2026-07-01", "2026-07-31"))).toBe(500);
+    expect(budgetedForRange(yearly,    R("2026-01-01", "2026-12-31"))).toBe(6000);
   });
 
   it("does not drift on a 31-day month the way days/30.44 would", () => {
-    // 31/30.44 would read 509.20 for a $500 budget. July is one month.
-    expect(budgetedForRange(monthly, R("2026-07-01", "2026-07-31"), [])).toBe(500);
+    expect(budgetedForRange(monthly, R("2026-07-01", "2026-07-31"))).toBe(500);
   });
 
-  it("pro-rates a cycle budget by its overlap with the range", () => {
-    const vests = ["2026-08-15", "2026-11-15"];           // a 92-day cycle
-    const got = budgetedForRange(cyc, R("2026-09-01", "2026-09-30"), vests)!;
-    expect(got).toBeCloseTo(3000 * (30 / 92), 2);
+  it("gives a ONCE budget wholly to the period containing its start date", () => {
+    // A $5,000 remodel is one decision, not $1,667 a month for a quarter.
+    const once = line({ id: "o", amount: 5000, period: "ONCE", effectiveFrom: "2026-07-15" });
+    expect(budgetedForRange(once, R("2026-07-01", "2026-07-31"))).toBe(5000);
+    expect(budgetedForRange(once, R("2026-07-01", "2026-09-30"))).toBe(5000);   // not 3x
+    expect(budgetedForRange(once, R("2026-08-01", "2026-08-31"))).toBe(0);
+    expect(budgetedForRange(once, R("2026-06-01", "2026-06-30"))).toBe(0);
   });
 
-  it("returns null when no cycle covers the range, rather than inventing one", () => {
-    expect(budgetedForRange(cyc, R("2026-09-01", "2026-09-30"), [])).toBeNull();
-    expect(budgetedForRange(cyc, R("2027-06-01", "2027-06-30"), ["2026-08-15", "2026-11-15"])).toBeNull();
-  });
-
-  it("surfaces an unknown cycle budget on the view instead of showing zero as fact", () => {
-    const v = computeLineView(cyc, R("2026-09-01", "2026-09-30"), new Map(), new Map(), "2026-09-15", []);
-    expect(v.budgetKnown).toBe(false);
-    expect(computeLineView(cyc, R("2026-09-01", "2026-09-30"), new Map(), new Map(), "2026-09-15",
-      ["2026-08-15", "2026-11-15"]).budgetKnown).toBe(true);
+  it("falls back to the funding source's default recurrence", () => {
+    const noPeriod = line({ id: "n", amount: 1200, period: null, fundingSource: "SALARY" });
+    expect(budgetedForRange(noPeriod, R("2026-07-01", "2026-07-31"))).toBe(1200);
   });
 
   it("counts calendar months, so a part-month still counts as that month", () => {
@@ -616,7 +602,7 @@ describe("monthsInRange — calendar-aligned vs rolling windows", () => {
     const last3 = R("2026-07-01", "2026-10-01");
     expect(monthsSpanned(last3)).toBe(4);
     expect(monthsInRange(last3)).toBeCloseTo(93 / 30.44, 5);
-    expect(budgetedForRange(monthly, last3, [])).toBeCloseTo(500 * (93 / 30.44), 2);
+    expect(budgetedForRange(monthly, last3)).toBeCloseTo(500 * (93 / 30.44), 2);
   });
 
   it("recognises alignment only when both ends line up", () => {

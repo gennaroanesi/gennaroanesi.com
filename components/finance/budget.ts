@@ -7,9 +7,8 @@
  * review.ts unchanged — and adds only three things that face forward:
  *
  *   1. SCD resolution — which budget line was in force on a given date.
- *   2. Windows — a MONTHLY line budgets per calendar month; a CYCLE line
- *      budgets vest-to-vest, because equity income arrives in lumps and a
- *      monthly allowance against it is fiction.
+ *   2. Recurrence — a budget is written per month, quarter, year or as a
+ *      one-off, and has to answer for whatever window the page asks about.
  *   3. Pace — spent against elapsed fraction of the window.
  *
  * Pure and dependency-free (no React, no client), like review.ts.
@@ -39,18 +38,30 @@ export function budgetKind(line: BudgetLine): BudgetKind {
   return line.kind === "INCOME" ? "INCOME" : "EXPENSE";
 }
 
-export const BUDGET_PERIODS = ["MONTHLY", "CYCLE"] as const;
+export const BUDGET_PERIODS = ["MONTHLY", "QUARTERLY", "ANNUALLY", "ONCE"] as const;
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 
+export const BUDGET_PERIOD_LABELS: Record<BudgetPeriod, string> = {
+  MONTHLY:   "Month",
+  QUARTERLY: "Quarter",
+  ANNUALLY:  "Year",
+  ONCE:      "One-off",
+};
+
+/** How many months one occurrence of a recurrence covers. ONCE recurs never. */
+const PERIOD_MONTHS: Record<Exclude<BudgetPeriod, "ONCE">, number> = {
+  MONTHLY: 1, QUARTERLY: 3, ANNUALLY: 12,
+};
+
 /**
- * The window a funding source implies when the user hasn't overridden it.
- * Salary lands on a cadence, so it budgets per month. Bonus and RSU arrive as
- * lumps, so they budget per cycle — a pool that depletes until the next one.
+ * The recurrence a funding source usually implies — a form default, visible and
+ * editable, not an inference. Salary lands monthly; equity arrives in lumps, so
+ * a quarterly or annual figure describes it far better than a monthly one.
  */
 export const DEFAULT_PERIOD: Record<FundingSource, BudgetPeriod> = {
   SALARY: "MONTHLY",
-  BONUS:  "CYCLE",
-  RSU:    "CYCLE",
+  BONUS:  "ANNUALLY",
+  RSU:    "QUARTERLY",
   OTHER:  "MONTHLY",
 };
 
@@ -266,36 +277,6 @@ export function daysBetween(fromIso: string, toIso: string): number {
   return Math.round(ms / 86_400_000);
 }
 
-/**
- * The window a CYCLE line budgets over: the current vest to the next one.
- *
- * `vestDates` are the dates the user has entered as expected equity events
- * (ONCE financeRecurring INCOME rules with a fundingSource). When no future
- * vest is known the cycle has no end, and this returns null rather than
- * assuming a cadence — an invented boundary would silently rescale every pace
- * number on the page. The caller shows "no next vest entered" instead.
- */
-export function cycleWindow(todayIso: string, vestDates: string[]): DateRange | null {
-  const sorted = [...vestDates].filter(Boolean).sort();
-  const next = sorted.find((d) => d > todayIso);
-  if (!next) return null;
-  const prior = [...sorted].reverse().find((d) => d <= todayIso);
-  const from = prior ?? todayIso;
-  return { fromIso: from, toIso: next, label: `${from} → ${next}` };
-}
-
-/** The window a line budgets over, or null when a CYCLE window can't be determined. */
-export function budgetWindow(
-  period: BudgetPeriod,
-  todayIso: string,
-  vestDates: string[] = [],
-): DateRange | null {
-  if (period === "MONTHLY") {
-    return { fromIso: monthStart(todayIso), toIso: monthEnd(todayIso), label: todayIso.slice(0, 7) };
-  }
-  return cycleWindow(todayIso, vestDates);
-}
-
 /** How far through the window we are, 0..1. Clamped so a stale date can't exceed 1. */
 export function elapsedFraction(window: DateRange, todayIso: string): number {
   const total = daysBetween(window.fromIso, window.toIso);
@@ -439,8 +420,6 @@ export type BudgetLineView = {
   line: BudgetLine;
   window: DateRange;
   budgeted: number;
-  /** False when a CYCLE line has no entered vest cycle covering the window. */
-  budgetKnown: boolean;
   /** Already spoken for by recurring rules — a decomposition of `budgeted`, not an addition. */
   committed: number;
   /** What's left to steer: budgeted − committed. Negative means the rules alone overrun the line. */
@@ -465,13 +444,9 @@ export function computeLineView(
   actualByCat: Map<string, number>,
   committedByCat: Map<string, number>,
   todayIso: string,
-  vestDates: string[] = [],
 ): BudgetLineView {
   const cats = bucketCategories(line);
-  // Null when a CYCLE line has no known cycle: the page says so instead of
-  // showing a number built on a boundary nobody entered.
-  const scaled = budgetedForRange(line, window, vestDates);
-  const budgeted = scaled ?? 0;
+  const budgeted = budgetedForRange(line, window);
   const sumOver = (m: Map<string, number>) => cats.reduce((sum, c) => sum + (m.get(c) ?? 0), 0);
   const committed = sumOver(committedByCat);
   const spent = sumOver(actualByCat);
@@ -493,7 +468,7 @@ export function computeLineView(
   } else if (spent > budgeted) status = "over";
 
   return {
-    line, window, budgeted, budgetKnown: scaled != null,
+    line, window, budgeted,
     committed, variable: budgeted - committed,
     spent, remaining, elapsed, expectedByNow, pace, status,
     safeDailyRemaining: remaining > 0 && daysLeft > 0 ? remaining / daysLeft : 0,
@@ -572,22 +547,6 @@ export function unassignedCategories(
 
 // ── Income forecast ───────────────────────────────────────────────────────────
 
-/**
- * Vest dates the user has entered — ONCE INCOME rules tagged RSU on the
- * Scheduled page. These bound the cycles, nothing more: how much a vest is
- * worth as budget is declared by an INCOME budget line, not read from here.
- */
-export function enteredVestDates(recurrings: RecurringRecord[]): string[] {
-  return recurrings
-    .filter((r) => r.active !== false
-      && (r as any).fundingSource === "RSU"
-      && r.cadence === "ONCE"
-      && (r.type === "INCOME" || (r.amount ?? 0) > 0))
-    .map((r) => r.nextDate ?? r.startDate ?? "")
-    .filter(Boolean)
-    .sort();
-}
-
 // ── Scaling a budget to an arbitrary range ────────────────────────────────────
 
 /** Whole calendar months spanned by a range. July → 1, Q3 → 3, a year → 12. */
@@ -616,55 +575,28 @@ export function monthsInRange(range: DateRange): number {
   return (daysBetween(range.fromIso, range.toIso) + 1) / 30.44;
 }
 
-/** Overlap in days between two ranges, inclusive; 0 when they don't meet. */
-export function overlapDays(a: DateRange, b: DateRange): number {
-  const from = a.fromIso > b.fromIso ? a.fromIso : b.fromIso;
-  const to   = a.toIso   < b.toIso   ? a.toIso   : b.toIso;
-  if (from > to) return 0;
-  return daysBetween(from, to) + 1;
-}
-
-/** Every vest-to-vest cycle touching `range`, derived from the entered vest dates. */
-export function cyclesOverlapping(range: DateRange, vestDates: string[]): DateRange[] {
-  const v = [...vestDates].filter(Boolean).sort();
-  if (v.length < 2) return [];
-  const out: DateRange[] = [];
-  for (let i = 1; i < v.length; i++) {
-    const c = { fromIso: v[i - 1], toIso: v[i], label: `${v[i - 1]} → ${v[i]}` };
-    if (overlapDays(c, range) > 0) out.push(c);
-  }
-  return out;
-}
-
 /**
  * What a line budgets for an arbitrary range — which is what lets the page ask
- * "did I adhere in July?" of a budget whose own period is a month, a quarter or
- * a vest cycle.
+ * "did I adhere in July?" of a budget written per month, per quarter or once.
  *
- * MONTHLY scales by whole calendar months, so a $500/month line is $1,500 for a
- * quarter and $6,000 for a year — exact, rather than the 1.018 drift you get
- * from dividing days by 30.44.
+ * Recurring budgets scale by elapsed months over the recurrence length, so a
+ * $600/quarter line is $200 for a month and $2,400 for a year. monthsInRange
+ * keeps calendar-aligned ranges exact.
  *
- * CYCLE pro-rates by overlap, because a vest cycle rarely lines up with a
- * calendar month: a $3,000 cycle spanning 92 days contributes 31/92 of itself
- * to a 31-day month it covers. Returns null when no cycle is known — the caller
- * says so rather than showing a number built on a guessed boundary.
+ * ONCE does not scale: a one-off allowance belongs wholly to the period that
+ * contains the day it took effect, and is zero everywhere else. Pro-rating it
+ * would spread a single $5,000 decision across every month it touched and make
+ * each of them look comfortably under budget.
  */
-export function budgetedForRange(
-  line: BudgetLine,
-  range: DateRange,
-  vestDates: string[],
-): number | null {
+export function budgetedForRange(line: BudgetLine, range: DateRange): number {
   const amount = Math.abs(line.amount ?? 0);
   const period = (line.period ?? DEFAULT_PERIOD[(line.fundingSource ?? "OTHER") as FundingSource]) as BudgetPeriod;
-  if (period === "MONTHLY") return amount * monthsInRange(range);
 
-  const cycles = cyclesOverlapping(range, vestDates);
-  if (cycles.length === 0) return null;
-  return cycles.reduce((sum, c) => {
-    const len = Math.max(1, daysBetween(c.fromIso, c.toIso));
-    return sum + amount * (overlapDays(c, range) / len);
-  }, 0);
+  if (period === "ONCE") {
+    const at = line.effectiveFrom;
+    return at && at >= range.fromIso && at <= range.toIso ? amount : 0;
+  }
+  return amount * (monthsInRange(range) / PERIOD_MONTHS[period]);
 }
 
 // ── Actuals ───────────────────────────────────────────────────────────────────

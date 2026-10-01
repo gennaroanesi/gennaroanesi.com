@@ -674,10 +674,8 @@ const schema = a.schema({
   // budget as it will be on 2027-03-01" is then the same resolution query at a
   // different date, which is also how a future budget is staged.
   //
-  // WHY fundingSource: it declares what pays for a bucket, which decides its
-  // window. Salary arrives on a cadence, so salary-funded buckets budget per
-  // MONTH; equity arrives in lumps, so equity-funded buckets budget per CYCLE
-  // (vest to vest). The enum mirrors review.ts IncomeSources exactly
+  // WHY fundingSource: it declares what pays for a bucket, and so which pool an
+  // expense draws on. The enum mirrors review.ts IncomeSources exactly
   // (salary/bonus/rsu/other) so the pools need no new classification logic.
   // There is deliberately no default: a category in no bucket is surfaced on
   // the page as an incomplete budget, never silently bucketed.
@@ -702,7 +700,10 @@ const schema = a.schema({
       fundingSource: a.enum(["SALARY", "BONUS", "RSU", "OTHER"]),
       categories:    a.string().array(),      // categories this bucket covers
       amount:        a.float().required(),    // positive magnitude per period
-      period:        a.enum(["MONTHLY", "CYCLE"]),
+      // How often the amount recurs. ONCE is a single allowance that belongs to
+      // the period containing its effectiveFrom — a kitchen remodel, not a
+      // monthly line — and is deliberately never pro-rated across periods.
+      period:        a.enum(["MONTHLY", "QUARTERLY", "ANNUALLY", "ONCE"]),
       rollover:      a.boolean().default(false),
 
       // Validity window. `effectiveTo` null = open-ended — the same convention

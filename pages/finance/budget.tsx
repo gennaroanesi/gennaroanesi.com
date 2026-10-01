@@ -14,9 +14,10 @@ import {
   resolveBudgetLines, validateBudgetHistory, planBudgetChange, bucketCategories,
   resolutionDate, versionsInWindow, listBudgetSeries,
   elapsedFraction, daysBetween, committedByCategory,
-  computeLineView, summarizePools, unassignedCategories, enteredVestDates,
+  computeLineView, summarizePools, unassignedCategories,
   actualByCategory, budgetKind,
   FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD,
+  BUDGET_PERIODS, BUDGET_PERIOD_LABELS,
   type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
   type BudgetSeries,
 } from "@/components/finance/budget";
@@ -110,7 +111,6 @@ export default function BudgetPage() {
     return [...ys].sort((a, b) => b - a);
   }, [txs]);
 
-  const vestDates = useMemo(() => enteredVestDates(recurrings), [recurrings]);
   const period: Period = useMemo(() => {
     switch (pKind) {
       case "month":   return { kind: "month", year: pYear, month: pMonth };
@@ -152,7 +152,7 @@ export default function BudgetPage() {
     };
 
     const views = inForce.map((l) =>
-      computeLineView(l, window, budgetKind(l) === "INCOME" ? new Map() : outflow, committed, today, vestDates));
+      computeLineView(l, window, budgetKind(l) === "INCOME" ? new Map() : outflow, committed, today));
 
     return {
       window,
@@ -167,7 +167,7 @@ export default function BudgetPage() {
       daysLeft: Math.max(0, daysBetween(today, window.toIso)),
       closed: window.toIso < today,
     };
-  }, [budgets, txs, recurrings, accounts, window, today, vestDates, occurrencesOf]);
+  }, [budgets, txs, recurrings, accounts, window, today, occurrencesOf]);
 
   // Spending buckets only — income lines carry no categories (see the panel).
   const categoryOptions = useMemo(() => {
@@ -576,8 +576,9 @@ export default function BudgetPage() {
                 <label className={labelCls}>Per</label>
                 <select className={inputCls} value={draft.period}
                   onChange={(e) => setDraft({ ...draft, period: e.target.value as BudgetPeriod })}>
-                  <option value="MONTHLY">Month</option>
-                  <option value="CYCLE">Vest cycle</option>
+                  {BUDGET_PERIODS.map((p) => (
+                    <option key={p} value={p}>{BUDGET_PERIOD_LABELS[p]}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -696,9 +697,7 @@ function BucketRow({ v, onEdit, closed, versions }: {
 
       <div className="flex items-baseline justify-between gap-2 mt-3">
         <span className="text-lg font-bold" style={{ color }}>{fmtCurrency(v.spent)}</span>
-        <span className="text-xs text-gray-400">
-          {v.budgetKnown ? `of ${fmtCurrency(v.budgeted)}` : "no vest cycle entered for this period"}
-        </span>
+        <span className="text-xs text-gray-400">of {fmtCurrency(v.budgeted)}</span>
       </div>
 
       {/* Spend bar with an elapsed-time marker — the comparison that matters is
@@ -717,8 +716,7 @@ function BucketRow({ v, onEdit, closed, versions }: {
           {v.remaining >= 0 ? `${fmtCurrency(v.remaining)} left` : `${fmtCurrency(-v.remaining)} over`}
         </span>
         <span style={{ color }}>
-          {!v.budgetKnown ? "—"
-            : closed
+          {closed
               ? (v.remaining >= 0
                   ? `${income ? "short by" : "under by"} ${fmtCurrency(Math.abs(v.remaining))}`
                   : `over by ${fmtCurrency(-v.remaining)}`)
@@ -751,7 +749,7 @@ function SeriesRow({ s, onEdit }: { s: BudgetSeries; onEdit: (l: BudgetLine) => 
       <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400">
         {FUNDING_SOURCE_LABELS[(s.fundingSource ?? "OTHER") as FundingSource]}
         <span className="block text-[10px] text-gray-400">
-          per {s.latest.period === "CYCLE" ? "vest cycle" : "month"}
+          per {BUDGET_PERIOD_LABELS[(s.latest.period ?? "MONTHLY") as BudgetPeriod].toLowerCase()}
         </span>
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums">{fmtCurrency(Math.abs(s.latest.amount ?? 0))}</td>
