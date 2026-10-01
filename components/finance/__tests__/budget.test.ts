@@ -4,6 +4,7 @@ import {
   budgetWindow, cycleWindow, elapsedFraction, spendByCategory, committedByCategory,
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
+  budgetedForRange, monthsSpanned, actualByCategory, budgetKind,
   type BudgetLine,
 } from "@/components/finance/budget";
 
@@ -358,15 +359,41 @@ describe("computeLineView", () => {
 
 describe("summarizePools & unassignedCategories", () => {
   const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+  const salaryIncome = line({
+    id: "inc", seriesId: "sal", name: "Salary", kind: "INCOME",
+    fundingSource: "SALARY", categories: ["Income"], amount: 900,
+  });
 
-  it("reports over-commitment of a pool as negative unallocated", () => {
+  it("takes the pool from the declared income line, not from the feed", () => {
     const views = [
+      computeLineView(salaryIncome, w, new Map([["Income", 870]]), new Map(), "2026-09-15"),
       computeLineView(line({ id: "a", name: "Dining", categories: ["Dining"], amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
       computeLineView(line({ id: "b", name: "Golf", categories: ["Golf"], amount: 400 }), w, new Map(), new Map(), "2026-09-15"),
     ];
-    const [salary] = summarizePools(views, { SALARY: 900 });
+    const [salary] = summarizePools(views);
+    expect(salary.declared).toBe(true);
+    expect(salary.forecast).toBe(900);     // declared
+    expect(salary.received).toBe(870);     // what actually arrived
     expect(salary.allocated).toBe(1000);
-    expect(salary.unallocated).toBe(-100);
+    expect(salary.unallocated).toBe(-100); // over-committed
+  });
+
+  it("marks a pool undeclared when no income line backs it", () => {
+    const views = [computeLineView(line({ id: "a", categories: ["Dining"], amount: 600 }), w, new Map(), new Map(), "2026-09-15")];
+    const [salary] = summarizePools(views);
+    expect(salary.declared).toBe(false);
+    expect(salary.forecast).toBe(0);
+    expect(salary.allocated).toBe(600);
+  });
+
+  it("keeps income out of the expense list so it is never double-counted", () => {
+    const views = [
+      computeLineView(salaryIncome, w, new Map(), new Map(), "2026-09-15"),
+      computeLineView(line({ id: "a", categories: ["Dining"], amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
+    ];
+    const [salary] = summarizePools(views);
+    expect(salary.views).toHaveLength(1);
+    expect(salary.incomeViews).toHaveLength(1);
   });
 
   it("keeps pools separate by funding source", () => {
@@ -374,15 +401,93 @@ describe("summarizePools & unassignedCategories", () => {
       computeLineView(line({ id: "a", name: "Dining", categories: ["Dining"], fundingSource: "SALARY", amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
       computeLineView(line({ id: "b", name: "Travel", categories: ["Travel"], fundingSource: "RSU", amount: 3000 }), w, new Map(), new Map(), "2026-09-15"),
     ];
-    const pools = summarizePools(views, { SALARY: 1000, RSU: 40000 });
+    const pools = summarizePools(views);
     expect(pools.find((p) => p.source === "SALARY")!.allocated).toBe(600);
-    expect(pools.find((p) => p.source === "RSU")!.unallocated).toBe(37000);
+    expect(pools.find((p) => p.source === "RSU")!.allocated).toBe(3000);
   });
 
   it("surfaces categories with spend but no line, biggest first", () => {
     const spent = new Map([["Dining", 300], ["Golf", 900], ["Flying", 50]]);
     const got = unassignedCategories(spent, [line({ id: "a", categories: ["Dining"] })]);
     expect(got.map((u) => u.category)).toEqual(["Golf", "Flying"]);
+  });
+});
+
+describe("budgetedForRange — asking a budget about an arbitrary period", () => {
+  const monthly = line({ id: "m", amount: 500, period: "MONTHLY" });
+  const cyc = line({ id: "c", amount: 3000, period: "CYCLE", fundingSource: "RSU" });
+  const R = (f: string, t: string) => ({ fromIso: f, toIso: t, label: "" });
+
+  it("scales a monthly budget by whole calendar months", () => {
+    expect(budgetedForRange(monthly, R("2026-07-01", "2026-07-31"), [])).toBe(500);
+    expect(budgetedForRange(monthly, R("2026-07-01", "2026-09-30"), [])).toBe(1500);
+    expect(budgetedForRange(monthly, R("2026-01-01", "2026-12-31"), [])).toBe(6000);
+  });
+
+  it("does not drift on a 31-day month the way days/30.44 would", () => {
+    // 31/30.44 would read 509.20 for a $500 budget. July is one month.
+    expect(budgetedForRange(monthly, R("2026-07-01", "2026-07-31"), [])).toBe(500);
+  });
+
+  it("pro-rates a cycle budget by its overlap with the range", () => {
+    const vests = ["2026-08-15", "2026-11-15"];           // a 92-day cycle
+    const got = budgetedForRange(cyc, R("2026-09-01", "2026-09-30"), vests)!;
+    expect(got).toBeCloseTo(3000 * (30 / 92), 2);
+  });
+
+  it("returns null when no cycle covers the range, rather than inventing one", () => {
+    expect(budgetedForRange(cyc, R("2026-09-01", "2026-09-30"), [])).toBeNull();
+    expect(budgetedForRange(cyc, R("2027-06-01", "2027-06-30"), ["2026-08-15", "2026-11-15"])).toBeNull();
+  });
+
+  it("surfaces an unknown cycle budget on the view instead of showing zero as fact", () => {
+    const v = computeLineView(cyc, R("2026-09-01", "2026-09-30"), new Map(), new Map(), "2026-09-15", []);
+    expect(v.budgetKnown).toBe(false);
+    expect(computeLineView(cyc, R("2026-09-01", "2026-09-30"), new Map(), new Map(), "2026-09-15",
+      ["2026-08-15", "2026-11-15"]).budgetKnown).toBe(true);
+  });
+
+  it("counts calendar months, so a part-month still counts as that month", () => {
+    expect(monthsSpanned(R("2026-07-15", "2026-07-20"))).toBe(1);
+    expect(monthsSpanned(R("2026-11-20", "2027-01-05"))).toBe(3);
+  });
+});
+
+describe("income lines", () => {
+  const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+  const inc = line({ id: "i", kind: "INCOME", name: "Salary", categories: ["Income"], amount: 12000 });
+  const tx = (over: any) => ({
+    id: "t", accountId: "a", amount: 6000, date: "2026-09-10", status: "POSTED",
+    type: "INCOME", category: "Income", description: "Meta Payroll", ...over,
+  });
+
+  it("measures income against money arriving, not leaving", () => {
+    const got = actualByCategory([tx({ id: "1" }), tx({ id: "2", amount: -400, category: "Dining", type: "EXPENSE" })] as any, w, "INCOME");
+    expect(got.get("Income")).toBe(6000);
+    expect(got.get("Dining")).toBeUndefined();
+  });
+
+  it("does not count a card payment landing as income", () => {
+    const got = actualByCategory([tx({ id: "1", amount: 8000, category: "Credit Card Payment" })] as any, w, "INCOME");
+    expect(got.size).toBe(0);
+  });
+
+  it("reports position relative to budget as a fact, not a verdict", () => {
+    // Identical statuses for income and expense; only the caller judges them.
+    const shortIncome = computeLineView(inc, w, new Map([["Income", 3000]]), new Map(), "2026-09-30");
+    expect(shortIncome.status).toBe("under");
+
+    const spendy = line({ id: "e", categories: ["Dining"], amount: 12000 });
+    const underSpent = computeLineView(spendy, w, new Map([["Dining", 3000]]), new Map(), "2026-09-30");
+    expect(underSpent.status).toBe("under");
+
+    expect(computeLineView(inc, w, new Map([["Income", 20000]]), new Map(), "2026-09-30").status).toBe("over");
+    expect(computeLineView(spendy, w, new Map([["Dining", 20000]]), new Map(), "2026-09-30").status).toBe("over");
+  });
+
+  it("defaults a line with no kind to EXPENSE", () => {
+    expect(budgetKind(line({ id: "x" }))).toBe("EXPENSE");
+    expect(budgetKind(line({ id: "y", kind: "INCOME" }))).toBe("INCOME");
   });
 });
 

@@ -692,6 +692,13 @@ const schema = a.schema({
       // rename without that meaning "a different budget".
       seriesId:      a.id().required(),
       name:          a.string().required(),   // "Discretionary purchases"
+      // INCOME lines are the pools themselves: "salary is $12,000/month" is a
+      // budgeting decision, not something to infer from recent deposits. An
+      // inferred pool drifts with whatever happened to land last month and
+      // silently rescales every expense line measured against it — and a raise
+      // you know about can't be entered at all. Versioned by the same SCD, so
+      // that raise is just a new version with an effectiveFrom.
+      kind:          a.enum(["INCOME", "EXPENSE"]),
       fundingSource: a.enum(["SALARY", "BONUS", "RSU", "OTHER"]),
       categories:    a.string().array(),      // categories this bucket covers
       amount:        a.float().required(),    // positive magnitude per period

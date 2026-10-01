@@ -31,6 +31,14 @@ export const FUNDING_SOURCE_LABELS: Record<FundingSource, string> = {
   OTHER:  "Other",
 };
 
+export const BUDGET_KINDS = ["INCOME", "EXPENSE"] as const;
+export type BudgetKind = (typeof BUDGET_KINDS)[number];
+
+/** EXPENSE unless stated — the overwhelming majority of lines, and the safe default. */
+export function budgetKind(line: BudgetLine): BudgetKind {
+  return line.kind === "INCOME" ? "INCOME" : "EXPENSE";
+}
+
 export const BUDGET_PERIODS = ["MONTHLY", "CYCLE"] as const;
 export type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
 
@@ -52,6 +60,8 @@ export type BudgetLine = {
   /** Stable across versions — the series identity, not the row id. */
   seriesId:       string;
   name:           string;
+  /** INCOME lines declare a pool; EXPENSE lines draw on one. Absent = EXPENSE. */
+  kind?:          string | null;
   /** Categories this bucket covers. A single-category budget is a bucket of one. */
   categories?:    (string | null)[] | null;
   fundingSource?: string | null;
@@ -202,6 +212,7 @@ export function planBudgetChange(
   next: {
     seriesId: string;
     name: string;
+    kind?: BudgetKind;
     categories: string[];
     amount: number;
     fundingSource: FundingSource;
@@ -215,6 +226,7 @@ export function planBudgetChange(
   const insert: Omit<BudgetLine, "id"> = {
     seriesId:      next.seriesId,
     name:          next.name,
+    kind:          next.kind ?? "EXPENSE",
     categories:    next.categories,
     fundingSource: next.fundingSource,
     amount:        next.amount,
@@ -416,12 +428,15 @@ function medianOf(values: number[]): number {
 
 // ── The view ──────────────────────────────────────────────────────────────────
 
+/** Position relative to the budgeted number — not a verdict. See computeLineView. */
 export type BudgetStatus = "under" | "on" | "over";
 
 export type BudgetLineView = {
   line: BudgetLine;
   window: DateRange;
   budgeted: number;
+  /** False when a CYCLE line has no entered vest cycle covering the window. */
+  budgetKnown: boolean;
   /** Already spoken for by recurring rules — a decomposition of `budgeted`, not an addition. */
   committed: number;
   /** What's left to steer: budgeted − committed. Negative means the rules alone overrun the line. */
@@ -443,21 +458,30 @@ const PACE_TOLERANCE = 0.05;
 export function computeLineView(
   line: BudgetLine,
   window: DateRange,
-  spentByCat: Map<string, number>,
+  actualByCat: Map<string, number>,
   committedByCat: Map<string, number>,
   todayIso: string,
+  vestDates: string[] = [],
 ): BudgetLineView {
   const cats = bucketCategories(line);
-  const budgeted = Math.abs(line.amount ?? 0);
+  // Null when a CYCLE line has no known cycle: the page says so instead of
+  // showing a number built on a boundary nobody entered.
+  const scaled = budgetedForRange(line, window, vestDates);
+  const budgeted = scaled ?? 0;
   const sumOver = (m: Map<string, number>) => cats.reduce((sum, c) => sum + (m.get(c) ?? 0), 0);
   const committed = sumOver(committedByCat);
-  const spent = sumOver(spentByCat);
+  const spent = sumOver(actualByCat);
   const elapsed = elapsedFraction(window, todayIso);
   const expectedByNow = budgeted * elapsed;
   const pace = expectedByNow > 0 ? spent / expectedByNow : null;
   const remaining = budgeted - spent;
   const daysLeft = Math.max(0, daysBetween(todayIso, window.toIso));
 
+  // Status states the FACT — above or below the budgeted number — and says
+  // nothing about whether that is good. Over on spending is bad; over on income
+  // is excellent. The judgment is the caller's, because only it knows the kind;
+  // baking an inversion in here produced a field whose name meant the opposite
+  // of itself half the time.
   let status: BudgetStatus = "on";
   if (pace != null) {
     if (pace > 1 + PACE_TOLERANCE) status = "over";
@@ -465,7 +489,8 @@ export function computeLineView(
   } else if (spent > budgeted) status = "over";
 
   return {
-    line, window, budgeted, committed, variable: budgeted - committed,
+    line, window, budgeted, budgetKnown: scaled != null,
+    committed, variable: budgeted - committed,
     spent, remaining, elapsed, expectedByNow, pace, status,
     safeDailyRemaining: remaining > 0 && daysLeft > 0 ? remaining / daysLeft : 0,
   };
@@ -473,29 +498,42 @@ export function computeLineView(
 
 export type PoolView = {
   source: FundingSource;
-  /** Expected inflow of this kind in the window. Bonus is 0 unless entered. */
+  /** Declared inflow for the window — the sum of this source's INCOME lines. */
   forecast: number;
+  /** What actually arrived, so a declared salary can be checked against reality. */
+  received: number;
   allocated: number;
+  spent: number;
   /** forecast − allocated. Negative is the honest "over-committed" signal. */
   unallocated: number;
+  /** False when nothing declares this pool — the page asks for an income line. */
+  declared: boolean;
   views: BudgetLineView[];
+  incomeViews: BudgetLineView[];
 };
 
-export function summarizePools(
-  views: BudgetLineView[],
-  forecastBySource: Partial<Record<FundingSource, number>>,
-): PoolView[] {
+export function summarizePools(views: BudgetLineView[]): PoolView[] {
   const bySource = new Map<FundingSource, BudgetLineView[]>();
   for (const v of views) {
     const src = (v.line.fundingSource ?? "OTHER") as FundingSource;
     if (!bySource.has(src)) bySource.set(src, []);
     bySource.get(src)!.push(v);
   }
-  return FUNDING_SOURCES.filter((s) => bySource.has(s) || forecastBySource[s] != null).map((source) => {
-    const vs = bySource.get(source) ?? [];
-    const allocated = vs.reduce((sum, v) => sum + v.budgeted, 0);
-    const forecast = forecastBySource[source] ?? 0;
-    return { source, forecast, allocated, unallocated: forecast - allocated, views: vs };
+  return FUNDING_SOURCES.filter((s) => bySource.has(s)).map((source) => {
+    const all = bySource.get(source) ?? [];
+    const incomes  = all.filter((v) => budgetKind(v.line) === "INCOME");
+    const expenses = all.filter((v) => budgetKind(v.line) !== "INCOME");
+    const forecast  = incomes.reduce((sum, v) => sum + v.budgeted, 0);
+    const received  = incomes.reduce((sum, v) => sum + v.spent, 0);
+    const allocated = expenses.reduce((sum, v) => sum + v.budgeted, 0);
+    const spent     = expenses.reduce((sum, v) => sum + v.spent, 0);
+    return {
+      source, forecast, received, allocated, spent,
+      unallocated: forecast - allocated,
+      declared: incomes.length > 0,
+      views: expenses,
+      incomeViews: incomes,
+    };
   });
 }
 
@@ -520,44 +558,10 @@ export function unassignedCategories(
 // ── Income forecast ───────────────────────────────────────────────────────────
 
 /**
- * Expected inflow per funding source for a window.
- *
- * Equity and bonus come only from what the user has actually entered — ONCE
- * INCOME recurring rules carrying a fundingSource. Nothing is inferred: a
- * guessed vest would silently inflate a pool and every pace number drawn
- * against it, and the whole point of entering the vest by hand is that only the
- * user knows the number.
- *
- * Salary is the exception, because it is the one inflow with a real cadence.
- * When no salary rule exists it falls back to the trailing salaryPerMonth that
- * review.ts summarizeIncomeSources already computes, scaled to the window.
+ * Vest dates the user has entered — ONCE INCOME rules tagged RSU on the
+ * Scheduled page. These bound the cycles, nothing more: how much a vest is
+ * worth as budget is declared by an INCOME budget line, not read from here.
  */
-export function forecastBySource(
-  recurrings: RecurringRecord[],
-  window: DateRange,
-  occurrencesOf: (r: RecurringRecord, from: string, to: string) => number,
-  fallbackSalaryPerMonth?: number,
-): Partial<Record<FundingSource, number>> {
-  const out: Partial<Record<FundingSource, number>> = {};
-  for (const r of recurrings) {
-    if (r.active === false) continue;
-    const src = (r as any).fundingSource as FundingSource | null | undefined;
-    if (!src) continue;
-    const amt = r.amount ?? 0;
-    const isInflow = r.type === "INCOME" || amt > 0;
-    if (!isInflow) continue;
-    const n = occurrencesOf(r, window.fromIso, window.toIso);
-    if (n <= 0) continue;
-    out[src] = (out[src] ?? 0) + Math.abs(amt) * n;
-  }
-  if (out.SALARY == null && fallbackSalaryPerMonth != null) {
-    const months = Math.max(0, daysBetween(window.fromIso, window.toIso)) / 30.44;
-    out.SALARY = fallbackSalaryPerMonth * months;
-  }
-  return out;
-}
-
-/** Vest dates the user has entered — ONCE INCOME rules tagged RSU. Drives the CYCLE window. */
 export function enteredVestDates(recurrings: RecurringRecord[]): string[] {
   return recurrings
     .filter((r) => r.active !== false
@@ -567,4 +571,92 @@ export function enteredVestDates(recurrings: RecurringRecord[]): string[] {
     .map((r) => r.nextDate ?? r.startDate ?? "")
     .filter(Boolean)
     .sort();
+}
+
+// ── Scaling a budget to an arbitrary range ────────────────────────────────────
+
+/** Whole calendar months spanned by a range. July → 1, Q3 → 3, a year → 12. */
+export function monthsSpanned(range: DateRange): number {
+  const [fy, fm] = range.fromIso.split("-").map(Number);
+  const [ty, tm] = range.toIso.split("-").map(Number);
+  return (ty * 12 + tm) - (fy * 12 + fm) + 1;
+}
+
+/** Overlap in days between two ranges, inclusive; 0 when they don't meet. */
+export function overlapDays(a: DateRange, b: DateRange): number {
+  const from = a.fromIso > b.fromIso ? a.fromIso : b.fromIso;
+  const to   = a.toIso   < b.toIso   ? a.toIso   : b.toIso;
+  if (from > to) return 0;
+  return daysBetween(from, to) + 1;
+}
+
+/** Every vest-to-vest cycle touching `range`, derived from the entered vest dates. */
+export function cyclesOverlapping(range: DateRange, vestDates: string[]): DateRange[] {
+  const v = [...vestDates].filter(Boolean).sort();
+  if (v.length < 2) return [];
+  const out: DateRange[] = [];
+  for (let i = 1; i < v.length; i++) {
+    const c = { fromIso: v[i - 1], toIso: v[i], label: `${v[i - 1]} → ${v[i]}` };
+    if (overlapDays(c, range) > 0) out.push(c);
+  }
+  return out;
+}
+
+/**
+ * What a line budgets for an arbitrary range — which is what lets the page ask
+ * "did I adhere in July?" of a budget whose own period is a month, a quarter or
+ * a vest cycle.
+ *
+ * MONTHLY scales by whole calendar months, so a $500/month line is $1,500 for a
+ * quarter and $6,000 for a year — exact, rather than the 1.018 drift you get
+ * from dividing days by 30.44.
+ *
+ * CYCLE pro-rates by overlap, because a vest cycle rarely lines up with a
+ * calendar month: a $3,000 cycle spanning 92 days contributes 31/92 of itself
+ * to a 31-day month it covers. Returns null when no cycle is known — the caller
+ * says so rather than showing a number built on a guessed boundary.
+ */
+export function budgetedForRange(
+  line: BudgetLine,
+  range: DateRange,
+  vestDates: string[],
+): number | null {
+  const amount = Math.abs(line.amount ?? 0);
+  const period = (line.period ?? DEFAULT_PERIOD[(line.fundingSource ?? "OTHER") as FundingSource]) as BudgetPeriod;
+  if (period === "MONTHLY") return amount * monthsSpanned(range);
+
+  const cycles = cyclesOverlapping(range, vestDates);
+  if (cycles.length === 0) return null;
+  return cycles.reduce((sum, c) => {
+    const len = Math.max(1, daysBetween(c.fromIso, c.toIso));
+    return sum + amount * (overlapDays(c, range) / len);
+  }, 0);
+}
+
+// ── Actuals ───────────────────────────────────────────────────────────────────
+
+/**
+ * Money that actually moved in `range`, per category, in the direction the kind
+ * implies: outflows for an EXPENSE line, inflows for an INCOME one. Lets a
+ * declared salary be measured against the deposits that arrived, the same way a
+ * spending bucket is measured against its charges.
+ */
+export function actualByCategory(
+  txs: TransactionRecord[],
+  range: DateRange,
+  kind: BudgetKind,
+): Map<string, number> {
+  if (kind === "EXPENSE") return spendByCategory(txs, range);
+  const out = new Map<string, number>();
+  for (const tx of txs) {
+    if (tx.status === "PENDING") continue;
+    const amt = tx.amount ?? 0;
+    if (amt <= 0) continue;
+    const date = tx.date ?? "";
+    if (date < range.fromIso || date > range.toIso) continue;
+    const cat = effectiveCategory(tx);
+    if (isExcludedFromPnl(cat)) continue;   // a card payment landing is not income
+    out.set(cat, (out.get(cat) ?? 0) + amt);
+  }
+  return out;
 }

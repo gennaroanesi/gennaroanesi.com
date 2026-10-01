@@ -13,17 +13,19 @@ import { occurrencesInWindow } from "@/components/finance/cashflow";
 import {
   resolveBudgetLines, validateBudgetHistory, planBudgetChange, bucketCategories,
   budgetWindow, elapsedFraction, daysBetween, spendByCategory, committedByCategory,
-  computeLineView, summarizePools, unassignedCategories, forecastBySource, enteredVestDates,
-  FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD,
-  type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod,
+  computeLineView, summarizePools, unassignedCategories, enteredVestDates,
+  actualByCategory, budgetKind, budgetedForRange,
+  FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD, BUDGET_KINDS,
+  type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
 } from "@/components/finance/budget";
-import { summarizeIncomeSources, periodRange } from "@/components/finance/review";
+import { periodRange, type Period } from "@/components/finance/review";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { SlideOverPanel, PageTitle, PageLoading, Card, Badge } from "@/components/common/ui";
 
 type Draft = {
   seriesId: string;
   name: string;
+  kind: BudgetKind;
   fundingSource: FundingSource;
   period: BudgetPeriod;
   amount: number | null;
@@ -33,12 +35,28 @@ type Draft = {
   notes: string;
 };
 
+/** One entry point. Correct vs change is chosen inside the panel, not by which
+ *  button opened it — they opened the same form, so two buttons said nothing. */
 type Panel =
   | { kind: "new" }
-  | { kind: "edit"; current: BudgetLine; mode: "correct" | "change"; from: string }
+  | { kind: "edit"; current: BudgetLine }
   | null;
 
-const STATUS_COLOR = { under: POSITIVE, on: FINANCE_COLOR, over: NEGATIVE } as const;
+type EditMode = "correct" | "change";
+
+/** Status is a fact (above/below budget); the colour is the judgment, and it
+ *  flips by kind — under-spending is good, under-earning is not. */
+const STATUS_COLOR = {
+  EXPENSE: { under: POSITIVE, on: FINANCE_COLOR, over: NEGATIVE },
+  INCOME:  { under: NEGATIVE, on: FINANCE_COLOR, over: POSITIVE },
+} as const;
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const THIS_YEAR = new Date().getFullYear();
+const YEARS = [THIS_YEAR - 2, THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1];
 
 export default function BudgetPage() {
   const { authState } = useRequireAuth();
@@ -50,9 +68,17 @@ export default function BudgetPage() {
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
 
-  const [view, setView]   = useState<BudgetPeriod>("MONTHLY");
-  const [panel, setPanel] = useState<Panel>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  // The time window under review — the same shape as the Review page's picker,
+  // so "did I adhere in July?" is one selection rather than a different screen.
+  const [pKind, setPKind]   = useState<"month" | "quarter" | "year">("month");
+  const [pYear, setPYear]   = useState(new Date().getFullYear());
+  const [pMonth, setPMonth] = useState(new Date().getMonth() + 1);
+  const [pQuarter, setPQuarter] = useState(Math.floor(new Date().getMonth() / 3) + 1);
+
+  const [panel, setPanel]       = useState<Panel>(null);
+  const [draft, setDraft]       = useState<Draft | null>(null);
+  const [editMode, setEditMode] = useState<EditMode>("change");
+  const [changeFrom, setChangeFrom] = useState<string>("");
 
   const today = todayIso();
 
@@ -77,7 +103,12 @@ export default function BudgetPage() {
   useEffect(() => { if (authState === "authenticated") fetchData(); }, [authState, fetchData]);
 
   const vestDates = useMemo(() => enteredVestDates(recurrings), [recurrings]);
-  const window    = useMemo(() => budgetWindow(view, today, vestDates), [view, today, vestDates]);
+  const period: Period = useMemo(() => (
+    pKind === "month"   ? { kind: "month", year: pYear, month: pMonth }
+    : pKind === "quarter" ? { kind: "quarter", year: pYear, quarter: pQuarter }
+    : { kind: "year", year: pYear }
+  ), [pKind, pYear, pMonth, pQuarter]);
+  const window = useMemo(() => periodRange(period), [period]);
 
   /** Occurrence count for a rule inside a window — the cashflow engine, not a second copy. */
   const occurrencesOf = useCallback((r: RecurringRecord, from: string, to: string) =>
@@ -89,31 +120,29 @@ export default function BudgetPage() {
     } as any, from, to).length, []);
 
   const model = useMemo(() => {
-    if (!window) return null;
-    const inForce = resolveBudgetLines(budgets, window.fromIso).filter(
-      (l) => ((l.period ?? DEFAULT_PERIOD[(l.fundingSource ?? "OTHER") as FundingSource]) === view),
-    );
-    const spent     = spendByCategory(txs, window);
+    // Every budget in force at the START of the window — including income
+    // lines, which declare the pools rather than having them inferred.
+    const inForce   = resolveBudgetLines(budgets, window.fromIso);
+    const outflow   = actualByCategory(txs, window, "EXPENSE");
+    const inflow    = actualByCategory(txs, window, "INCOME");
     const committed = committedByCategory(recurrings, window, occurrencesOf);
-    const views     = inForce.map((l) => computeLineView(l, window, spent, committed, today));
 
-    // Salary baseline comes from the Review's own income split, over a rolling
-    // trailing window — not from this one, which may be half-elapsed and would
-    // read as though half a paycheck existed.
-    const trailing = periodRange({ kind: "last3", anchorIso: today });
-    const income   = summarizeIncomeSources(txs, accounts as any, trailing);
-    const forecast = forecastBySource(recurrings, window, occurrencesOf, income.salaryPerMonth);
+    // Income lines are measured against money arriving, expense lines against
+    // money leaving — same arithmetic, opposite direction.
+    const views = inForce.map((l) =>
+      computeLineView(l, window, budgetKind(l) === "INCOME" ? inflow : outflow, committed, today, vestDates));
 
     return {
       window,
       views,
-      pools: summarizePools(views, forecast),
-      unassigned: unassignedCategories(spent, inForce),
+      pools: summarizePools(views),
+      unassigned: unassignedCategories(outflow, inForce.filter((l) => budgetKind(l) !== "INCOME")),
       issues: validateBudgetHistory(budgets, window.fromIso),
       elapsed: elapsedFraction(window, today),
       daysLeft: Math.max(0, daysBetween(today, window.toIso)),
+      closed: window.toIso < today,
     };
-  }, [budgets, txs, recurrings, accounts, window, view, today, occurrencesOf]);
+  }, [budgets, txs, recurrings, window, today, vestDates, occurrencesOf]);
 
   // Every category the user could put in a bucket, plus who already owns it.
   const categoryOptions = useMemo(() => {
@@ -132,16 +161,18 @@ export default function BudgetPage() {
   function openNew() {
     setDraft({
       seriesId: (globalThis.crypto?.randomUUID?.() ?? `s-${Date.now()}`),
-      name: "", fundingSource: "SALARY", period: "MONTHLY",
+      name: "", kind: "EXPENSE", fundingSource: "SALARY", period: "MONTHLY",
       amount: null, rollover: false, categories: [], label: "", notes: "",
     });
+    setEditMode("change");
     setPanel({ kind: "new" });
   }
 
-  function openEdit(line: BudgetLine, mode: "correct" | "change") {
+  function openEdit(line: BudgetLine) {
     setDraft({
       seriesId: line.seriesId,
       name: line.name ?? "",
+      kind: budgetKind(line),
       fundingSource: (line.fundingSource ?? "SALARY") as FundingSource,
       period: (line.period ?? "MONTHLY") as BudgetPeriod,
       amount: line.amount ?? null,
@@ -151,10 +182,11 @@ export default function BudgetPage() {
       notes: line.notes ?? "",
     });
     // A change defaults to the next period boundary: mid-period it would make
-    // every pace number on the page ambiguous (which budget was it measured
-    // against?), so the new version starts when the current one is done.
-    const nextStart = window ? nextDayIso(window.toIso) : today;
-    setPanel({ kind: "edit", current: line, mode, from: nextStart });
+    // every pace number ambiguous (which budget was it measured against?), so
+    // the new version starts when the current one is done.
+    setEditMode("change");
+    setChangeFrom(nextDayIso(window.toIso));
+    setPanel({ kind: "edit", current: line });
   }
 
   async function handleSave() {
@@ -164,20 +196,20 @@ export default function BudgetPage() {
     if (draft.categories.length === 0) { notifyError("Pick at least one category"); return; }
     setSaving(true);
     try {
-      if (panel.kind === "edit" && panel.mode === "correct") {
+      if (panel.kind === "edit" && editMode === "correct") {
         // The old value was never true — there is no history to preserve.
         await mutate(client.models.financeBudget.update({
           id: panel.current.id,
-          name: draft.name.trim(), fundingSource: draft.fundingSource as any,
+          name: draft.name.trim(), kind: draft.kind as any, fundingSource: draft.fundingSource as any,
           categories: draft.categories, amount: draft.amount,
           period: draft.period as any, rollover: draft.rollover,
           label: draft.label || null, notes: draft.notes || null,
         } as any));
       } else {
         const current = panel.kind === "edit" ? panel.current : null;
-        const from    = panel.kind === "edit" ? panel.from : today;
+        const from    = panel.kind === "edit" ? changeFrom : today;
         const { insert, close } = planBudgetChange(current, {
-          seriesId: draft.seriesId, name: draft.name.trim(), categories: draft.categories,
+          seriesId: draft.seriesId, name: draft.name.trim(), kind: draft.kind, categories: draft.categories,
           amount: draft.amount, fundingSource: draft.fundingSource, period: draft.period,
           rollover: draft.rollover, label: draft.label || null, notes: draft.notes || null,
         }, from);
@@ -229,19 +261,27 @@ export default function BudgetPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-darkBorder">
-                {(["MONTHLY", "CYCLE"] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setView(p)}
-                    className="px-3 py-3 text-xs font-medium"
-                    style={view === p
-                      ? { backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }
-                      : undefined}
-                  >
-                    {p === "MONTHLY" ? "Monthly" : "Per vest cycle"}
+                {(["month", "quarter", "year"] as const).map((k) => (
+                  <button key={k} onClick={() => setPKind(k)}
+                    className="px-3 py-3 text-xs font-medium capitalize"
+                    style={pKind === k ? { backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR } : undefined}>
+                    {k}
                   </button>
                 ))}
               </div>
+              {pKind === "month" && (
+                <select className={`${inputCls} w-auto py-3`} value={pMonth} onChange={(e) => setPMonth(+e.target.value)}>
+                  {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+              )}
+              {pKind === "quarter" && (
+                <select className={`${inputCls} w-auto py-3`} value={pQuarter} onChange={(e) => setPQuarter(+e.target.value)}>
+                  {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
+                </select>
+              )}
+              <select className={`${inputCls} w-auto py-3`} value={pYear} onChange={(e) => setPYear(+e.target.value)}>
+                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
               <button
                 onClick={openNew}
                 className="rounded-lg px-3 py-3 text-sm font-medium"
@@ -254,24 +294,14 @@ export default function BudgetPage() {
 
           {loading && <PageLoading />}
 
-          {/* No cycle boundary: ask rather than invent one. */}
-          {!loading && view === "CYCLE" && !window && (
-            <Card className="mt-4">
-              <p className="text-sm font-semibold mb-1">No upcoming vest entered</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                A cycle budget runs from one vest to the next, so it needs the next vest date. Add it on{" "}
-                <NextLink href="/finance/scheduled" className="hover:underline" style={{ color: FINANCE_COLOR }}>Scheduled</NextLink>{" "}
-                as a one-time income event with funding source <strong>RSU</strong>. Nothing is assumed here —
-                a guessed date would rescale every number on this page.
-              </p>
-            </Card>
-          )}
-
           {!loading && model && (
             <>
               {/* Window */}
               <p className="text-xs text-gray-400 mt-3">
-                {model.window.label} · {Math.round(model.elapsed * 100)}% elapsed · {model.daysLeft} day{model.daysLeft === 1 ? "" : "s"} left
+                {model.window.label}
+                {model.closed
+                  ? " · closed"
+                  : ` · ${Math.round(model.elapsed * 100)}% elapsed · ${model.daysLeft} day${model.daysLeft === 1 ? "" : "s"} left`}
               </p>
 
               {/* History problems — these are datastore invariants nothing else enforces. */}
@@ -299,13 +329,24 @@ export default function BudgetPage() {
                     return (
                       <Card key={p.source}>
                         <p className="text-[10px] uppercase tracking-widest text-gray-400">{FUNDING_SOURCE_LABELS[p.source]}</p>
-                        <p className="text-lg font-bold mt-1">{fmtCurrency(p.forecast)}</p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {fmtCurrency(p.allocated)} allocated
-                        </p>
-                        <p className="text-[11px] mt-0.5" style={{ color: over ? NEGATIVE : POSITIVE }}>
-                          {over ? `${fmtCurrency(-p.unallocated)} over-committed` : `${fmtCurrency(p.unallocated)} unallocated`}
-                        </p>
+                        {p.declared ? (
+                          <>
+                            <p className="text-lg font-bold mt-1">{fmtCurrency(p.forecast)}</p>
+                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                              {fmtCurrency(p.received)} received · {fmtCurrency(p.allocated)} allocated
+                            </p>
+                            <p className="text-[11px] mt-0.5" style={{ color: over ? NEGATIVE : POSITIVE }}>
+                              {over ? `${fmtCurrency(-p.unallocated)} over-committed` : `${fmtCurrency(p.unallocated)} unallocated`}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-lg font-bold mt-1 text-gray-400">—</p>
+                            <p className="text-[11px] mt-0.5" style={{ color: WARNING }}>
+                              No income budget declares this pool. {fmtCurrency(p.allocated)} allocated against nothing.
+                            </p>
+                          </>
+                        )}
                       </Card>
                     );
                   })}
@@ -316,13 +357,18 @@ export default function BudgetPage() {
               {model.views.length === 0 ? (
                 <div className="mt-6">
                   <EmptyState
-                    label={`No ${view === "MONTHLY" ? "monthly" : "per-cycle"} budgets yet — group a few categories into a bucket to start.`}
+                    label="No budgets in force for this period — group a few categories into a bucket to start."
                     onAdd={openNew}
                   />
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
-                  {model.views.map((v) => <BucketRow key={v.line.id} v={v} onEdit={openEdit} />)}
+                  {model.views.filter((v) => budgetKind(v.line) === "INCOME").map((v) => (
+                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed} />
+                  ))}
+                  {model.views.filter((v) => budgetKind(v.line) !== "INCOME").map((v) => (
+                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed} />
+                  ))}
                 </div>
               )}
 
@@ -353,8 +399,7 @@ export default function BudgetPage() {
 
         {panel && draft && (
           <SlideOverPanel
-            title={panel.kind === "new" ? "New budget"
-              : panel.mode === "correct" ? `Correct “${draft.name}”` : `Change “${draft.name}”`}
+            title={panel.kind === "new" ? "New budget" : `Edit “${draft.name}”`}
             onClose={() => { setPanel(null); setDraft(null); }}
             footer={
               <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-gray-200 dark:border-darkBorder flex-shrink-0">
@@ -370,14 +415,38 @@ export default function BudgetPage() {
             }
           >
             {panel.kind === "edit" && (
-              <div className="rounded-lg p-3 text-[11px] leading-relaxed"
-                style={{ backgroundColor: withAlpha(panel.mode === "correct" ? WARNING : FINANCE_COLOR, 0x18) }}>
-                {panel.mode === "correct" ? (
-                  <>Rewrites this version in place, keeping its dates. For a wrong number that was never true —
-                  the history will read as though the corrected value always applied.</>
-                ) : (
-                  <>Keeps this version as history and starts a new one on <strong>{fmtDate(panel.from)}</strong>.
-                  Past periods stay judged against the budget that was actually in force.</>
+              <div>
+                <label className={labelCls}>What kind of edit?</label>
+                <div className="space-y-2 mt-1">
+                  <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer border border-gray-200 dark:border-darkBorder">
+                    <input type="radio" className="mt-1" checked={editMode === "change"}
+                      onChange={() => setEditMode("change")} />
+                    <span className="text-xs">
+                      <strong>Change it</strong> — the budget genuinely moved.
+                      <span className="block text-gray-500 dark:text-gray-400 mt-0.5">
+                        Keeps this version as history and starts a new one, so past periods stay judged
+                        against the budget that was actually in force.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 p-2 rounded-lg cursor-pointer border border-gray-200 dark:border-darkBorder">
+                    <input type="radio" className="mt-1" checked={editMode === "correct"}
+                      onChange={() => setEditMode("correct")} />
+                    <span className="text-xs">
+                      <strong>Correct it</strong> — the number was wrong.
+                      <span className="block text-gray-500 dark:text-gray-400 mt-0.5">
+                        Rewrites this version in place. History reads as though the corrected value
+                        always applied, because the old one was never true.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                {editMode === "change" && (
+                  <div className="mt-2">
+                    <label className={labelCls}>In force from</label>
+                    <input type="date" className={inputCls} value={changeFrom}
+                      onChange={(e) => setChangeFrom(e.target.value)} />
+                  </div>
                 )}
               </div>
             )}
@@ -386,6 +455,21 @@ export default function BudgetPage() {
               <label className={labelCls}>Name *</label>
               <input type="text" className={inputCls} placeholder="Discretionary purchases"
                 value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            </div>
+
+            <div>
+              <label className={labelCls}>This budget is *</label>
+              <select className={inputCls} value={draft.kind}
+                onChange={(e) => setDraft({ ...draft, kind: e.target.value as BudgetKind })}>
+                <option value="EXPENSE">Money going out — a spending bucket</option>
+                <option value="INCOME">Money coming in — declares the pool</option>
+              </select>
+              {draft.kind === "INCOME" && (
+                <p className="text-[11px] text-gray-400 mt-1">
+                  This is what you say the pool is worth, not what the feed guesses. Expense budgets
+                  on the same funding source are measured against it.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -419,7 +503,9 @@ export default function BudgetPage() {
             <div>
               <label className={labelCls}>Categories * ({draft.categories.length})</label>
               <p className="text-[11px] text-gray-400 mb-1.5">
-                A category can sit in only one budget — its spend cannot be split between two.
+                {draft.kind === "INCOME"
+                  ? "Which categories count as this income arriving, so the declared amount can be checked against reality."
+                  : "A category can sit in only one budget — its spend cannot be split between two."}
               </p>
               <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder divide-y divide-gray-100 dark:divide-gray-700">
                 {categoryOptions.list.map((cat) => {
@@ -474,8 +560,11 @@ function nextDayIso(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function BucketRow({ v, onEdit }: { v: BudgetLineView; onEdit: (l: BudgetLine, m: "correct" | "change") => void }) {
-  const color = STATUS_COLOR[v.status];
+function BucketRow({ v, onEdit, closed }: {
+  v: BudgetLineView; onEdit: (l: BudgetLine) => void; closed: boolean;
+}) {
+  const income = budgetKind(v.line) === "INCOME";
+  const color = STATUS_COLOR[income ? "INCOME" : "EXPENSE"][v.status];
   const spentPct    = v.budgeted > 0 ? Math.min(100, (v.spent / v.budgeted) * 100) : 0;
   const expectedPct = Math.min(100, v.elapsed * 100);
   const cats = bucketCategories(v.line);
@@ -486,8 +575,8 @@ function BucketRow({ v, onEdit }: { v: BudgetLineView; onEdit: (l: BudgetLine, m
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold">{v.line.name}</span>
-            <Badge color={FINANCE_COLOR} size="xs">
-              {FUNDING_SOURCE_LABELS[(v.line.fundingSource ?? "OTHER") as FundingSource]}
+            <Badge color={income ? POSITIVE : FINANCE_COLOR} size="xs">
+              {income ? "Income · " : ""}{FUNDING_SOURCE_LABELS[(v.line.fundingSource ?? "OTHER") as FundingSource]}
             </Badge>
             {v.line.label && <span className="text-[10px] text-gray-400">{v.line.label}</span>}
           </div>
@@ -497,22 +586,26 @@ function BucketRow({ v, onEdit }: { v: BudgetLineView; onEdit: (l: BudgetLine, m
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={() => onEdit(v.line, "correct")} className="text-xs px-2 py-3 hover:underline text-gray-400">Correct</button>
-          <button onClick={() => onEdit(v.line, "change")} className="text-xs px-2 py-3 hover:underline" style={{ color: FINANCE_COLOR }}>Change</button>
-        </div>
+        <button onClick={() => onEdit(v.line)} className="text-xs px-2 py-3 hover:underline flex-shrink-0" style={{ color: FINANCE_COLOR }}>
+          Edit
+        </button>
       </div>
 
       <div className="flex items-baseline justify-between gap-2 mt-3">
         <span className="text-lg font-bold" style={{ color }}>{fmtCurrency(v.spent)}</span>
-        <span className="text-xs text-gray-400">of {fmtCurrency(v.budgeted)}</span>
+        <span className="text-xs text-gray-400">
+          {v.budgetKnown ? `of ${fmtCurrency(v.budgeted)}` : "no vest cycle entered for this period"}
+        </span>
       </div>
 
       {/* Spend bar with an elapsed-time marker — the comparison that matters is
           spend against time gone, not spend against the whole period. */}
       <div className="relative h-2 rounded-full bg-gray-100 dark:bg-white/10 mt-2 overflow-hidden">
         <div className="h-full rounded-full" style={{ width: `${spentPct}%`, backgroundColor: color }} />
-        <div className="absolute top-0 bottom-0 w-px bg-gray-400 dark:bg-gray-300" style={{ left: `${expectedPct}%` }} title="where you'd be exactly on pace" />
+        {!closed && (
+          <div className="absolute top-0 bottom-0 w-px bg-gray-400 dark:bg-gray-300"
+            style={{ left: `${expectedPct}%` }} title="where you'd be exactly on pace" />
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-2 mt-2 text-[11px] text-gray-500 dark:text-gray-400 flex-wrap">
@@ -521,9 +614,13 @@ function BucketRow({ v, onEdit }: { v: BudgetLineView; onEdit: (l: BudgetLine, m
           {v.remaining >= 0 ? `${fmtCurrency(v.remaining)} left` : `${fmtCurrency(-v.remaining)} over`}
         </span>
         <span style={{ color }}>
-          {v.pace == null ? "not started"
-            : `${v.pace.toFixed(2)}× pace`}
-          {v.safeDailyRemaining > 0 && ` · ${fmtCurrency(v.safeDailyRemaining)}/day`}
+          {!v.budgetKnown ? "—"
+            : closed
+              ? (v.remaining >= 0
+                  ? `${income ? "short by" : "under by"} ${fmtCurrency(Math.abs(v.remaining))}`
+                  : `over by ${fmtCurrency(-v.remaining)}`)
+              : v.pace == null ? "not started" : `${v.pace.toFixed(2)}× pace`}
+          {!closed && v.safeDailyRemaining > 0 && ` · ${fmtCurrency(v.safeDailyRemaining)}/day`}
         </span>
       </div>
     </Card>
