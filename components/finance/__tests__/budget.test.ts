@@ -5,6 +5,7 @@ import {
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
   budgetedForRange, monthsSpanned, monthsInRange, isMonthAligned, actualByCategory, budgetKind,
+  resolutionDate, versionsInWindow, listBudgetSeries,
   type BudgetLine,
 } from "@/components/finance/budget";
 
@@ -679,5 +680,79 @@ describe("income and expense buckets don't collide", () => {
     const [pool] = summarizePools([computeLineView(inc, w, new Map(), new Map(), "2026-09-15")], {});
     expect(pool.received).toBe(0);
     expect(pool.forecast).toBe(50000);
+  });
+});
+
+describe("resolutionDate — which version a window answers with", () => {
+  const w = { fromIso: "2026-07-01", toIso: "2026-07-31", label: "July" };
+
+  it("a closed period answers with the version that governed its end", () => {
+    expect(resolutionDate(w, "2026-10-01")).toBe("2026-07-31");
+  });
+
+  it("the current period answers with what is in force today", () => {
+    // Not the end: a change already scheduled for the 20th must not take over
+    // the view on the 1st.
+    expect(resolutionDate(w, "2026-07-10")).toBe("2026-07-10");
+  });
+
+  it("a future period answers with what it will open with", () => {
+    expect(resolutionDate(w, "2026-01-15")).toBe("2026-07-01");
+  });
+
+  it("picks the later version when a budget changed mid-period, once past", () => {
+    const v1 = line({ id: "v1", seriesId: "s1", amount: 400, effectiveFrom: "2026-01-01", effectiveTo: "2026-07-14" });
+    const v2 = line({ id: "v2", seriesId: "s1", amount: 900, effectiveFrom: "2026-07-15", effectiveTo: null });
+    // Asking about July from October: the version that governed most of it.
+    expect(resolveBudgetLines([v1, v2], resolutionDate(w, "2026-10-01"))[0].amount).toBe(900);
+    // Asking on July 2nd: still the one actually in force.
+    expect(resolveBudgetLines([v1, v2], resolutionDate(w, "2026-07-02"))[0].amount).toBe(400);
+  });
+});
+
+describe("versionsInWindow", () => {
+  const w = { fromIso: "2026-07-01", toIso: "2026-07-31", label: "July" };
+
+  it("reports every version that governed part of the window", () => {
+    const v1 = line({ id: "v1", seriesId: "s1", amount: 400, effectiveFrom: "2026-01-01", effectiveTo: "2026-07-14" });
+    const v2 = line({ id: "v2", seriesId: "s1", amount: 900, effectiveFrom: "2026-07-15", effectiveTo: null });
+    expect(versionsInWindow([v1, v2], w).get("s1")).toHaveLength(2);
+  });
+
+  it("ignores versions entirely outside the window", () => {
+    const before = line({ id: "a", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: "2026-03-31" });
+    const after  = line({ id: "b", seriesId: "s1", effectiveFrom: "2026-09-01", effectiveTo: null });
+    expect(versionsInWindow([before, after], w).has("s1")).toBe(false);
+  });
+});
+
+describe("listBudgetSeries — the inventory", () => {
+  it("lists a series that is not in force in any current window", () => {
+    // Staged for next year and retired last spring: invisible in every period
+    // view, still owned by the user.
+    const future = line({ id: "f", seriesId: "future", name: "Childcare", effectiveFrom: "2027-03-01" });
+    const retired = line({ id: "r", seriesId: "old", name: "Old thing",
+      effectiveFrom: "2025-01-01", effectiveTo: "2026-03-31" });
+    const got = listBudgetSeries([future, retired], "2026-10-01");
+    expect(got.map((s) => s.name).sort()).toEqual(["Childcare", "Old thing"]);
+    expect(got.find((s) => s.name === "Childcare")!.startsOn).toBe("2027-03-01");
+    expect(got.find((s) => s.name === "Childcare")!.liveNow).toBe(false);
+    expect(got.find((s) => s.name === "Old thing")!.endedOn).toBe("2026-03-31");
+  });
+
+  it("collapses versions into one series, named by the newest", () => {
+    const v1 = line({ id: "v1", seriesId: "s1", name: "Shopping money", effectiveFrom: "2026-01-01", effectiveTo: "2026-08-31" });
+    const v2 = line({ id: "v2", seriesId: "s1", name: "Discretionary",  effectiveFrom: "2026-09-01" });
+    const [s] = listBudgetSeries([v1, v2], "2026-10-01");
+    expect(s.name).toBe("Discretionary");
+    expect(s.versions).toHaveLength(2);
+    expect(s.versions[0].id).toBe("v2");     // newest first
+    expect(s.liveNow).toBe(true);
+  });
+
+  it("puts income lines first", () => {
+    const inc = line({ id: "i", seriesId: "a", kind: "INCOME", name: "Salary" });
+    const exp = line({ id: "e", seriesId: "b", name: "Dining" });
+    expect(listBudgetSeries([exp, inc], "2026-10-01").map((s) => s.kind)).toEqual(["INCOME", "EXPENSE"]);
   });
 });

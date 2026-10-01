@@ -696,3 +696,96 @@ export function actualByCategory(
   }
   return out;
 }
+
+// ── Which version applies to a window ─────────────────────────────────────────
+
+/**
+ * The date a window should be resolved at.
+ *
+ * Resolving at the window's START is wrong once a budget changes mid-period:
+ * asking "did I adhere in July?" would answer with the version you began July
+ * with, even though a later one governed most of it. Resolving at the END is
+ * wrong for the period you are living in: a change you have already scheduled
+ * for the 20th would take over the view on the 1st.
+ *
+ * So: the latest date in the window that has actually happened. A closed period
+ * resolves at its end (the most recent version that governed it), the current
+ * period resolves at today (what is in force right now), and a future period
+ * resolves at its start (what it will open with).
+ */
+export function resolutionDate(window: DateRange, todayIso: string): string {
+  if (todayIso < window.fromIso) return window.fromIso;
+  if (todayIso > window.toIso)   return window.toIso;
+  return todayIso;
+}
+
+/** Every version of a series that governed any part of `window`, oldest first. */
+export function versionsInWindow(lines: BudgetLine[], window: DateRange): Map<string, BudgetLine[]> {
+  const out = new Map<string, BudgetLine[]>();
+  for (const l of lines) {
+    if (l.active === false || !l.effectiveFrom) continue;
+    if (l.effectiveFrom > window.toIso) continue;
+    if (l.effectiveTo != null && l.effectiveTo < window.fromIso) continue;
+    if (!out.has(l.seriesId)) out.set(l.seriesId, []);
+    out.get(l.seriesId)!.push(l);
+  }
+  for (const [, group] of out) {
+    group.sort((a, b) => (a.effectiveFrom ?? "").localeCompare(b.effectiveFrom ?? ""));
+  }
+  return out;
+}
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+
+export type BudgetSeries = {
+  seriesId: string;
+  /** Name from the newest version — what the budget is called now. */
+  name: string;
+  kind: BudgetKind;
+  fundingSource: string;
+  /** Newest version by effectiveFrom, whether or not it is in force yet. */
+  latest: BudgetLine;
+  /** Every version, newest first. */
+  versions: BudgetLine[];
+  /** True when `latest` has started and has not ended. */
+  liveNow: boolean;
+  /** Set when the newest version has not started yet — a staged future budget. */
+  startsOn: string | null;
+  /** Set when the series has ended and nothing replaced it. */
+  endedOn: string | null;
+};
+
+/**
+ * Every budget that exists, in force or not — the answer to "what budgets do I
+ * have?", which a period-scoped view cannot give. A series staged for next year
+ * or retired last spring is invisible in every window yet still very much
+ * something the user owns and needs to find.
+ */
+export function listBudgetSeries(lines: BudgetLine[], todayIso: string): BudgetSeries[] {
+  const bySeries = new Map<string, BudgetLine[]>();
+  for (const l of lines) {
+    if (!bySeries.has(l.seriesId)) bySeries.set(l.seriesId, []);
+    bySeries.get(l.seriesId)!.push(l);
+  }
+  const out: BudgetSeries[] = [];
+  for (const [seriesId, group] of bySeries) {
+    const versions = [...group].sort((a, b) => (b.effectiveFrom ?? "").localeCompare(a.effectiveFrom ?? ""));
+    const latest = versions[0];
+    const started = !!latest.effectiveFrom && latest.effectiveFrom <= todayIso;
+    const ended = latest.effectiveTo != null && latest.effectiveTo < todayIso;
+    out.push({
+      seriesId,
+      name: latest.name ?? "(unnamed)",
+      kind: budgetKind(latest),
+      fundingSource: latest.fundingSource ?? "OTHER",
+      latest,
+      versions,
+      liveNow: latest.active !== false && started && !ended,
+      startsOn: started ? null : (latest.effectiveFrom ?? null),
+      endedOn: ended ? (latest.effectiveTo ?? null) : null,
+    });
+  }
+  return out.sort((a, b) =>
+    (a.kind === b.kind ? 0 : a.kind === "INCOME" ? -1 : 1)
+    || a.name.localeCompare(b.name));
+}

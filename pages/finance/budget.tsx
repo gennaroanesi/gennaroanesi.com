@@ -12,11 +12,13 @@ import {
 import { occurrencesInWindow } from "@/components/finance/cashflow";
 import {
   resolveBudgetLines, validateBudgetHistory, planBudgetChange, bucketCategories,
-  budgetWindow, elapsedFraction, daysBetween, spendByCategory, committedByCategory,
+  resolutionDate, versionsInWindow, listBudgetSeries,
+  elapsedFraction, daysBetween, committedByCategory,
   computeLineView, summarizePools, unassignedCategories, enteredVestDates,
-  actualByCategory, budgetKind, budgetedForRange,
-  FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD, BUDGET_KINDS,
+  actualByCategory, budgetKind,
+  FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD,
   type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
+  type BudgetSeries,
 } from "@/components/finance/budget";
 import { periodRange, summarizeIncomeSources, type Period } from "@/components/finance/review";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
@@ -77,6 +79,7 @@ export default function BudgetPage() {
   const [panel, setPanel]       = useState<Panel>(null);
   const [draft, setDraft]       = useState<Draft | null>(null);
   const [editMode, setEditMode] = useState<EditMode>("change");
+  const [showAll, setShowAll]   = useState(false);
   const [changeFrom, setChangeFrom] = useState<string>("");
 
   const today = todayIso();
@@ -128,9 +131,12 @@ export default function BudgetPage() {
     } as any, from, to).length, []);
 
   const model = useMemo(() => {
-    // Every budget in force at the START of the window — including income
-    // lines, which declare the pools rather than having them inferred.
-    const inForce   = resolveBudgetLines(budgets, window.fromIso);
+    // Resolved at the latest date in the window that has actually happened, so
+    // a closed period answers with the version that governed its end and the
+    // current one answers with what is in force today — see resolutionDate.
+    const asOf      = resolutionDate(window, today);
+    const inForce   = resolveBudgetLines(budgets, asOf);
+    const versions  = versionsInWindow(budgets, window);
     const outflow   = actualByCategory(txs, window, "EXPENSE");
     const committed = committedByCategory(recurrings, window, occurrencesOf);
 
@@ -150,15 +156,18 @@ export default function BudgetPage() {
 
     return {
       window,
+      asOf,
       views,
+      versions,
+      series: listBudgetSeries(budgets, today),
       pools: summarizePools(views, received),
       unassigned: unassignedCategories(outflow, inForce.filter((l) => budgetKind(l) !== "INCOME")),
-      issues: validateBudgetHistory(budgets, window.fromIso),
+      issues: validateBudgetHistory(budgets, asOf),
       elapsed: elapsedFraction(window, today),
       daysLeft: Math.max(0, daysBetween(today, window.toIso)),
       closed: window.toIso < today,
     };
-  }, [budgets, txs, recurrings, window, today, vestDates, occurrencesOf]);
+  }, [budgets, txs, recurrings, accounts, window, today, vestDates, occurrencesOf]);
 
   // Spending buckets only — income lines carry no categories (see the panel).
   const categoryOptions = useMemo(() => {
@@ -170,12 +179,12 @@ export default function BudgetPage() {
     for (const b of budgets) if (budgetKind(b) !== "INCOME") for (const c of bucketCategories(b)) all.add(c);
 
     const owner = new Map<string, BudgetLine>();
-    for (const l of resolveBudgetLines(budgets, window.fromIso)) {
+    for (const l of resolveBudgetLines(budgets, resolutionDate(window, today))) {
       if (budgetKind(l) === "INCOME") continue;
       for (const c of bucketCategories(l)) owner.set(c, l);
     }
     return { list: [...all].sort(), owner };
-  }, [txs, budgets, window]);
+  }, [txs, budgets, window, today]);
 
   function openNew() {
     setDraft({
@@ -409,10 +418,12 @@ export default function BudgetPage() {
               ) : (
                 <div className="mt-4 space-y-3">
                   {model.views.filter((v) => budgetKind(v.line) === "INCOME").map((v) => (
-                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed} />
+                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
+                      versions={model.versions.get(v.line.seriesId)?.length ?? 1} />
                   ))}
                   {model.views.filter((v) => budgetKind(v.line) !== "INCOME").map((v) => (
-                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed} />
+                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
+                      versions={model.versions.get(v.line.seriesId)?.length ?? 1} />
                   ))}
                 </div>
               )}
@@ -437,6 +448,38 @@ export default function BudgetPage() {
                     ))}
                   </div>
                 </Card>
+              )}
+              {/* Every budget that exists, in force or not. A period view cannot
+                  show a budget staged for next year or retired last spring. */}
+              {model.series.length > 0 && (
+                <div className="mt-6">
+                  <button
+                    onClick={() => setShowAll((x) => !x)}
+                    className="text-xs py-3 hover:underline"
+                    style={{ color: FINANCE_COLOR }}
+                  >
+                    {showAll ? "Hide" : "Show"} all {model.series.length} budget{model.series.length === 1 ? "" : "s"} {showAll ? "▴" : "▾"}
+                  </button>
+                  {showAll && (
+                    <div className="mt-2 rounded-lg border border-gray-200 dark:border-darkBorder overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 dark:bg-darkElevated text-[10px] uppercase tracking-widest text-gray-400">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Budget</th>
+                            <th className="px-3 py-2 text-left">Funded by</th>
+                            <th className="px-3 py-2 text-right">Current</th>
+                            <th className="px-3 py-2 text-left">Status</th>
+                            <th className="px-3 py-2 text-left">History</th>
+                            <th className="px-3 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                          {model.series.map((sx) => <SeriesRow key={sx.seriesId} s={sx} onEdit={openEdit} />)}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -615,8 +658,8 @@ function nextDayIso(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function BucketRow({ v, onEdit, closed }: {
-  v: BudgetLineView; onEdit: (l: BudgetLine) => void; closed: boolean;
+function BucketRow({ v, onEdit, closed, versions }: {
+  v: BudgetLineView; onEdit: (l: BudgetLine) => void; closed: boolean; versions: number;
 }) {
   const income = budgetKind(v.line) === "INCOME";
   const color = STATUS_COLOR[income ? "INCOME" : "EXPENSE"][v.status];
@@ -634,6 +677,11 @@ function BucketRow({ v, onEdit, closed }: {
               {income ? "Income · " : ""}{FUNDING_SOURCE_LABELS[(v.line.fundingSource ?? "OTHER") as FundingSource]}
             </Badge>
             {v.line.label && <span className="text-[10px] text-gray-400">{v.line.label}</span>}
+            {versions > 1 && (
+              <Badge color={WARNING} size="xs" uppercase={false}>
+                {versions} versions this period — showing the one in force
+              </Badge>
+            )}
           </div>
           <div className="flex flex-wrap gap-1 mt-1.5">
             {cats.map((c) => (
@@ -679,5 +727,47 @@ function BucketRow({ v, onEdit, closed }: {
         </span>
       </div>
     </Card>
+  );
+}
+
+function SeriesRow({ s, onEdit }: { s: BudgetSeries; onEdit: (l: BudgetLine) => void }) {
+  const income = s.kind === "INCOME";
+  const status = s.startsOn ? { text: `starts ${fmtDate(s.startsOn)}`, color: WARNING }
+    : s.endedOn ? { text: `ended ${fmtDate(s.endedOn)}`, color: "#9ca3af" }
+    : s.latest.active === false ? { text: "paused", color: WARNING }
+    : { text: "in force", color: POSITIVE };
+
+  return (
+    <tr>
+      <td className="px-3 py-2.5">
+        <span className="font-medium">{s.name}</span>
+        {income && <span className="ml-1.5 text-[10px]" style={{ color: POSITIVE }}>income</span>}
+        {!income && (
+          <span className="block text-[10px] text-gray-400 mt-0.5">
+            {bucketCategories(s.latest).join(", ") || "no categories"}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400">
+        {FUNDING_SOURCE_LABELS[(s.fundingSource ?? "OTHER") as FundingSource]}
+        <span className="block text-[10px] text-gray-400">
+          per {s.latest.period === "CYCLE" ? "vest cycle" : "month"}
+        </span>
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums">{fmtCurrency(Math.abs(s.latest.amount ?? 0))}</td>
+      <td className="px-3 py-2.5"><span style={{ color: status.color }}>{status.text}</span></td>
+      <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400">
+        {s.versions.length === 1 ? "—" : (
+          <span title={s.versions.map((v) =>
+            `${v.effectiveFrom}→${v.effectiveTo ?? "open"}: ${fmtCurrency(Math.abs(v.amount ?? 0))}${v.label ? ` (${v.label})` : ""}`
+          ).join("\n")}>
+            {s.versions.length} versions, since {fmtDate(s.versions[s.versions.length - 1].effectiveFrom ?? "")}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <button onClick={() => onEdit(s.latest)} className="px-2 py-2 hover:underline" style={{ color: FINANCE_COLOR }}>Edit</button>
+      </td>
+    </tr>
   );
 }
