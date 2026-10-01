@@ -504,7 +504,15 @@ export type PoolView = {
   source: FundingSource;
   /** Declared inflow for the window — the sum of this source's INCOME lines. */
   forecast: number;
-  /** What actually arrived, so a declared salary can be checked against reality. */
+  /**
+   * What actually arrived for this source, from review.ts summarizeIncomeSources.
+   *
+   * Measured per POOL, not per income line, for two reasons. Every inflow is
+   * tagged with the same "Income" category, so categories cannot tell salary
+   * from an RSU sale — only the income classifier can. And a household may
+   * declare two salary lines, which would each claim the whole salary total if
+   * actuals were attributed per line.
+   */
   received: number;
   allocated: number;
   spent: number;
@@ -516,7 +524,10 @@ export type PoolView = {
   incomeViews: BudgetLineView[];
 };
 
-export function summarizePools(views: BudgetLineView[]): PoolView[] {
+export function summarizePools(
+  views: BudgetLineView[],
+  receivedBySource: Partial<Record<FundingSource, number>> = {},
+): PoolView[] {
   const bySource = new Map<FundingSource, BudgetLineView[]>();
   for (const v of views) {
     const src = (v.line.fundingSource ?? "OTHER") as FundingSource;
@@ -528,7 +539,7 @@ export function summarizePools(views: BudgetLineView[]): PoolView[] {
     const incomes  = all.filter((v) => budgetKind(v.line) === "INCOME");
     const expenses = all.filter((v) => budgetKind(v.line) !== "INCOME");
     const forecast  = incomes.reduce((sum, v) => sum + v.budgeted, 0);
-    const received  = incomes.reduce((sum, v) => sum + v.spent, 0);
+    const received  = receivedBySource[source] ?? 0;
     const allocated = expenses.reduce((sum, v) => sum + v.budgeted, 0);
     const spent     = expenses.reduce((sum, v) => sum + v.spent, 0);
     return {
@@ -660,9 +671,11 @@ export function budgetedForRange(
 
 /**
  * Money that actually moved in `range`, per category, in the direction the kind
- * implies: outflows for an EXPENSE line, inflows for an INCOME one. Lets a
- * declared salary be measured against the deposits that arrived, the same way a
- * spending bucket is measured against its charges.
+ * implies: outflows for EXPENSE, inflows for INCOME.
+ *
+ * The INCOME direction is for enumerating which categories money arrives under,
+ * NOT for attributing it to a budget — every inflow carries the same "Income"
+ * category, so it cannot tell salary from an RSU sale. See PoolView.received.
  */
 export function actualByCategory(
   txs: TransactionRecord[],

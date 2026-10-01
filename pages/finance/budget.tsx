@@ -18,7 +18,7 @@ import {
   FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD, BUDGET_KINDS,
   type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
 } from "@/components/finance/budget";
-import { periodRange, type Period } from "@/components/finance/review";
+import { periodRange, summarizeIncomeSources, type Period } from "@/components/finance/review";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { SlideOverPanel, PageTitle, PageLoading, Card, Badge } from "@/components/common/ui";
 
@@ -132,18 +132,26 @@ export default function BudgetPage() {
     // lines, which declare the pools rather than having them inferred.
     const inForce   = resolveBudgetLines(budgets, window.fromIso);
     const outflow   = actualByCategory(txs, window, "EXPENSE");
-    const inflow    = actualByCategory(txs, window, "INCOME");
     const committed = committedByCategory(recurrings, window, occurrencesOf);
 
     // Income lines are measured against money arriving, expense lines against
     // money leaving — same arithmetic, opposite direction.
+    // Income lines declare a pool; they are not measured per line. Every inflow
+    // carries the same "Income" category, so categories cannot tell salary from
+    // an RSU sale — the income classifier can, and it is the same split the
+    // funding sources are named after.
+    const income = summarizeIncomeSources(txs, accounts as any, window);
+    const received = {
+      SALARY: income.salary, BONUS: income.bonus, RSU: income.rsu, OTHER: income.other,
+    };
+
     const views = inForce.map((l) =>
-      computeLineView(l, window, budgetKind(l) === "INCOME" ? inflow : outflow, committed, today, vestDates));
+      computeLineView(l, window, budgetKind(l) === "INCOME" ? new Map() : outflow, committed, today, vestDates));
 
     return {
       window,
       views,
-      pools: summarizePools(views),
+      pools: summarizePools(views, received),
       unassigned: unassignedCategories(outflow, inForce.filter((l) => budgetKind(l) !== "INCOME")),
       issues: validateBudgetHistory(budgets, window.fromIso),
       elapsed: elapsedFraction(window, today),
@@ -152,28 +160,22 @@ export default function BudgetPage() {
     };
   }, [budgets, txs, recurrings, window, today, vestDates, occurrencesOf]);
 
-  // The categories a bucket can cover depend on its direction: an income line
-  // needs the categories money ARRIVES under, and listing spend categories for
-  // it (as this did) offers nothing selectable at all.
+  // Spending buckets only — income lines carry no categories (see the panel).
   const categoryOptions = useMemo(() => {
-    const kind = draft?.kind ?? "EXPENSE";
     const allTime = { fromIso: "1900-01-01", toIso: "2999-12-31", label: "" };
     const all = new Set<string>();
-    for (const [c] of actualByCategory(txs, allTime, kind)) all.add(c);
-    // Categories already in a bucket of this kind, even if nothing has landed
-    // in them lately, so an existing selection never disappears from the list.
-    for (const b of budgets) if (budgetKind(b) === kind) for (const c of bucketCategories(b)) all.add(c);
+    for (const [c] of actualByCategory(txs, allTime, "EXPENSE")) all.add(c);
+    // Categories already in a bucket, even if nothing has landed in them
+    // lately, so an existing selection never disappears from the list.
+    for (const b of budgets) if (budgetKind(b) !== "INCOME") for (const c of bucketCategories(b)) all.add(c);
 
-    // Ownership is per kind: the same category in two spending buckets would
-    // double-count, but a category appearing in both an income and an expense
-    // bucket counts different directions of money and is not a conflict.
     const owner = new Map<string, BudgetLine>();
     for (const l of resolveBudgetLines(budgets, window.fromIso)) {
-      if (budgetKind(l) !== kind) continue;
+      if (budgetKind(l) === "INCOME") continue;
       for (const c of bucketCategories(l)) owner.set(c, l);
     }
     return { list: [...all].sort(), owner };
-  }, [txs, budgets, window, draft?.kind]);
+  }, [txs, budgets, window]);
 
   function openNew() {
     setDraft({
@@ -544,42 +546,44 @@ export default function BudgetPage() {
                 onChange={(e) => setDraft({ ...draft, amount: e.target.value === "" ? null : parseFloat(e.target.value) })} />
             </div>
 
-            <div>
-              <label className={labelCls}>
-                Categories{draft.kind === "INCOME" ? "" : " *"} ({draft.categories.length})
-              </label>
-              <p className="text-[11px] text-gray-400 mb-1.5">
-                {draft.kind === "INCOME"
-                  ? "Optional — which categories count as this income arriving, so the declared amount can be checked against what actually landed. Leave empty to just declare the pool."
-                  : "A category can sit in only one spending budget — its spend cannot be split between two."}
+            {draft.kind === "INCOME" ? (
+              <p className="text-[11px] text-gray-400 rounded-lg p-3" style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x14) }}>
+                No categories to pick. Every deposit is tagged &ldquo;Income&rdquo;, so a category could not
+                tell salary from an RSU sale — what actually arrives is matched by funding source
+                instead, using the same split Review uses, and reported on the pool rather than per line.
               </p>
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder divide-y divide-gray-100 dark:divide-gray-700">
-                {categoryOptions.list.length === 0 && (
-                  <p className="px-3 py-3 text-xs text-gray-400">
-                    No {draft.kind === "INCOME" ? "income" : "spending"} categories seen yet.
-                  </p>
-                )}
-                {categoryOptions.list.map((cat) => {
-                  const owner = categoryOptions.owner.get(cat);
-                  const takenBy = owner && owner.seriesId !== draft.seriesId ? owner.name : null;
-                  const checked = draft.categories.includes(cat);
-                  return (
-                    <label key={cat}
-                      className={`flex items-center gap-2 px-3 py-3 text-xs ${takenBy ? "opacity-50" : "cursor-pointer"}`}>
-                      <input type="checkbox" checked={checked} disabled={!!takenBy}
-                        onChange={(e) => setDraft({
-                          ...draft,
-                          categories: e.target.checked
-                            ? [...draft.categories, cat]
-                            : draft.categories.filter((c) => c !== cat),
-                        })} />
-                      <span className="flex-1">{cat}</span>
-                      {takenBy && <span className="text-[10px] text-gray-400">in “{takenBy}”</span>}
-                    </label>
-                  );
-                })}
+            ) : (
+              <div>
+                <label className={labelCls}>Categories * ({draft.categories.length})</label>
+                <p className="text-[11px] text-gray-400 mb-1.5">
+                  A category can sit in only one spending budget — its spend cannot be split between two.
+                </p>
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-darkBorder divide-y divide-gray-100 dark:divide-gray-700">
+                  {categoryOptions.list.length === 0 && (
+                    <p className="px-3 py-3 text-xs text-gray-400">No spending categories seen yet.</p>
+                  )}
+                  {categoryOptions.list.map((cat) => {
+                    const owner = categoryOptions.owner.get(cat);
+                    const takenBy = owner && owner.seriesId !== draft.seriesId ? owner.name : null;
+                    const checked = draft.categories.includes(cat);
+                    return (
+                      <label key={cat}
+                        className={`flex items-center gap-2 px-3 py-3 text-xs ${takenBy ? "opacity-50" : "cursor-pointer"}`}>
+                        <input type="checkbox" checked={checked} disabled={!!takenBy}
+                          onChange={(e) => setDraft({
+                            ...draft,
+                            categories: e.target.checked
+                              ? [...draft.categories, cat]
+                              : draft.categories.filter((c) => c !== cat),
+                          })} />
+                        <span className="flex-1">{cat}</span>
+                        {takenBy && <span className="text-[10px] text-gray-400">in &ldquo;{takenBy}&rdquo;</span>}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             <label className="flex items-center gap-2 text-xs p-1 cursor-pointer">
               <input type="checkbox" checked={draft.rollover}

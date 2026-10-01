@@ -361,16 +361,17 @@ describe("summarizePools & unassignedCategories", () => {
   const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
   const salaryIncome = line({
     id: "inc", seriesId: "sal", name: "Salary", kind: "INCOME",
-    fundingSource: "SALARY", categories: ["Income"], amount: 900,
+    fundingSource: "SALARY", categories: [], amount: 900,
   });
 
   it("takes the pool from the declared income line, not from the feed", () => {
     const views = [
-      computeLineView(salaryIncome, w, new Map([["Income", 870]]), new Map(), "2026-09-15"),
+      computeLineView(salaryIncome, w, new Map(), new Map(), "2026-09-15"),
       computeLineView(line({ id: "a", name: "Dining", categories: ["Dining"], amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
       computeLineView(line({ id: "b", name: "Golf", categories: ["Golf"], amount: 400 }), w, new Map(), new Map(), "2026-09-15"),
     ];
-    const [salary] = summarizePools(views);
+    // `received` comes from the income classifier, passed in per pool.
+    const [salary] = summarizePools(views, { SALARY: 870 });
     expect(salary.declared).toBe(true);
     expect(salary.forecast).toBe(900);     // declared
     expect(salary.received).toBe(870);     // what actually arrived
@@ -652,14 +653,31 @@ describe("income and expense buckets don't collide", () => {
     expect(validateBudgetHistory([a, b], "2026-09-15").some((i) => i.kind === "shared-category")).toBe(true);
   });
 
-  it("an income line with no categories still declares its pool", () => {
-    // Declaring "salary is $12k" is useful even with nothing to check it against.
+  it("an income line declares its pool without any categories", () => {
     const inc = line({ id: "i", kind: "INCOME", name: "Meta Salary", categories: [], amount: 12000 });
     const v = computeLineView(inc, w, new Map(), new Map(), "2026-09-15");
     expect(v.budgeted).toBe(12000);
-    expect(v.spent).toBe(0);
-    const [pool] = summarizePools([v]);
+    const [pool] = summarizePools([v], { SALARY: 11893 });
     expect(pool.declared).toBe(true);
-    expect(pool.forecast).toBe(12000);
+    expect(pool.forecast).toBe(12000);   // declared
+    expect(pool.received).toBe(11893);   // from the income classifier, not categories
+  });
+
+  it("two salaries declare separately but share one actual", () => {
+    // A household with two salary lines: forecasts add, but `received` is the
+    // pool's single actual — attributing it per line would count it twice.
+    const mine   = line({ id: "a", seriesId: "s1", kind: "INCOME", name: "Meta Salary",  amount: 12000, categories: [] });
+    const theirs = line({ id: "b", seriesId: "s2", kind: "INCOME", name: "Other Salary", amount: 8000,  categories: [] });
+    const views = [mine, theirs].map((l) => computeLineView(l, w, new Map(), new Map(), "2026-09-15"));
+    const [pool] = summarizePools(views, { SALARY: 19500 });
+    expect(pool.forecast).toBe(20000);
+    expect(pool.received).toBe(19500);
+  });
+
+  it("reports received as 0 when the classifier saw nothing for that source", () => {
+    const inc = line({ id: "i", kind: "INCOME", fundingSource: "RSU", amount: 50000, categories: [] });
+    const [pool] = summarizePools([computeLineView(inc, w, new Map(), new Map(), "2026-09-15")], {});
+    expect(pool.received).toBe(0);
+    expect(pool.forecast).toBe(50000);
   });
 });
