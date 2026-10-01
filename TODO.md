@@ -7,19 +7,11 @@
 ### ~~Flying page — highlight reel (Meta Rayban videos)~~ ✅
 ### ~~Per-flight media section~~ ✅
 
-### ~~Email-triggered logbook import~~ ✅
-- Set up email address `logbookimport@gennaroanesi.com` via AWS SES
-- Forward a ForeFlight CSV export email to that address — SES stores it in S3, triggers Lambda
-- Lambda parses the attachment (ForeFlight CSV), maps columns to the `flight` model, upserts new records
-  - Upsert key: date + from + to + aircraftId (skip duplicates)
-  - New flights land with `published: false`
-  - Run `archiveChartsForFlight` for any new approach flights
-- Tech stack: SES receipt rule → S3 → Lambda (Node) → AppSync mutations
-- Steps: verify `gennaroanesi.com` domain in SES, add MX record pointing to SES inbound endpoint, configure receipt rule set, write Lambda handler reusing existing `import_flights.mjs` logic
+### ~~Email-triggered logbook import~~ — removed 2026-09 (never fired: its SES rule sat in an inactive rule set). Import via `scripts/import_flights.mjs`.
 
 ### ~~KML upload flow~~ ✅
 
-### Full-screen replay mode ← next after email import
+### Full-screen replay mode
 - Dedicated flight replay view: cockpit video fills the screen, Cesium globe animates alongside at full size (not PiP)
 - Globe camera follows the plane in real time — heading, altitude, bank angle driving the 3D view
 - Transcript scrolls in sync on the side (once subtitle feature is built)

@@ -20,7 +20,6 @@ import { auth } from "./auth/resource";
 import { data } from "./data/resource";
 import { sendNotification } from "./functions/sendNotification/resource";
 import { checkAmmoThresholds } from "./functions/checkAmmoThresholds/resource";
-import { importLogbook } from "./functions/importLogbook/resource";
 import { gennaroAgent } from "./functions/gennaroAgent/resource";
 import { financeSnapshots } from "./functions/financeSnapshots/resource";
 import { financeReconcile } from "./functions/financeReconcile/resource";
@@ -35,7 +34,6 @@ const backend = defineBackend({
   data,
   sendNotification,
   checkAmmoThresholds,
-  importLogbook,
   gennaroAgent,
   financeSnapshots,
   financeReconcile,
@@ -248,63 +246,6 @@ checkFn.addEventSource(
   }),
 );
 
-// ── importLogbook infrastructure ─────────────────────────────────────────────
-// SES receipt rule stores raw inbound email to S3 → triggers this Lambda.
-// Manual setup required (see scripts/setup-ses-inbound.sh):
-//   1. Verify gennaroanesi.com domain in SES
-//   2. Add MX record: 10 inbound-smtp.us-east-1.amazonaws.com
-//   3. Create SES receipt rule set + rule (handled in setup script)
-
-const importFn = backend.importLogbook.resources.lambda as LambdaFunction;
-const importFlightTable = tables["flight"];
-
-// AppSync URL + API key for mutations — resolved from CDK at deploy time
-const graphqlApi = backend.data.resources.graphqlApi as any;
-importFn.addEnvironment("APPSYNC_URL",     graphqlApi.graphqlUrl);
-importFn.addEnvironment("APPSYNC_API_KEY", graphqlApi.apiKey ?? "");
-importFn.addEnvironment("FLIGHT_TABLE_NAME", importFlightTable.tableName);
-
-// DynamoDB read for dedup scan
-importFlightTable.grantReadData(importFn);
-
-// AppSync write — Lambda calls AppSync directly via HTTP (API key auth)
-// No extra IAM needed for API key auth.
-
-// S3: read raw emails deposited by SES
-importFn.addToRolePolicy(
-  new PolicyStatement({
-    effect:  Effect.ALLOW,
-    actions: ["s3:GetObject"],
-    resources: [`${customBucket.bucketArn}/private/email-import/*`],
-  }),
-);
-
-// SES: send summary reply email
-importFn.addToRolePolicy(
-  new PolicyStatement({
-    effect:  Effect.ALLOW,
-    actions: ["ses:SendEmail", "ses:SendRawEmail"],
-    resources: ["*"],
-  }),
-);
-
-// S3 trigger: fires when SES writes a new email object
-importFn.addToRolePolicy(
-  new PolicyStatement({
-    effect:  Effect.ALLOW,
-    actions: ["s3:GetBucketNotification", "s3:PutBucketNotification"],
-    resources: [customBucket.bucketArn],
-  }),
-);
-
-
-// Allow S3 to invoke the Lambda (also done in setup-ses-inbound.sh for SES direct invoke)
-importFn.addPermission("S3InvokeImportLogbook", {
-  principal: new ServicePrincipal("s3.amazonaws.com"),
-  action:    "lambda:InvokeFunction",
-  sourceArn: customBucket.bucketArn,
-});
-
 // ── gennaroAgent infrastructure ──────────────────────────────────────────────
 // Tool-calling Claude agent. Starts read-only over finance models; more tool
 // domains (inventory, flight, …) will be added later. Wired as an AppSync
@@ -390,7 +331,7 @@ invoiceFn.addToRolePolicy(
   }),
 );
 
-// S3 trigger plumbing (mirrors importLogbook): allow reading/updating the
+// S3 trigger plumbing: allow reading/updating the
 // bucket-notification config from the setup script's credentials context…
 invoiceFn.addToRolePolicy(
   new PolicyStatement({
