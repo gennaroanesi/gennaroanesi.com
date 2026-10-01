@@ -6,7 +6,7 @@ import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client, listAll, fetchTransactions, fetchBudgets,
   FINANCE_COLOR, fmtCurrency, fmtDate, todayIso,
-  inputCls, labelCls, SaveButton, DeleteButton, EmptyState,
+  inputCls, labelCls, SaveButton, EmptyState,
   type TransactionRecord, type RecurringRecord,
 } from "@/components/finance/_shared";
 import { occurrencesInWindow } from "@/components/finance/cashflow";
@@ -36,6 +36,11 @@ type Draft = {
   categories: string[];
   label: string;
   notes: string;
+  /** This version's own validity. Editable when correcting, so a date entered
+   *  wrong can be put right without inventing a new version. */
+  effectiveFrom: string;
+  /** Empty string = open-ended. Never a sentinel date. */
+  effectiveTo: string;
 };
 
 /** One entry point. Correct vs change is chosen inside the panel, not by which
@@ -191,6 +196,7 @@ export default function BudgetPage() {
       seriesId: (globalThis.crypto?.randomUUID?.() ?? `s-${Date.now()}`),
       name: "", kind: "EXPENSE", fundingSource: "SALARY", period: "MONTHLY",
       amount: null, rollover: false, categories: [], label: "", notes: "",
+      effectiveFrom: today, effectiveTo: "",
     });
     setEditMode("change");
     setPanel({ kind: "new" });
@@ -208,6 +214,8 @@ export default function BudgetPage() {
       categories: bucketCategories(line),
       label: line.label ?? "",
       notes: line.notes ?? "",
+      effectiveFrom: line.effectiveFrom ?? "",
+      effectiveTo: line.effectiveTo ?? "",
     });
     // A change defaults to the next period boundary: mid-period it would make
     // every pace number ambiguous (which budget was it measured against?), so
@@ -221,6 +229,11 @@ export default function BudgetPage() {
     if (!draft || !panel) return;
     if (!draft.name.trim())       { notifyError("Name is required"); return; }
     if (draft.amount == null)     { notifyError("Amount is required"); return; }
+    if (!draft.effectiveFrom) { notifyError("A budget needs a date it takes effect"); return; }
+    if (draft.effectiveTo && draft.effectiveTo < draft.effectiveFrom) {
+      notifyError("“In force until” is before “in force from” — that version could never apply");
+      return;
+    }
     if (draft.kind !== "INCOME" && draft.categories.length === 0) {
       notifyError("Pick at least one category — a spending bucket with none measures nothing");
       return;
@@ -235,6 +248,10 @@ export default function BudgetPage() {
           categories: draft.categories, amount: draft.amount,
           period: draft.period as any, rollover: draft.rollover,
           label: draft.label || null, notes: draft.notes || null,
+          // Validity is editable here too: a date typed wrong is a correction,
+          // not a reason to manufacture another version.
+          effectiveFrom: draft.effectiveFrom,
+          effectiveTo: draft.effectiveTo || null,
         } as any));
       } else {
         const current = panel.kind === "edit" ? panel.current : null;
@@ -261,11 +278,38 @@ export default function BudgetPage() {
     }
   }
 
-  async function handleDelete(line: BudgetLine) {
-    if (!confirm(`Delete this version of "${line.name}"? Other versions in its history are kept.`)) return;
+  /**
+   * End a budget without erasing it. Expiring closes the current version on a
+   * date; every past period still resolves to the version that governed it, so
+   * "did I adhere in July?" keeps working for a budget retired in September.
+   * This is the one people actually want — deleting would rewrite the past.
+   */
+  async function handleExpire(line: BudgetLine, on: string) {
+    if (!confirm(`Stop budgeting "${line.name}" after ${fmtDate(on)}?\n\nIts history is kept, so past periods still report against it.`)) return;
     setSaving(true);
     try {
-      await mutate(client.models.financeBudget.delete({ id: line.id }));
+      await mutate(client.models.financeBudget.update({ id: line.id, effectiveTo: on } as any));
+      setPanel(null); setDraft(null);
+      await fetchData();
+    } catch (e) {
+      reportError(e, "Expire budget");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Delete one version, or the whole series. Both rewrite history — hence the
+   *  explicit choice and the warning, rather than a single ambiguous Delete. */
+  async function handleDelete(line: BudgetLine, scope: "version" | "series") {
+    const siblings = budgets.filter((b) => b.seriesId === line.seriesId);
+    const msg = scope === "series"
+      ? `Delete "${line.name}" and all ${siblings.length} version(s)?\n\nPast periods will no longer report against it. To stop budgeting going forward while keeping the history, expire it instead.`
+      : `Delete just this version of "${line.name}"?\n\n${siblings.length > 1 ? "The other versions remain, which may leave a gap in its history." : "This removes the budget entirely."}`;
+    if (!confirm(msg)) return;
+    setSaving(true);
+    try {
+      const targets = scope === "series" ? siblings : [line];
+      for (const t of targets) await mutate(client.models.financeBudget.delete({ id: t.id }));
       setPanel(null); setDraft(null);
       await fetchData();
     } catch (e) {
@@ -491,9 +535,37 @@ export default function BudgetPage() {
             onClose={() => { setPanel(null); setDraft(null); }}
             footer={
               <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-gray-200 dark:border-darkBorder flex-shrink-0">
-                {panel.kind === "edit"
-                  ? <DeleteButton onDelete={() => handleDelete(panel.current)} saving={saving} />
-                  : <span />}
+                {panel.kind === "edit" ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {panel.current.effectiveTo == null && (
+                      <button
+                        onClick={() => handleExpire(panel.current, model?.window.toIso ?? today)}
+                        disabled={saving}
+                        className="px-3 py-2 rounded-lg text-xs font-semibold border border-gray-300 dark:border-darkBorder disabled:opacity-50"
+                        style={{ color: WARNING }}
+                        title="Stop budgeting this after the selected period, keeping its history"
+                      >
+                        Expire
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(panel.current, "version")}
+                      disabled={saving}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold border border-red-300 dark:border-red-800 text-red-500 dark:text-red-400 disabled:opacity-50"
+                    >
+                      Delete version
+                    </button>
+                    {budgets.filter((b) => b.seriesId === panel.current.seriesId).length > 1 && (
+                      <button
+                        onClick={() => handleDelete(panel.current, "series")}
+                        disabled={saving}
+                        className="px-3 py-2 rounded-lg text-xs font-semibold border border-red-300 dark:border-red-800 text-red-500 dark:text-red-400 disabled:opacity-50"
+                      >
+                        Delete all
+                      </button>
+                    )}
+                  </div>
+                ) : <span />}
                 <SaveButton
                   onSave={handleSave}
                   saving={saving}
@@ -530,11 +602,29 @@ export default function BudgetPage() {
                     </span>
                   </label>
                 </div>
-                {editMode === "change" && (
+                {editMode === "change" ? (
                   <div className="mt-2">
-                    <label className={labelCls}>In force from</label>
+                    <label className={labelCls}>New version in force from</label>
                     <input type="date" className={inputCls} value={changeFrom}
                       onChange={(e) => setChangeFrom(e.target.value)} />
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      The current version is closed the day before. Expire, below, ends the budget
+                      on that date instead of replacing it.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div>
+                      <label className={labelCls}>In force from</label>
+                      <input type="date" className={inputCls} value={draft.effectiveFrom}
+                        onChange={(e) => setDraft({ ...draft, effectiveFrom: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className={labelCls}>In force until</label>
+                      <input type="date" className={inputCls} value={draft.effectiveTo}
+                        onChange={(e) => setDraft({ ...draft, effectiveTo: e.target.value })} />
+                      <p className="text-[11px] text-gray-400 mt-1">Blank = open-ended.</p>
+                    </div>
                   </div>
                 )}
               </div>

@@ -742,3 +742,31 @@ describe("listBudgetSeries — the inventory", () => {
     expect(listBudgetSeries([exp, inc], "2026-10-01").map((s) => s.kind)).toEqual(["INCOME", "EXPENSE"]);
   });
 });
+
+describe("expiring a budget keeps its past", () => {
+  it("stops applying after its end date but still answers for earlier periods", () => {
+    // What the Expire action does: close the open version on a date.
+    const expired = line({
+      id: "v", seriesId: "s1", name: "Golf", amount: 600,
+      effectiveFrom: "2026-01-01", effectiveTo: "2026-09-30",
+    });
+    // July still reports against it…
+    expect(resolveBudgetLines([expired], resolutionDate(
+      { fromIso: "2026-07-01", toIso: "2026-07-31", label: "" }, "2026-12-01"))[0].amount).toBe(600);
+    // …October does not.
+    expect(resolveBudgetLines([expired], resolutionDate(
+      { fromIso: "2026-10-01", toIso: "2026-10-31", label: "" }, "2026-12-01"))).toEqual([]);
+  });
+
+  it("an expired series is still listed, flagged as ended", () => {
+    const expired = line({ id: "v", seriesId: "s1", name: "Golf",
+      effectiveFrom: "2026-01-01", effectiveTo: "2026-09-30" });
+    const [s] = listBudgetSeries([expired], "2026-12-01");
+    expect(s.endedOn).toBe("2026-09-30");
+    expect(s.liveNow).toBe(false);
+  });
+
+  it("deleting instead would erase the past — the reason expire exists", () => {
+    expect(resolveBudgetLines([], "2026-07-15")).toEqual([]);
+  });
+});
