@@ -4,7 +4,7 @@ import {
   budgetWindow, cycleWindow, elapsedFraction, spendByCategory, committedByCategory,
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
-  budgetedForRange, monthsSpanned, actualByCategory, budgetKind,
+  budgetedForRange, monthsSpanned, monthsInRange, isMonthAligned, actualByCategory, budgetKind,
   type BudgetLine,
 } from "@/components/finance/budget";
 
@@ -595,5 +595,32 @@ describe("buckets", () => {
     expect(validateBudgetHistory([v1, v2], "2026-09-15")).toEqual([]);
     expect(resolveBudgetLines([v1, v2], "2026-09-15")[0].name).toBe("Discretionary purchases");
     expect(resolveBudgetLines([v1, v2], "2026-03-15")[0].name).toBe("Shopping money");
+  });
+});
+
+describe("monthsInRange — calendar-aligned vs rolling windows", () => {
+  const R = (f: string, t: string) => ({ fromIso: f, toIso: t, label: "" });
+  const monthly = line({ id: "m", amount: 500, period: "MONTHLY" });
+
+  it("counts whole months when the range is calendar-aligned", () => {
+    expect(monthsInRange(R("2026-07-01", "2026-07-31"))).toBe(1);
+    expect(monthsInRange(R("2026-07-01", "2026-09-30"))).toBe(3);
+    expect(monthsInRange(R("2026-01-01", "2026-12-31"))).toBe(12);
+  });
+
+  it("does NOT count touched months for a rolling window", () => {
+    // "Last 3 months" spans parts of four calendar months; counting them would
+    // give a $500/mo line a $2,000 budget for a 93-day window.
+    const last3 = R("2026-07-01", "2026-10-01");
+    expect(monthsSpanned(last3)).toBe(4);
+    expect(monthsInRange(last3)).toBeCloseTo(93 / 30.44, 5);
+    expect(budgetedForRange(monthly, last3, [])).toBeCloseTo(500 * (93 / 30.44), 2);
+  });
+
+  it("recognises alignment only when both ends line up", () => {
+    expect(isMonthAligned(R("2026-07-01", "2026-07-31"))).toBe(true);
+    expect(isMonthAligned(R("2026-07-01", "2026-07-30"))).toBe(false);
+    expect(isMonthAligned(R("2026-07-15", "2026-07-31"))).toBe(false);
+    expect(isMonthAligned(R("2028-02-01", "2028-02-29"))).toBe(true);   // leap
   });
 });

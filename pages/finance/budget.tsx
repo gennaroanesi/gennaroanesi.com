@@ -51,12 +51,11 @@ const STATUS_COLOR = {
   INCOME:  { under: NEGATIVE, on: FINANCE_COLOR, over: POSITIVE },
 } as const;
 
-const MONTH_NAMES = [
+const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 const THIS_YEAR = new Date().getFullYear();
-const YEARS = [THIS_YEAR - 2, THIS_YEAR - 1, THIS_YEAR, THIS_YEAR + 1];
 
 export default function BudgetPage() {
   const { authState } = useRequireAuth();
@@ -70,7 +69,7 @@ export default function BudgetPage() {
 
   // The time window under review — the same shape as the Review page's picker,
   // so "did I adhere in July?" is one selection rather than a different screen.
-  const [pKind, setPKind]   = useState<"month" | "quarter" | "year">("month");
+  const [pKind, setPKind]   = useState<"month" | "quarter" | "year" | "last3">("month");
   const [pYear, setPYear]   = useState(new Date().getFullYear());
   const [pMonth, setPMonth] = useState(new Date().getMonth() + 1);
   const [pQuarter, setPQuarter] = useState(Math.floor(new Date().getMonth() / 3) + 1);
@@ -102,12 +101,21 @@ export default function BudgetPage() {
 
   useEffect(() => { if (authState === "authenticated") fetchData(); }, [authState, fetchData]);
 
+  const availableYears = useMemo(() => {
+    const ys = new Set<number>([THIS_YEAR]);
+    for (const t of txs) if (t.date) ys.add(Number(t.date.slice(0, 4)));
+    return [...ys].sort((a, b) => b - a);
+  }, [txs]);
+
   const vestDates = useMemo(() => enteredVestDates(recurrings), [recurrings]);
-  const period: Period = useMemo(() => (
-    pKind === "month"   ? { kind: "month", year: pYear, month: pMonth }
-    : pKind === "quarter" ? { kind: "quarter", year: pYear, quarter: pQuarter }
-    : { kind: "year", year: pYear }
-  ), [pKind, pYear, pMonth, pQuarter]);
+  const period: Period = useMemo(() => {
+    switch (pKind) {
+      case "month":   return { kind: "month", year: pYear, month: pMonth };
+      case "quarter": return { kind: "quarter", year: pYear, quarter: pQuarter };
+      case "last3":   return { kind: "last3", anchorIso: today };
+      default:        return { kind: "year", year: pYear };
+    }
+  }, [pKind, pYear, pMonth, pQuarter, today]);
   const window = useMemo(() => periodRange(period), [period]);
 
   /** Occurrence count for a rule inside a window — the cashflow engine, not a second copy. */
@@ -250,41 +258,65 @@ export default function BudgetPage() {
     <FinanceLayout>
       <div className="flex h-full">
         <div className="flex-1 min-w-0 overflow-y-auto px-4 py-5 md:px-8">
-          {/* Header */}
-          <div className="flex items-start justify-between mb-1 gap-2 flex-wrap">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+            <NextLink href="/finance" className="hover:underline" style={{ color: FINANCE_COLOR }}>Finance</NextLink>
+            <span>/</span>
+            <span>Budget</span>
+          </div>
+
+          {/* Header + period selector — same layout as Review, deliberately. */}
+          <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
             <div>
               <PageTitle>Budget</PageTitle>
               <p className="text-xs text-gray-400 mt-0.5">
-                What&apos;s left to spend — the forward view of{" "}
-                <NextLink href="/finance/review" className="hover:underline" style={{ color: FINANCE_COLOR }}>Review</NextLink>.
+                {model ? model.window.label : "—"} · what&apos;s left to spend, the forward view of{" "}
+                <NextLink href="/finance/review" className="hover:underline" style={{ color: FINANCE_COLOR }}>Review</NextLink>
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-darkBorder">
-                {(["month", "quarter", "year"] as const).map((k) => (
-                  <button key={k} onClick={() => setPKind(k)}
-                    className="px-3 py-3 text-xs font-medium capitalize"
-                    style={pKind === k ? { backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR } : undefined}>
-                    {k}
+              <div className="inline-flex rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                {([["month", "Month"], ["quarter", "Quarter"], ["year", "Year"], ["last3", "Last 3 mo"]] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    onClick={() => setPKind(k)}
+                    className="px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap"
+                    style={pKind === k ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}
+                  >
+                    {label}
                   </button>
                 ))}
               </div>
               {pKind === "month" && (
-                <select className={`${inputCls} w-auto py-3`} value={pMonth} onChange={(e) => setPMonth(+e.target.value)}>
-                  {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                <select
+                  value={pMonth}
+                  onChange={(e) => setPMonth(Number(e.target.value))}
+                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-2 text-gray-700 dark:text-gray-200"
+                >
+                  {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
                 </select>
               )}
               {pKind === "quarter" && (
-                <select className={`${inputCls} w-auto py-3`} value={pQuarter} onChange={(e) => setPQuarter(+e.target.value)}>
+                <select
+                  value={pQuarter}
+                  onChange={(e) => setPQuarter(Number(e.target.value))}
+                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-2 text-gray-700 dark:text-gray-200"
+                >
                   {[1, 2, 3, 4].map((q) => <option key={q} value={q}>Q{q}</option>)}
                 </select>
               )}
-              <select className={`${inputCls} w-auto py-3`} value={pYear} onChange={(e) => setPYear(+e.target.value)}>
-                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-              </select>
+              {pKind !== "last3" && (
+                <select
+                  value={pYear}
+                  onChange={(e) => setPYear(Number(e.target.value))}
+                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-xs px-2 py-2 text-gray-700 dark:text-gray-200"
+                >
+                  {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              )}
               <button
                 onClick={openNew}
-                className="rounded-lg px-3 py-3 text-sm font-medium"
+                className="rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap"
                 style={{ backgroundColor: withAlpha(FINANCE_COLOR, 0x22), color: FINANCE_COLOR }}
               >
                 + Add budget
@@ -297,11 +329,10 @@ export default function BudgetPage() {
           {!loading && model && (
             <>
               {/* Window */}
-              <p className="text-xs text-gray-400 mt-3">
-                {model.window.label}
+              <p className="text-xs text-gray-400">
                 {model.closed
-                  ? " · closed"
-                  : ` · ${Math.round(model.elapsed * 100)}% elapsed · ${model.daysLeft} day${model.daysLeft === 1 ? "" : "s"} left`}
+                  ? "Period closed"
+                  : `${Math.round(model.elapsed * 100)}% elapsed · ${model.daysLeft} day${model.daysLeft === 1 ? "" : "s"} left`}
               </p>
 
               {/* History problems — these are datastore invariants nothing else enforces. */}

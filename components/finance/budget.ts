@@ -582,6 +582,25 @@ export function monthsSpanned(range: DateRange): number {
   return (ty * 12 + tm) - (fy * 12 + fm) + 1;
 }
 
+/** Does the range start on a 1st and end on a month's last day? */
+export function isMonthAligned(range: DateRange): boolean {
+  return range.fromIso.endsWith("-01") && range.toIso === monthEnd(range.toIso);
+}
+
+/**
+ * How many months of budget a range is worth.
+ *
+ * A calendar-aligned range counts whole months, so a quarter is exactly 3 and a
+ * $500/month line is exactly $1,500 — no 1.018 drift from dividing days by
+ * 30.44. A range that is NOT aligned must not use that count: "last 3 months"
+ * touches four calendar months, and counting them would hand a $500 line a
+ * $2,000 budget for a 93-day window. Those fall back to real elapsed months.
+ */
+export function monthsInRange(range: DateRange): number {
+  if (isMonthAligned(range)) return monthsSpanned(range);
+  return (daysBetween(range.fromIso, range.toIso) + 1) / 30.44;
+}
+
 /** Overlap in days between two ranges, inclusive; 0 when they don't meet. */
 export function overlapDays(a: DateRange, b: DateRange): number {
   const from = a.fromIso > b.fromIso ? a.fromIso : b.fromIso;
@@ -623,7 +642,7 @@ export function budgetedForRange(
 ): number | null {
   const amount = Math.abs(line.amount ?? 0);
   const period = (line.period ?? DEFAULT_PERIOD[(line.fundingSource ?? "OTHER") as FundingSource]) as BudgetPeriod;
-  if (period === "MONTHLY") return amount * monthsSpanned(range);
+  if (period === "MONTHLY") return amount * monthsInRange(range);
 
   const cycles = cyclesOverlapping(range, vestDates);
   if (cycles.length === 0) return null;
