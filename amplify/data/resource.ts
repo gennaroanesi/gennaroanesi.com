@@ -623,6 +623,12 @@ const schema = a.schema({
       // hit and treats miss as a disqualifier (see scoreTransactionAgainstRecurring).
       // Examples: "MORTGAGE PMT", "NETFLIX", "/CHASE.*AUTOPAY/i"
       matchPattern: a.string(),
+      // Which budget pool this event feeds (income rules) or draws from
+      // (expense rules). Lets an expected bonus or an entered vest be an
+      // ordinary ONCE rule instead of a separate config model — it then flows
+      // into cashflow, the weekly outlook and the balance projection for free.
+      // Null on rules that predate budgeting or don't belong to a pool.
+      fundingSource: a.enum(["SALARY", "BONUS", "RSU", "OTHER"]),
     })
     // accountId GSI: rules are listed per-account by the matcher and crons.
     .secondaryIndexes((index) => [index("accountId")])
@@ -640,6 +646,81 @@ const schema = a.schema({
       // Set to 0 for pure-cash goals where compound growth is not realistic.
       expectedAnnualGrowth: a.float(),
     })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Budget ───────────────────────────────────────────────────
+  // A per-category spending intention, versioned over time (SCD type 2).
+  //
+  // WHY VERSIONED: a budget is an authored decision that changes on real-world
+  // events — a raise, a child, a move. Comparing March's actuals against
+  // today's post-raise numbers answers nothing, so each change closes the
+  // current row (sets effectiveTo) and opens a new one rather than mutating.
+  // "The budget as it will be on 2027-03-01" is then the same resolution query
+  // at a different date, which is also how a future budget is staged.
+  //
+  // WHY fundingSource: it declares what pays for a line, which in turn decides
+  // the window. Salary arrives on a cadence, so salary-funded lines budget per
+  // MONTH; equity arrives in lumps, so equity-funded lines budget per CYCLE
+  // (vest to vest). The enum mirrors review.ts IncomeSources exactly
+  // (salary/bonus/rsu/other) so the pools need no new classification logic.
+  // There is deliberately no default: an unassigned category is surfaced on the
+  // page as something to fix, never silently bucketed.
+  //
+  // Uniqueness is (category, fundingSource), NOT category — one category may
+  // legitimately draw on two pools (a Travel baseline from salary plus a
+  // per-trip top-up from RSU). A category's budget is the sum of its in-force
+  // lines.
+  financeBudget: a
+    .model({
+      category:      a.string().required(),   // matches effectiveCategory() output
+      fundingSource: a.enum(["SALARY", "BONUS", "RSU", "OTHER"]),
+      amount:        a.float().required(),    // positive magnitude per period
+      period:        a.enum(["MONTHLY", "CYCLE"]),
+      rollover:      a.boolean().default(false),
+
+      // Validity window. `effectiveTo` null = open-ended — the same convention
+      // as financeRecurring.endDate, and deliberately NOT a 2999 sentinel:
+      // sentinel dates poison aggregates and range filters, and this schema has
+      // already been bitten once by 1970-01-01 standing in for "no date".
+      effectiveFrom: a.date().required(),
+      effectiveTo:   a.date(),
+
+      // Enabled/paused — NOT "is current". Currency is a function of the dates
+      // alone; storing it separately would let the two disagree, and there is
+      // no constraint here to stop that. Pausing a line keeps its history.
+      active:        a.boolean().default(true),
+
+      label:         a.string(),   // names the change: "post-raise", "baby arrives"
+      notes:         a.string(),
+    })
+    .authorization((allow) => [allow.group("admins")]),
+
+  // ── Budget period outcome ────────────────────────────────────
+  // One frozen row per (category, fundingSource, period). Written at period
+  // close by the financeSnapshots cron, upserted so a late recategorization
+  // heals on the next run — the same discipline as financeAccountSnapshot.
+  //
+  // This exists for rollover: carry compounds across periods, the budget can
+  // change mid-stream, and transactions get recategorized after the fact, so
+  // recomputing the whole chain from raw rows on every render is both
+  // expensive and non-deterministic. `budgeted` is stored alongside `spent`
+  // for the same reason financeGoalSnapshot keeps targetAmount — so the row is
+  // self-contained and a historical chart knows what the bar was at the time.
+  financeBudgetPeriod: a
+    .model({
+      category:      a.string().required(),
+      fundingSource: a.string().required(),
+      periodStart:   a.date().required(),   // month start, or cycle start (vest to vest)
+      periodEnd:     a.date().required(),
+      budgeted:      a.float().required(),  // the line in force for this period
+      spent:         a.float().required(),
+      carriedIn:     a.float().default(0),
+      carriedOut:    a.float().default(0),
+      capturedAt:    a.datetime().required(),
+    })
+    .secondaryIndexes((index) => [
+      index("category").sortKeys(["periodStart"]),   // "this category vs budget over time"
+    ])
     .authorization((allow) => [allow.group("admins")]),
 
   // ── Spend Group ──────────────────────────────────────────────
