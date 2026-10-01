@@ -196,7 +196,10 @@ export default function BudgetPage() {
       seriesId: (globalThis.crypto?.randomUUID?.() ?? `s-${Date.now()}`),
       name: "", kind: "EXPENSE", fundingSource: "SALARY", period: "MONTHLY",
       amount: null, rollover: false, categories: [], label: "", notes: "",
-      effectiveFrom: today, effectiveTo: "",
+      // Starts with the period you are looking at, so a budget created while
+      // viewing October applies to the whole of October rather than a part-month
+      // slice. Shown in the form and editable — never applied silently.
+      effectiveFrom: window.fromIso, effectiveTo: "",
     });
     setEditMode("change");
     setPanel({ kind: "new" });
@@ -255,7 +258,9 @@ export default function BudgetPage() {
         } as any));
       } else {
         const current = panel.kind === "edit" ? panel.current : null;
-        const from    = panel.kind === "edit" ? changeFrom : today;
+        // A new budget starts on the date shown in the form; only a change to an
+        // existing one uses the separate "new version from" date.
+        const from    = panel.kind === "edit" ? changeFrom : draft.effectiveFrom;
         const { insert, close } = planBudgetChange(current, {
           seriesId: draft.seriesId, name: draft.name.trim(), kind: draft.kind, categories: draft.categories,
           amount: draft.amount, fundingSource: draft.fundingSource, period: draft.period,
@@ -575,6 +580,18 @@ export default function BudgetPage() {
               </div>
             }
           >
+            {panel.kind === "new" && (
+              <div>
+                <label className={labelCls}>In force from *</label>
+                <input type="date" className={inputCls} value={draft.effectiveFrom}
+                  onChange={(e) => setDraft({ ...draft, effectiveFrom: e.target.value })} />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  The first day this budget applies. Periods before it report no budget for this
+                  line, rather than pretending it existed.
+                </p>
+              </div>
+            )}
+
             {panel.kind === "edit" && (
               <div>
                 <label className={labelCls}>What kind of edit?</label>
@@ -608,8 +625,10 @@ export default function BudgetPage() {
                     <input type="date" className={inputCls} value={changeFrom}
                       onChange={(e) => setChangeFrom(e.target.value)} />
                     <p className="text-[11px] text-gray-400 mt-1">
-                      The current version is closed the day before. Expire, below, ends the budget
-                      on that date instead of replacing it.
+                      Prefilled with the start of the next period ({fmtDate(nextDayIso(model?.window.toIso ?? today))}),
+                      so this period keeps one budget and its pace stays unambiguous — change it to
+                      anything you like. The current version is closed the day before. Expire, below,
+                      ends the budget on that date instead of replacing it.
                     </p>
                   </div>
                 ) : (

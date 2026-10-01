@@ -161,8 +161,16 @@ const TX_FIELDS = `id accountId amount type category description date status
 
 const INVOICE_LINK_FIELDS = `id invoiceId transactionId amount createdAt updatedAt`;
 
-const BUDGET_FIELDS = `id seriesId name fundingSource categories amount period rollover
+// MUST list every field budget.ts reads. A raw query returns exactly what it
+// asks for, so a field added to the model and forgotten here comes back
+// undefined and silently takes its default — `kind` was missing once, and every
+// income budget read back as a spending bucket. budget.test.ts pins this list
+// against BudgetLine so the next addition fails loudly instead.
+const BUDGET_FIELDS = `id seriesId name kind fundingSource categories amount period rollover
   effectiveFrom effectiveTo active label notes createdAt updatedAt`;
+
+/** The fields fetchBudgets requests — exported so a test can check nothing is missing. */
+export const BUDGET_SELECTION_SET = BUDGET_FIELDS;
 
 /** Paginate a raw-GraphQL list/index Query to exhaustion. Same page-size /
  *  safety-cap semantics as listAll. `queryName` is the field to unwrap from

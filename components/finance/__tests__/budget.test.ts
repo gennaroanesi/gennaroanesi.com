@@ -8,6 +8,7 @@ import {
   resolutionDate, versionsInWindow, listBudgetSeries,
   type BudgetLine,
 } from "@/components/finance/budget";
+import { BUDGET_SELECTION_SET } from "@/components/finance/data";
 
 const line = (over: Partial<BudgetLine> & { id: string }): BudgetLine => ({
   seriesId: over.seriesId ?? `s-${over.id}`, name: "Dining", categories: ["Dining"],
@@ -768,5 +769,25 @@ describe("expiring a budget keeps its past", () => {
 
   it("deleting instead would erase the past — the reason expire exists", () => {
     expect(resolveBudgetLines([], "2026-07-15")).toEqual([]);
+  });
+});
+
+describe("the raw-GraphQL selection set covers every field budget.ts reads", () => {
+  // fetchBudgets uses raw GraphQL (categories is an array field, which the typed
+  // client drops — CLAUDE.md §4). A raw query returns exactly what it asks for,
+  // so a field added to the model but forgotten in BUDGET_FIELDS comes back
+  // undefined and silently takes its default. `kind` was missing exactly once,
+  // and every income budget read back as a spending bucket: the pool showed
+  // "allocated against nothing" while the salary line inflated the allocation.
+  const READ_BY_ENGINE = [
+    "id", "seriesId", "name", "kind", "fundingSource", "categories",
+    "amount", "period", "rollover", "effectiveFrom", "effectiveTo",
+    "active", "label", "notes",
+  ];
+
+  it("requests every field", () => {
+    const requested = new Set(BUDGET_SELECTION_SET.split(/\s+/).filter(Boolean));
+    const missing = READ_BY_ENGINE.filter((f) => !requested.has(f));
+    expect(missing).toEqual([]);
   });
 });
