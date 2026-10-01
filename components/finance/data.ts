@@ -120,7 +120,7 @@ export async function fetchTransactions(q: TransactionQuery = {}): Promise<Trans
       // lowercase model names generate Model<camelCase>FilterInput — AppSync
       // rejects the whole query with VariableTypeMismatch. Same client-codegen
       // bug family as CLAUDE.md §4; raw queries sidestep it.
-      return await listAllRawIndex<TransactionRecord>(
+      return await listAllRaw<TransactionRecord>(
         "listFinanceTransactionByAccountIdAndDate",
         `query ByAccount($accountId: ID!, $date: ModelStringKeyConditionInput, $limit: Int, $nextToken: String) {
           listFinanceTransactionByAccountIdAndDate(accountId: $accountId, date: $date, limit: $limit, nextToken: $nextToken) {
@@ -161,10 +161,13 @@ const TX_FIELDS = `id accountId amount type category description date status
 
 const INVOICE_LINK_FIELDS = `id invoiceId transactionId amount createdAt updatedAt`;
 
-/** Paginate a raw-GraphQL index Query to exhaustion. Same page-size /
+const BUDGET_FIELDS = `id seriesId name fundingSource categories amount period rollover
+  effectiveFrom effectiveTo active label notes createdAt updatedAt`;
+
+/** Paginate a raw-GraphQL list/index Query to exhaustion. Same page-size /
  *  safety-cap semantics as listAll. `queryName` is the field to unwrap from
  *  the response; `query` must declare $limit and $nextToken. */
-async function listAllRawIndex<T>(
+async function listAllRaw<T>(
   queryName: string,
   query: string,
   variables: Record<string, unknown>,
@@ -246,6 +249,29 @@ export async function fetchInvoices(): Promise<InvoiceRecord[]> {
   return listAll<InvoiceRecord>(client.models.financeInvoice as any);
 }
 
+/** Every version of every budget — the whole SCD series, not just what is in
+ *  force today. Resolution to a date happens in budget.ts, and the history
+ *  itself is what the page shows when you ask what a budget used to be.
+ *
+ *  Raw GraphQL, not the typed client: `categories` is an array field, and the
+ *  Amplify Gen2 typed client silently omits those (CLAUDE.md §4). Omitted here
+ *  would mean every bucket reading as covering nothing — budgets that quietly
+ *  match no spend — so this seam must never route through `.list()`.
+ *
+ *  Volume is human-scale (tens of rows), so an unfiltered scan is right. */
+export async function fetchBudgets(): Promise<any[]> {
+  return listAllRaw<any>(
+    "listFinanceBudgets",
+    `query Budgets($limit: Int, $nextToken: String) {
+      listFinanceBudgets(limit: $limit, nextToken: $nextToken) {
+        items { ${BUDGET_FIELDS} }
+        nextToken
+      }
+    }`,
+    {},
+  );
+}
+
 /** Live classification rules from the DB, ordered first-match-wins; falls back
  *  to the bundled category-rules.json when the table is empty. */
 export async function fetchCategoryRules(): Promise<CategoryRule[]> {
@@ -257,7 +283,7 @@ export async function fetchCategoryRules(): Promise<CategoryRule[]> {
  *
  *  Query strategy mirrors fetchTransactions: raw-GraphQL GSI query when a key
  *  is given (typed index queries are broken by the filter-input casing bug —
- *  see listAllRawIndex), falling back to the filter scan when the environment
+ *  see listAllRaw), falling back to the filter scan when the environment
  *  hasn't deployed the GSI yet (FieldUndefined). */
 export async function fetchInvoiceLinks(q: InvoiceQuery = {}): Promise<InvoiceLinkRecord[]> {
   const indexCall =
@@ -267,7 +293,7 @@ export async function fetchInvoiceLinks(q: InvoiceQuery = {}): Promise<InvoiceLi
 
   if (indexCall) {
     try {
-      return await listAllRawIndex<InvoiceLinkRecord>(
+      return await listAllRaw<InvoiceLinkRecord>(
         indexCall.name,
         `query Links($${indexCall.arg}: ID!, $limit: Int, $nextToken: String) {
           ${indexCall.name}(${indexCall.arg}: $${indexCall.arg}, limit: $limit, nextToken: $nextToken) {

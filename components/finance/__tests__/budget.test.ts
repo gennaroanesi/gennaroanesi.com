@@ -8,7 +8,8 @@ import {
 } from "@/components/finance/budget";
 
 const line = (over: Partial<BudgetLine> & { id: string }): BudgetLine => ({
-  category: "Dining", fundingSource: "SALARY", amount: 500, period: "MONTHLY",
+  seriesId: over.seriesId ?? `s-${over.id}`, name: "Dining", categories: ["Dining"],
+  fundingSource: "SALARY", amount: 500, period: "MONTHLY",
   rollover: false, effectiveFrom: "2026-01-01", effectiveTo: null, active: true, ...over,
 });
 
@@ -40,31 +41,26 @@ describe("isInForce", () => {
 describe("resolveBudgetLines", () => {
   it("picks the version in force on the date, not the newest row", () => {
     const lines = [
-      line({ id: "v1", amount: 400, effectiveFrom: "2026-01-01", effectiveTo: "2026-02-28" }),
-      line({ id: "v2", amount: 540, effectiveFrom: "2026-03-01", effectiveTo: null }),
+      line({ id: "v1", seriesId: "s1", amount: 400, effectiveFrom: "2026-01-01", effectiveTo: "2026-02-28" }),
+      line({ id: "v2", seriesId: "s1", amount: 540, effectiveFrom: "2026-03-01", effectiveTo: null }),
     ];
     expect(resolveBudgetLines(lines, "2026-02-15")[0].amount).toBe(400);
     expect(resolveBudgetLines(lines, "2026-03-15")[0].amount).toBe(540);
   });
 
-  it("keeps one line per (category, fundingSource) — a category may draw on two pools", () => {
+  it("keeps one version per series, across several buckets", () => {
     const lines = [
-      line({ id: "a", category: "Travel", fundingSource: "SALARY", amount: 400 }),
-      line({ id: "b", category: "Travel", fundingSource: "RSU", amount: 3000, period: "CYCLE" }),
-      line({ id: "c", category: "Dining", fundingSource: "SALARY", amount: 500 }),
+      line({ id: "a", seriesId: "disc", name: "Discretionary", categories: ["Amazon", "Shopping", "Apparel", "SHTF"], amount: 4000 }),
+      line({ id: "b", seriesId: "din",  name: "Dining", categories: ["Dining", "Food Delivery"], amount: 1200 }),
     ];
-    const got = resolveBudgetLines(lines, "2026-06-01");
-    expect(got).toHaveLength(3);
-    const travel = got.filter((l) => l.category === "Travel");
-    expect(travel).toHaveLength(2);
-    expect(travel.reduce((s, l) => s + (l.amount ?? 0), 0)).toBe(3400);
+    expect(resolveBudgetLines(lines, "2026-06-01")).toHaveLength(2);
   });
 
   it("breaks an overlap by latest effectiveFrom, so a half-applied change is harmless", () => {
     // What insert-new-then-close-old leaves behind when the close fails.
     const lines = [
-      line({ id: "old", amount: 400, effectiveFrom: "2026-01-01", effectiveTo: null }),
-      line({ id: "new", amount: 540, effectiveFrom: "2026-03-01", effectiveTo: null }),
+      line({ id: "old", seriesId: "s1", amount: 400, effectiveFrom: "2026-01-01", effectiveTo: null }),
+      line({ id: "new", seriesId: "s1", amount: 540, effectiveFrom: "2026-03-01", effectiveTo: null }),
     ];
     const got = resolveBudgetLines(lines, "2026-03-15");
     expect(got).toHaveLength(1);
@@ -79,31 +75,31 @@ describe("resolveBudgetLines", () => {
 describe("validateBudgetHistory", () => {
   it("passes a clean series", () => {
     expect(validateBudgetHistory([
-      line({ id: "v1", effectiveFrom: "2026-01-01", effectiveTo: "2026-02-28" }),
-      line({ id: "v2", effectiveFrom: "2026-03-01", effectiveTo: null }),
+      line({ id: "v1", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: "2026-02-28" }),
+      line({ id: "v2", seriesId: "s1", effectiveFrom: "2026-03-01", effectiveTo: null }),
     ])).toEqual([]);
   });
 
   it("flags two open-ended rows in one series", () => {
     const issues = validateBudgetHistory([
-      line({ id: "a", effectiveFrom: "2026-01-01", effectiveTo: null }),
-      line({ id: "b", effectiveFrom: "2026-03-01", effectiveTo: null }),
+      line({ id: "a", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: null }),
+      line({ id: "b", seriesId: "s1", effectiveFrom: "2026-03-01", effectiveTo: null }),
     ]);
     expect(issues.map((i) => i.kind)).toContain("multiple-open");
   });
 
   it("flags an overlap", () => {
     const issues = validateBudgetHistory([
-      line({ id: "a", effectiveFrom: "2026-01-01", effectiveTo: "2026-03-15" }),
-      line({ id: "b", effectiveFrom: "2026-03-01", effectiveTo: "2026-06-30" }),
+      line({ id: "a", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: "2026-03-15" }),
+      line({ id: "b", seriesId: "s1", effectiveFrom: "2026-03-01", effectiveTo: "2026-06-30" }),
     ]);
     expect(issues.some((i) => i.kind === "overlap")).toBe(true);
   });
 
   it("flags a reversed range and a missing effectiveFrom", () => {
     const issues = validateBudgetHistory([
-      line({ id: "a", effectiveFrom: "2026-05-01", effectiveTo: "2026-01-01" }),
-      line({ id: "b", category: "Golf", effectiveFrom: null }),
+      line({ id: "a", seriesId: "s1", effectiveFrom: "2026-05-01", effectiveTo: "2026-01-01" }),
+      line({ id: "b", seriesId: "s2", name: "Golf", effectiveFrom: null }),
     ]);
     expect(issues.map((i) => i.kind)).toEqual(
       expect.arrayContaining(["reversed-range", "missing-from"]),
@@ -112,26 +108,27 @@ describe("validateBudgetHistory", () => {
 
   it("does NOT flag a gap — an unbudgeted stretch is legitimate", () => {
     expect(validateBudgetHistory([
-      line({ id: "a", effectiveFrom: "2026-01-01", effectiveTo: "2026-02-28" }),
-      line({ id: "b", effectiveFrom: "2026-06-01", effectiveTo: null }),
+      line({ id: "a", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: "2026-02-28" }),
+      line({ id: "b", seriesId: "s1", effectiveFrom: "2026-06-01", effectiveTo: null }),
     ])).toEqual([]);
   });
 
   it("ignores paused rows, which may legitimately overlap live ones", () => {
     expect(validateBudgetHistory([
-      line({ id: "a", effectiveFrom: "2026-01-01", effectiveTo: null }),
-      line({ id: "b", effectiveFrom: "2026-01-01", effectiveTo: null, active: false }),
+      line({ id: "a", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: null }),
+      line({ id: "b", seriesId: "s1", effectiveFrom: "2026-01-01", effectiveTo: null, active: false }),
     ])).toEqual([]);
   });
 });
 
 describe("planBudgetChange", () => {
   it("closes the old row the day before the new one starts — no overlap, no gap", () => {
-    const current = line({ id: "v1", amount: 400, effectiveFrom: "2026-01-01" });
+    const current = line({ id: "v1", seriesId: "s1", amount: 400, effectiveFrom: "2026-01-01" });
     const { insert, close } = planBudgetChange(
       current,
-      { amount: 540, fundingSource: "SALARY", period: "MONTHLY", label: "post-raise" },
-      "2026-03-01", "Dining",
+      { seriesId: "s1", name: "Dining", categories: ["Dining"], amount: 540,
+        fundingSource: "SALARY", period: "MONTHLY", label: "post-raise" },
+      "2026-03-01",
     );
     expect(close).toEqual({ id: "v1", effectiveTo: "2026-02-28" });
     expect(insert.effectiveFrom).toBe("2026-03-01");
@@ -142,14 +139,16 @@ describe("planBudgetChange", () => {
 
   it("has nothing to close when the category is budgeted for the first time", () => {
     const { close } = planBudgetChange(null,
-      { amount: 200, fundingSource: "RSU", period: "CYCLE" }, "2026-10-01", "Golf");
+      { seriesId: "s9", name: "Golf", categories: ["Golf"], amount: 200,
+        fundingSource: "RSU", period: "CYCLE" }, "2026-10-01");
     expect(close).toBeNull();
   });
 
   it("produces a series that resolves correctly on both sides of the change", () => {
-    const current = line({ id: "v1", amount: 400, effectiveFrom: "2026-01-01" });
+    const current = line({ id: "v1", seriesId: "s1", amount: 400, effectiveFrom: "2026-01-01" });
     const { insert, close } = planBudgetChange(current,
-      { amount: 540, fundingSource: "SALARY", period: "MONTHLY" }, "2026-03-01", "Dining");
+      { seriesId: "s1", name: "Dining", categories: ["Dining"], amount: 540,
+        fundingSource: "SALARY", period: "MONTHLY" }, "2026-03-01");
     const after: BudgetLine[] = [
       { ...current, effectiveTo: close!.effectiveTo },
       { ...insert, id: "v2" } as BudgetLine,
@@ -319,7 +318,7 @@ describe("seedFromHistory", () => {
 
 describe("computeLineView", () => {
   const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
-  const l = line({ id: "a", category: "Dining", amount: 600 });
+  const l = line({ id: "a", name: "Dining", categories: ["Dining"], amount: 600 });
 
   it("splits a line into committed and variable without inflating it", () => {
     const v = computeLineView(l, w, new Map(), new Map([["Dining", 240]]), "2026-09-01");
@@ -362,8 +361,8 @@ describe("summarizePools & unassignedCategories", () => {
 
   it("reports over-commitment of a pool as negative unallocated", () => {
     const views = [
-      computeLineView(line({ id: "a", category: "Dining", amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
-      computeLineView(line({ id: "b", category: "Golf", amount: 400 }), w, new Map(), new Map(), "2026-09-15"),
+      computeLineView(line({ id: "a", name: "Dining", categories: ["Dining"], amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
+      computeLineView(line({ id: "b", name: "Golf", categories: ["Golf"], amount: 400 }), w, new Map(), new Map(), "2026-09-15"),
     ];
     const [salary] = summarizePools(views, { SALARY: 900 });
     expect(salary.allocated).toBe(1000);
@@ -372,8 +371,8 @@ describe("summarizePools & unassignedCategories", () => {
 
   it("keeps pools separate by funding source", () => {
     const views = [
-      computeLineView(line({ id: "a", category: "Dining", fundingSource: "SALARY", amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
-      computeLineView(line({ id: "b", category: "Travel", fundingSource: "RSU", amount: 3000 }), w, new Map(), new Map(), "2026-09-15"),
+      computeLineView(line({ id: "a", name: "Dining", categories: ["Dining"], fundingSource: "SALARY", amount: 600 }), w, new Map(), new Map(), "2026-09-15"),
+      computeLineView(line({ id: "b", name: "Travel", categories: ["Travel"], fundingSource: "RSU", amount: 3000 }), w, new Map(), new Map(), "2026-09-15"),
     ];
     const pools = summarizePools(views, { SALARY: 1000, RSU: 40000 });
     expect(pools.find((p) => p.source === "SALARY")!.allocated).toBe(600);
@@ -382,7 +381,7 @@ describe("summarizePools & unassignedCategories", () => {
 
   it("surfaces categories with spend but no line, biggest first", () => {
     const spent = new Map([["Dining", 300], ["Golf", 900], ["Flying", 50]]);
-    const got = unassignedCategories(spent, [line({ id: "a", category: "Dining" })]);
+    const got = unassignedCategories(spent, [line({ id: "a", categories: ["Dining"] })]);
     expect(got.map((u) => u.category)).toEqual(["Golf", "Flying"]);
   });
 });
@@ -413,5 +412,83 @@ describe("spendByCategory — balance-sheet movement is not spend", () => {
       tx({ id: "2", category: "Dining", amount: -50 }),
     ] as any, ["2026-09"]);
     expect(seeds.map((s) => s.category)).toEqual(["Dining"]);
+  });
+});
+
+describe("buckets", () => {
+  const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+  const disc = line({
+    id: "d1", seriesId: "disc", name: "Discretionary purchases",
+    categories: ["Amazon", "Shopping", "Apparel", "SHTF"], amount: 6000,
+  });
+
+  it("sums spend across every category the bucket covers", () => {
+    const spent = new Map([
+      ["Amazon", 1478], ["Shopping", 3089], ["Apparel", 988], ["SHTF", 278],
+      ["Dining", 1157],   // outside the bucket
+    ]);
+    const v = computeLineView(disc, w, spent, new Map(), "2026-09-15");
+    expect(v.spent).toBe(1478 + 3089 + 988 + 278);
+    expect(v.remaining).toBe(6000 - 5833);
+  });
+
+  it("sums committed across the bucket too", () => {
+    const committed = new Map([["Amazon", 50], ["Shopping", 120]]);
+    expect(computeLineView(disc, w, new Map(), committed, "2026-09-15").committed).toBe(170);
+  });
+
+  it("treats a single-category budget as a bucket of one", () => {
+    const solo = line({ id: "s", seriesId: "din", name: "Dining", categories: ["Dining"], amount: 1200 });
+    expect(computeLineView(solo, w, new Map([["Dining", 400]]), new Map(), "2026-09-15").spent).toBe(400);
+  });
+
+  it("ignores empty and blank category entries", () => {
+    const messy = line({ id: "m", categories: ["Dining", "", null, "  "], amount: 100 });
+    expect(computeLineView(messy, w, new Map([["Dining", 30]]), new Map(), "2026-09-15").spent).toBe(30);
+  });
+
+  it("counts a category covered by NO bucket as unassigned", () => {
+    const spent = new Map([["Amazon", 100], ["Flying", 2190], ["Golf", 600]]);
+    expect(unassignedCategories(spent, [disc]).map((u) => u.category)).toEqual(["Flying", "Golf"]);
+  });
+
+  it("flags the same category covered by two in-force buckets", () => {
+    // Their spend would count against both budgets, and a transaction cannot
+    // be split between them.
+    const other = line({
+      id: "o1", seriesId: "fun", name: "Fun money", categories: ["Apparel", "Entertainment"],
+    });
+    const issues = validateBudgetHistory([disc, other], "2026-09-15");
+    const shared = issues.find((i) => i.kind === "shared-category")!;
+    expect(shared).toBeTruthy();
+    expect(shared.detail).toContain("Apparel");
+  });
+
+  it("allows two buckets to have covered a category at DIFFERENT times", () => {
+    const old = line({
+      id: "x", seriesId: "fun", name: "Fun money", categories: ["Apparel"],
+      effectiveFrom: "2026-01-01", effectiveTo: "2026-06-30",
+    });
+    const now = line({
+      id: "y", seriesId: "disc", name: "Discretionary", categories: ["Apparel"],
+      effectiveFrom: "2026-07-01", effectiveTo: null,
+    });
+    expect(validateBudgetHistory([old, now], "2026-09-15")).toEqual([]);
+  });
+
+  it("does not check sharing without a date — history legitimately moves categories", () => {
+    const a = line({ id: "x", seriesId: "fun",  categories: ["Apparel"], effectiveTo: "2026-06-30" });
+    const b = line({ id: "y", seriesId: "disc", categories: ["Apparel"], effectiveFrom: "2026-07-01" });
+    expect(validateBudgetHistory([a, b])).toEqual([]);
+  });
+
+  it("survives a rename without splitting the series", () => {
+    const v1 = line({ id: "v1", seriesId: "disc", name: "Shopping money", amount: 4000,
+      effectiveFrom: "2026-01-01", effectiveTo: "2026-08-31" });
+    const v2 = line({ id: "v2", seriesId: "disc", name: "Discretionary purchases", amount: 6000,
+      effectiveFrom: "2026-09-01", effectiveTo: null });
+    expect(validateBudgetHistory([v1, v2], "2026-09-15")).toEqual([]);
+    expect(resolveBudgetLines([v1, v2], "2026-09-15")[0].name).toBe("Discretionary purchases");
+    expect(resolveBudgetLines([v1, v2], "2026-03-15")[0].name).toBe("Shopping money");
   });
 });

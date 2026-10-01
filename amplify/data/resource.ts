@@ -649,31 +649,51 @@ const schema = a.schema({
     .authorization((allow) => [allow.group("admins")]),
 
   // ── Budget ───────────────────────────────────────────────────
-  // A per-category spending intention, versioned over time (SCD type 2).
+  // A spending intention over a BUCKET of categories, versioned over time
+  // (SCD type 2).
+  //
+  // WHY A BUCKET: budgeting each category separately is more precision than the
+  // decision needs — "discretionary purchases" is one intention that happens to
+  // land across Amazon / Shopping / Apparel / SHTF. A single-category budget is
+  // just the degenerate case of a bucket with one member.
+  //
+  // WHY categories[] LIVES ON THE VERSION: membership is part of what a budget
+  // version IS — "this much, covering these, from this date". Versioning it
+  // alongside the amount keeps a historical comparison correct for free (March
+  // is judged against the categories the bucket covered in March), and keeps a
+  // change to ONE insert. A separate membership table would make every change
+  // N+1 unsynchronised writes, and a partial failure would leave a bucket
+  // silently missing categories — under-counting spend with nothing to show for
+  // it. NOTE: array fields are dropped by the Amplify typed client (CLAUDE.md
+  // §4), so reads go through raw GraphQL — see fetchBudgets in data.ts.
   //
   // WHY VERSIONED: a budget is an authored decision that changes on real-world
   // events — a raise, a child, a move. Comparing March's actuals against
-  // today's post-raise numbers answers nothing, so each change closes the
-  // current row (sets effectiveTo) and opens a new one rather than mutating.
-  // "The budget as it will be on 2027-03-01" is then the same resolution query
-  // at a different date, which is also how a future budget is staged.
+  // today's post-raise numbers answers nothing, so a change closes the current
+  // row (sets effectiveTo) and opens a new one rather than mutating. "The
+  // budget as it will be on 2027-03-01" is then the same resolution query at a
+  // different date, which is also how a future budget is staged.
   //
-  // WHY fundingSource: it declares what pays for a line, which in turn decides
-  // the window. Salary arrives on a cadence, so salary-funded lines budget per
-  // MONTH; equity arrives in lumps, so equity-funded lines budget per CYCLE
+  // WHY fundingSource: it declares what pays for a bucket, which decides its
+  // window. Salary arrives on a cadence, so salary-funded buckets budget per
+  // MONTH; equity arrives in lumps, so equity-funded buckets budget per CYCLE
   // (vest to vest). The enum mirrors review.ts IncomeSources exactly
   // (salary/bonus/rsu/other) so the pools need no new classification logic.
-  // There is deliberately no default: an unassigned category is surfaced on the
-  // page as something to fix, never silently bucketed.
+  // There is deliberately no default: a category in no bucket is surfaced on
+  // the page as an incomplete budget, never silently bucketed.
   //
-  // Uniqueness is (category, fundingSource), NOT category — one category may
-  // legitimately draw on two pools (a Travel baseline from salary plus a
-  // per-trip top-up from RSU). A category's budget is the sum of its in-force
-  // lines.
+  // INVARIANT: a category belongs to at most ONE in-force bucket. Two buckets
+  // sharing a category would count the same spend against both, and a
+  // transaction cannot be split between them.
   financeBudget: a
     .model({
-      category:      a.string().required(),   // matches effectiveCategory() output
+      // Stable identity across versions. NOT the row id, which changes every
+      // time the budget is superseded, and NOT the name, which the user may
+      // rename without that meaning "a different budget".
+      seriesId:      a.id().required(),
+      name:          a.string().required(),   // "Discretionary purchases"
       fundingSource: a.enum(["SALARY", "BONUS", "RSU", "OTHER"]),
+      categories:    a.string().array(),      // categories this bucket covers
       amount:        a.float().required(),    // positive magnitude per period
       period:        a.enum(["MONTHLY", "CYCLE"]),
       rollover:      a.boolean().default(false),
@@ -687,39 +707,42 @@ const schema = a.schema({
 
       // Enabled/paused — NOT "is current". Currency is a function of the dates
       // alone; storing it separately would let the two disagree, and there is
-      // no constraint here to stop that. Pausing a line keeps its history.
+      // no constraint here to stop that. Pausing a bucket keeps its history.
       active:        a.boolean().default(true),
 
       label:         a.string(),   // names the change: "post-raise", "baby arrives"
       notes:         a.string(),
     })
+    .secondaryIndexes((index) => [index("seriesId")])   // "every version of this budget"
     .authorization((allow) => [allow.group("admins")]),
 
   // ── Budget period outcome ────────────────────────────────────
-  // One frozen row per (category, fundingSource, period). Written at period
-  // close by the financeSnapshots cron, upserted so a late recategorization
-  // heals on the next run — the same discipline as financeAccountSnapshot.
+  // One frozen row per (seriesId, period). Written at period close by the
+  // financeSnapshots cron, upserted so a late recategorization heals on the
+  // next run — the same discipline as financeAccountSnapshot.
   //
   // This exists for rollover: carry compounds across periods, the budget can
   // change mid-stream, and transactions get recategorized after the fact, so
   // recomputing the whole chain from raw rows on every render is both
-  // expensive and non-deterministic. `budgeted` is stored alongside `spent`
-  // for the same reason financeGoalSnapshot keeps targetAmount — so the row is
-  // self-contained and a historical chart knows what the bar was at the time.
+  // expensive and non-deterministic. `budgeted` and `name` are stored
+  // alongside `spent` for the same reason financeGoalSnapshot keeps
+  // targetAmount — so the row is self-contained and a historical chart knows
+  // what the bar was, and what it was called, at the time.
   financeBudgetPeriod: a
     .model({
-      category:      a.string().required(),
-      fundingSource: a.string().required(),
+      seriesId:      a.id().required(),
+      name:          a.string(),            // bucket name as it stood then
+      fundingSource: a.string(),
       periodStart:   a.date().required(),   // month start, or cycle start (vest to vest)
       periodEnd:     a.date().required(),
-      budgeted:      a.float().required(),  // the line in force for this period
+      budgeted:      a.float().required(),  // the version in force for this period
       spent:         a.float().required(),
       carriedIn:     a.float().default(0),
       carriedOut:    a.float().default(0),
       capturedAt:    a.datetime().required(),
     })
     .secondaryIndexes((index) => [
-      index("category").sortKeys(["periodStart"]),   // "this category vs budget over time"
+      index("seriesId").sortKeys(["periodStart"]),   // "this bucket vs budget over time"
     ])
     .authorization((allow) => [allow.group("admins")]),
 

@@ -49,7 +49,11 @@ export const DEFAULT_PERIOD: Record<FundingSource, BudgetPeriod> = {
 /** The fields of a financeBudget row this module needs. */
 export type BudgetLine = {
   id:             string;
-  category:       string;
+  /** Stable across versions — the series identity, not the row id. */
+  seriesId:       string;
+  name:           string;
+  /** Categories this bucket covers. A single-category budget is a bucket of one. */
+  categories?:    (string | null)[] | null;
   fundingSource?: string | null;
   amount?:        number | null;
   period?:        string | null;
@@ -61,9 +65,9 @@ export type BudgetLine = {
   notes?:         string | null;
 };
 
-/** Identity of a budget series — one line per (category, fundingSource) at a time. */
-export function seriesKey(line: Pick<BudgetLine, "category" | "fundingSource">): string {
-  return `${line.category}\u0000${line.fundingSource ?? ""}`;
+/** Non-null, trimmed category names covered by a bucket version. */
+export function bucketCategories(line: BudgetLine): string[] {
+  return (line.categories ?? []).filter((c): c is string => !!c && c.trim() !== "").map((c) => c.trim());
 }
 
 // ── SCD resolution ────────────────────────────────────────────────────────────
@@ -84,7 +88,7 @@ export function isInForce(line: BudgetLine, onDate: string): boolean {
 }
 
 /**
- * The lines in force on `onDate`, at most one per (category, fundingSource).
+ * The versions in force on `onDate`, at most one per budget series.
  *
  * Where a series has overlapping rows — which a failed close-then-insert can
  * leave behind — the greatest `effectiveFrom` wins. That tiebreak is what makes
@@ -95,9 +99,8 @@ export function resolveBudgetLines(lines: BudgetLine[], onDate: string): BudgetL
   const best = new Map<string, BudgetLine>();
   for (const line of lines) {
     if (!isInForce(line, onDate)) continue;
-    const k = seriesKey(line);
-    const cur = best.get(k);
-    if (!cur || (line.effectiveFrom ?? "") > (cur.effectiveFrom ?? "")) best.set(k, line);
+    const cur = best.get(line.seriesId);
+    if (!cur || (line.effectiveFrom ?? "") > (cur.effectiveFrom ?? "")) best.set(line.seriesId, line);
   }
   return [...best.values()];
 }
@@ -105,9 +108,9 @@ export function resolveBudgetLines(lines: BudgetLine[], onDate: string): BudgetL
 // ── History validation ────────────────────────────────────────────────────────
 
 export type BudgetHistoryIssue = {
-  kind: "overlap" | "multiple-open" | "reversed-range" | "missing-from";
-  category: string;
-  fundingSource: string;
+  kind: "overlap" | "multiple-open" | "reversed-range" | "missing-from" | "shared-category";
+  seriesId: string;
+  name: string;
   detail: string;
   lineIds: string[];
 };
@@ -123,25 +126,22 @@ export type BudgetHistoryIssue = {
  * category simply wasn't budgeted yet), and flagging it would make every new
  * line look broken.
  */
-export function validateBudgetHistory(lines: BudgetLine[]): BudgetHistoryIssue[] {
+export function validateBudgetHistory(lines: BudgetLine[], onDate?: string): BudgetHistoryIssue[] {
   const issues: BudgetHistoryIssue[] = [];
   const bySeries = new Map<string, BudgetLine[]>();
   for (const l of lines) {
     if (l.active === false) continue;
-    const k = seriesKey(l);
-    if (!bySeries.has(k)) bySeries.set(k, []);
-    bySeries.get(k)!.push(l);
+    if (!bySeries.has(l.seriesId)) bySeries.set(l.seriesId, []);
+    bySeries.get(l.seriesId)!.push(l);
   }
 
-  for (const [, group] of bySeries) {
-    const category = group[0].category;
-    const fundingSource = group[0].fundingSource ?? "";
-    const base = { category, fundingSource };
+  for (const [seriesId, group] of bySeries) {
+    const base = { seriesId, name: group[0].name };
 
     for (const l of group) {
       if (!l.effectiveFrom) {
         issues.push({ ...base, kind: "missing-from", lineIds: [l.id],
-          detail: "no effectiveFrom — the line can never be in force" });
+          detail: "no effectiveFrom — the version can never be in force" });
       } else if (l.effectiveTo != null && l.effectiveTo < l.effectiveFrom) {
         issues.push({ ...base, kind: "reversed-range", lineIds: [l.id],
           detail: `effectiveTo ${l.effectiveTo} is before effectiveFrom ${l.effectiveFrom}` });
@@ -151,7 +151,7 @@ export function validateBudgetHistory(lines: BudgetLine[]): BudgetHistoryIssue[]
     const open = group.filter((l) => l.effectiveFrom && l.effectiveTo == null);
     if (open.length > 1) {
       issues.push({ ...base, kind: "multiple-open", lineIds: open.map((l) => l.id),
-        detail: `${open.length} open-ended rows; only the latest will ever apply` });
+        detail: `${open.length} open-ended versions; only the latest will ever apply` });
     }
 
     const dated = group
@@ -162,6 +162,24 @@ export function validateBudgetHistory(lines: BudgetLine[]): BudgetHistoryIssue[]
       if (prev.effectiveTo == null || prev.effectiveTo >= (cur.effectiveFrom ?? "")) {
         issues.push({ ...base, kind: "overlap", lineIds: [prev.id, cur.id],
           detail: `${prev.effectiveFrom}→${prev.effectiveTo ?? "open"} overlaps ${cur.effectiveFrom}` });
+      }
+    }
+  }
+
+  // A category in two in-force buckets counts the same spend against both, and
+  // a transaction cannot be split between them. Checked on a date because two
+  // buckets may legitimately have covered it at different times.
+  if (onDate) {
+    const owner = new Map<string, BudgetLine>();
+    for (const l of resolveBudgetLines(lines, onDate)) {
+      for (const cat of bucketCategories(l)) {
+        const prev = owner.get(cat);
+        if (prev && prev.seriesId !== l.seriesId) {
+          issues.push({
+            seriesId: l.seriesId, name: l.name, kind: "shared-category", lineIds: [prev.id, l.id],
+            detail: `"${cat}" is also covered by "${prev.name}" — its spend would count against both`,
+          });
+        } else owner.set(cat, l);
       }
     }
   }
@@ -181,12 +199,23 @@ export function validateBudgetHistory(lines: BudgetLine[]): BudgetHistoryIssue[]
  */
 export function planBudgetChange(
   current: BudgetLine | null,
-  next: { amount: number; fundingSource: FundingSource; period: BudgetPeriod; rollover?: boolean; label?: string | null; notes?: string | null },
+  next: {
+    seriesId: string;
+    name: string;
+    categories: string[];
+    amount: number;
+    fundingSource: FundingSource;
+    period: BudgetPeriod;
+    rollover?: boolean;
+    label?: string | null;
+    notes?: string | null;
+  },
   effectiveFrom: string,
-  category: string,
-): { insert: Omit<BudgetLine, "id"> & { category: string }; close: { id: string; effectiveTo: string } | null } {
-  const insert = {
-    category,
+): { insert: Omit<BudgetLine, "id">; close: { id: string; effectiveTo: string } | null } {
+  const insert: Omit<BudgetLine, "id"> = {
+    seriesId:      next.seriesId,
+    name:          next.name,
+    categories:    next.categories,
     fundingSource: next.fundingSource,
     amount:        next.amount,
     period:        next.period,
@@ -418,9 +447,11 @@ export function computeLineView(
   committedByCat: Map<string, number>,
   todayIso: string,
 ): BudgetLineView {
+  const cats = bucketCategories(line);
   const budgeted = Math.abs(line.amount ?? 0);
-  const committed = committedByCat.get(line.category) ?? 0;
-  const spent = spentByCat.get(line.category) ?? 0;
+  const sumOver = (m: Map<string, number>) => cats.reduce((sum, c) => sum + (m.get(c) ?? 0), 0);
+  const committed = sumOver(committedByCat);
+  const spent = sumOver(spentByCat);
   const elapsed = elapsedFraction(window, todayIso);
   const expectedByNow = budgeted * elapsed;
   const pace = expectedByNow > 0 ? spent / expectedByNow : null;
@@ -469,17 +500,17 @@ export function summarizePools(
 }
 
 /**
- * Categories with spend in the window but no budget line in force.
+ * Categories with spend in the window that no in-force bucket covers.
  *
  * Surfaced as something to fix, never silently bucketed — there is deliberately
- * no default funding source, so an unassigned category is an incomplete budget
- * rather than an "Other" line nobody chose.
+ * no default funding source, so an uncovered category is an incomplete budget
+ * rather than an "Other" bucket nobody chose.
  */
 export function unassignedCategories(
   spentByCat: Map<string, number>,
   inForce: BudgetLine[],
 ): Array<{ category: string; spent: number }> {
-  const budgeted = new Set(inForce.map((l) => l.category));
+  const budgeted = new Set(inForce.flatMap((l) => bucketCategories(l)));
   return [...spentByCat.entries()]
     .filter(([cat]) => !budgeted.has(cat))
     .map(([category, spent]) => ({ category, spent }))
