@@ -42,3 +42,10 @@ scripts/data/Your Orders/
 
 # Local DB backups (financial data — keep out of git)
 scripts/data/backups/
+
+# Editor swap/backup files — vim writes these next to the file being edited
+*.swp
+*.swo
+*.swn
+*~
+.*.sw[a-p]
