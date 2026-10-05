@@ -8,11 +8,12 @@ import {
   hasLineItems,
   isExcludedFromPnl,
 } from "@/components/finance/categories";
+import { ESSENTIAL_CATEGORIES } from "@/components/finance/review";
 
 describe("inferCategory", () => {
   it("matches a plain merchant substring rule", () => {
     expect(inferCategory({ description: "NETFLIX.COM", type: "EXPENSE" })).toBe("Media");
-    expect(inferCategory({ description: "SHELL OIL 12345", type: "EXPENSE" })).toBe("Gas/Transport");
+    expect(inferCategory({ description: "SHELL OIL 12345", type: "EXPENSE" })).toBe("Fuel");
   });
 
   it("strips payment-processor prefixes before matching (the Uncategorized fix)", () => {
@@ -138,7 +139,7 @@ describe("effectiveCategory", () => {
     expect(effectiveCategory({ category: "Dolce", description: "NETFLIX", type: "EXPENSE" })).toBe("Dolce");
   });
   it("infers when no category is set, else Uncategorized", () => {
-    expect(effectiveCategory({ description: "SHELL", type: "EXPENSE" })).toBe("Gas/Transport");
+    expect(effectiveCategory({ description: "SHELL", type: "EXPENSE" })).toBe("Fuel");
     expect(effectiveCategory({ description: "nope nope", type: "EXPENSE" })).toBe("Uncategorized");
   });
 });
@@ -223,9 +224,9 @@ describe("rules against raw bank descriptors", () => {
     ["CROWNE PLAZA MIDTOWNNEW YORK NY",                  "Travel"],
     ["AVIS RENT-A-CAR",                                  "Travel"],   // not Rent/Mortgage
     ["ATT PAYMENT PPD ID: XXXXXX1004",                   "Mobile"],
-    ["NTTA AUTOCHARGE 972-818-6882 TX",                  "Gas/Transport"],
-    ["QT 4135 OUTSIDE/QUIKROUND ROCK TX",                "Gas/Transport"],
-    ["AplPay NJT RAIL MY-TNEWARK NJ",                    "Gas/Transport"],
+    ["NTTA AUTOCHARGE 972-818-6882 TX",                  "Tolls"],
+    ["QT 4135 OUTSIDE/QUIKROUND ROCK TX",                "Fuel"],
+    ["AplPay NJT RAIL MY-TNEWARK NJ",                    "Transit"],
     ["NATIONWIDE PET 800-540-2016 OH",                   "Dolce"],
     ["PREM CAR RENTAL PROTECTION 800-228-6855",          "Car Insurance"],
     ["CITI CARD ONLINE PAYMENT XXXXXXXXXXX3717",         "Credit Card Payment"],
@@ -357,5 +358,55 @@ describe("merchants that were split across categories", () => {
 
   it("still reads an actual shooting-range charge as SHTF", () => {
     expect(inferCategory({ description: "AUSTIN GUN RANGE", type: "EXPENSE", amount: -1 })).toBe("SHTF");
+  });
+});
+
+describe("Gas/Transport split by what the money bought", () => {
+  const cases: Array<[string, string]> = [
+    ["QT 4135 OUTSIDE/QUIKROUND ROCK          TX", "Fuel"],
+    ["QT 4184 INSIDE/QUIKTGEORGETOWN          TX", "Fuel"],
+    ["WALMART FUEL 0475 04ROUND ROCK TX",          "Fuel"],
+    ["AplPay SUNOCO 044359PHILADELPHIA PA",        "Fuel"],
+    ["AplPay UNITED GAS PHILADELPHIA PA",          "Fuel"],
+    ["AplPay BUC-EE'S #002BASTROP             TX", "Fuel"],
+    ["COSTCO GAS #0622",                           "Fuel"],
+    ["CHARGEPOINT 22 65000CAMPBELL            CA", "Fuel"],
+
+    ["NTTA AUTOCHARGE     972-818-6882        TX", "Tolls"],
+
+    ["PREMIUM PARKING PREMIUMPARKIN LA 07/13",     "Parking"],
+    ["PARKWHIZ, INC. AUSTIN TX 09/04",             "Parking"],
+    ["METROPOLIS PARKING  NASHVILLE           TN", "Parking"],
+    ["AplPay PARKMOBILE PaATLANTA GA",             "Parking"],
+
+    ["UBER",                                       "Rideshare"],
+    ["Uber Trip help.uber.com CA",                 "Rideshare"],
+    ["LYFT   *RIDE THU 5PM",                       "Rideshare"],
+
+    ["AplPay NYCT PAYGO NEW YORK NY",              "Transit"],
+    ["AplPay PATH TAPP PAYJERSEY CITY NJ",         "Transit"],
+    ["AplPay TFL TRAVEL CHTFL.GOV.UK/CP       GB", "Transit"],
+    ["AplPay EWR 75593 StaNEWARK",                 "Transit"],
+    ["NEW JERSEY TRANSIT",                         "Transit"],
+  ];
+  it.each(cases)("%s → %s", (description, expected) => {
+    expect(inferCategory({ description, type: "EXPENSE", amount: -1 })).toBe(expected);
+  });
+
+  it("keeps Uber Eats as food, not a ride", () => {
+    // Food Delivery has to stay above Rideshare or every Eats order becomes a trip.
+    expect(inferCategory({ description: "UBER EATS 8005928996", type: "EXPENSE", amount: -1 }))
+      .toBe("Food Delivery");
+  });
+
+  it("does not read Metropolis Parking as the metro", () => {
+    expect(inferCategory({ description: "METROPOLIS PARKING NASHVILLE TN", type: "EXPENSE", amount: -1 }))
+      .toBe("Parking");
+  });
+
+  it("still treats all of them as essentials in the Review", () => {
+    for (const c of ["Fuel", "Tolls", "Parking", "Transit", "Rideshare"]) {
+      expect(ESSENTIAL_CATEGORIES.has(c)).toBe(true);
+    }
   });
 });

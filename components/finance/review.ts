@@ -495,7 +495,10 @@ export const ESSENTIAL_CATEGORIES = new Set<string>([
   // Insurance split by what is insured: a car policy, PMI and a homeowners
   // policy are three different decisions, and lumping them hid which one moved.
   "Insurance", "Car Insurance", "Mortgage Insurance", "Home Insurance",
-  "Medical", "Health", "Gas/Transport", "Dolce",
+  "Medical", "Health", "Dolce",
+  // Gas/Transport split by what the money bought; all four remain essentials,
+  // and Rideshare joins them since it substitutes for the others.
+  "Gas/Transport", "Fuel", "Tolls", "Parking", "Transit", "Rideshare", "Mobile",
 ]);
 
 /**

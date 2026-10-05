@@ -24,7 +24,7 @@
     { "pattern": "/mortgage insurance|\\bpmi\\b/i", "category": "Mortgage Insurance" },
     { "pattern": "/homeowners insurance|home ?owner'?s? ins|hazard insurance|home insurance|flood insurance/i", "category": "Home Insurance" },
     { "pattern": "/geico|prem coll|auto insurance|car insurance|progressive|\\bstate farm\\b|car rental protection/i", "category": "Car Insurance" },
-    { "pattern": "/insurance|allstate|liberty mutual|policy pmt|premium|briteco|jewelers[- _]?mutual|trupanion/i", "category": "Insurance" },
+    { "pattern": "/insurance|allstate|liberty mutual|policy pmt|insurance premium|briteco|jewelers[- _]?mutual|trupanion/i", "category": "Insurance" },
 
     { "pattern": "/apple\\.com\\/bill|apple\\.com bill|\\bitunes\\b/i", "category": "Apple services" },
     { "pattern": "/anthropic|claude\\.ai|chatgpt|openai|adobe|addtl storage|microsoft|msbill|google\\s*\\*?\\s*(workspace|svcs|services|one|storage)|google \\*|google\\*|linkedin|twilio|vercel|cursor|render\\.com|650 industries|expo|logo diffusion|notion|dropbox|github|amazon web services|\\baws\\b|nordvpn|home assistant|simplefin|\\blink\\.com|deepstash|1password|figma/i", "category": "Software & AI" },
@@ -44,12 +44,15 @@
     { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|spectrum|starlink|internet|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy/i", "category": "Utilities" },
     { "pattern": "/mortgage|rent payment|\\brent\\b(?!-a-car)|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
 
-    { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|green ape|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
+    { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco(?! ?gas)|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|green ape|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
     { "pattern": "/doordash|uber ?eats|grubhub|postmates|seamless|caviar|deliveroo|gopuff/i", "category": "Food Delivery" },
     { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro|porte noire|tfk-/i", "category": "Dining" },
 
-    { "pattern": "/shell|chevron|exxon|mobil|\\bbp \\b|valero|texaco|gas station|\\bfuel\\b|sunoco|circle k|buc-ee|quiktrip|outside/quik|\\bqt \\d|\\b76 \\b|chargepoint|racetrac/i", "category": "Gas/Transport" },
-    { "pattern": "/uber|lyft|transit|\\bmetro\\b|parking|parkwhiz|\\btoll\\b|amtrak|tollway|\\bntta\\b|njt rail|e-zpass|ezpass|\\btfl\\b/i", "category": "Gas/Transport" },
+    { "pattern": "/shell|chevron|exxon|\\bmobil\\b|\\bbp \\b|valero|texaco|gas station|\\bfuel\\b|sunoco|circle k|buc-ee|quiktrip|outside/quik|inside/quik|\\bqt \\d|\\b76 \\b|racetrac|costco gas|united gas|chargepoint|\\bev charg/i", "category": "Fuel" },
+    { "pattern": "/\\bntta\\b|tollway|\\btoll\\b|toll tag|e-zpass|ezpass|sunpass|fastrak/i", "category": "Tolls" },
+    { "pattern": "/parking|parkwhiz|parkmobile|parkm\\.com|\\blaz\\b|\\bgarage\\b/i", "category": "Parking" },
+    { "pattern": "/\\buber\\b|\\blyft\\b|\\btaxi\\b|rideshare|\\bcurb\\b/i", "category": "Rideshare" },
+    { "pattern": "/nyct paygo|\\bomny\\b|\\bmta\\b|path tapp|\\btfl\\b|transit|\\bmetro\\b|amtrak|njt rail|\\bewr \\d|caltrain|\\bbart\\b/i", "category": "Transit" },
 
     { "pattern": "/airline|airlines|delta air|united air|american air|southwest|jetblue|spirit air|\\bhotel\\b|marriott|hilton|hyatt|four seasons|ritz|intercontinental|airbnb|vrbo|expedia|booking\\.com|rental car|hertz|avis|enterprise rent|go rentals|amextravel|amex travel|amex hotel|talisker|tower of london|iwm duxford|st pancras|heathrow|gatwick|american expr|\\bjuly us\\b|ic houston|vail resort|\\bwestin\\b|ua inflt|united\\s{2,}[\\dx]|crowne plaza|resort/i", "category": "Travel" },
 
