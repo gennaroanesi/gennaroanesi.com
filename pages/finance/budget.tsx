@@ -126,6 +126,10 @@ export default function BudgetPage() {
   const [draft, setDraft]       = useState<Draft | null>(null);
   const [editMode, setEditMode] = useState<EditMode>("change");
   const [showAll, setShowAll]   = useState(false);
+  // Budget-list controls. `sources` empty means every source — a filter nobody
+  // has touched should not silently hide anything.
+  const [sortBy, setSortBy]     = useState<"budget" | "spent" | "over">("budget");
+  const [sources, setSources]   = useState<Set<FundingSource>>(new Set());
   const [changeFrom, setChangeFrom] = useState<string>("");
 
   const today = todayIso();
@@ -295,6 +299,32 @@ export default function BudgetPage() {
       closed: window.toIso < today,
     };
   }, [budgets, txs, recurrings, accounts, window, today, occurrencesOf]);
+
+  const matchesSource = useCallback(
+    (src: string | null | undefined) => sources.size === 0 || sources.has((src ?? "OTHER") as FundingSource),
+    [sources],
+  );
+
+  const SORTS: Record<typeof sortBy, (v: BudgetLineView) => number> = {
+    budget: (v) => v.budgeted,
+    spent:  (v) => v.spent,
+    over:   (v) => Math.max(0, v.spent - v.budgeted),
+  };
+
+  /** The rows as listed: filtered by funding source, then sorted, largest first. */
+  const listed = useMemo(() => {
+    if (!model) return [];
+    const pick = SORTS[sortBy];
+    return model.views
+      .filter((v) => matchesSource(v.line.fundingSource))
+      .sort((a, b) => pick(b) - pick(a));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, sortBy, matchesSource]);
+
+  const listedRealized = useMemo(
+    () => (model ? model.realized.filter((r) => matchesSource(r.series.fundingSource)) : []),
+    [model, matchesSource],
+  );
 
   // Spending buckets only — income lines carry no categories (see the panel).
   const categoryOptions = useMemo(() => {
@@ -746,21 +776,62 @@ export default function BudgetPage() {
               </div>
 
               {/* Row 3 — spending buckets, money going out only. */}
-              <SectionTitle hint={model.views.length > 0
-                ? `${fmtCurrency(model.overall.spent)} of ${fmtCurrency(model.overall.budgeted)}`
+              <SectionTitle hint={listed.length > 0
+                ? `${fmtCurrency(listed.reduce((a, v) => a + v.spent, 0))} of ${fmtCurrency(listed.reduce((a, v) => a + v.budgeted, 0))}`
                 : undefined}>
                 Budgets
               </SectionTitle>
-              {model.views.length === 0 && model.realized.length === 0 ? (
+
+              {model.views.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap mb-3">
+                  <div className="inline-flex rounded-lg border border-gray-200 dark:border-darkBorder overflow-hidden">
+                    {([["budget", "Budget"], ["spent", "Spent"], ["over", "Over budget"]] as const).map(([k, label]) => (
+                      <button key={k} onClick={() => setSortBy(k)}
+                        className="px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap"
+                        style={sortBy === k ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[11px] text-gray-400">sorted by, high to low</span>
+
+                  <span className="flex items-center gap-1.5 flex-wrap ml-auto">
+                    <button onClick={() => setSources(new Set())}
+                      className="px-2.5 py-2 rounded-full text-[11px] border border-gray-200 dark:border-darkBorder"
+                      style={sources.size === 0 ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}>
+                      All sources
+                    </button>
+                    {FUNDING_SOURCES.filter((src) => model.views.some((v) => (v.line.fundingSource ?? "OTHER") === src))
+                      .map((src) => {
+                        const on = sources.has(src);
+                        return (
+                          <button key={src}
+                            onClick={() => setSources((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(src)) next.delete(src); else next.add(src);
+                              return next;
+                            })}
+                            className="px-2.5 py-2 rounded-full text-[11px] border border-gray-200 dark:border-darkBorder"
+                            style={on ? { backgroundColor: FINANCE_COLOR + "22", color: FINANCE_COLOR } : undefined}>
+                            {FUNDING_SOURCE_LABELS[src]}
+                          </button>
+                        );
+                      })}
+                  </span>
+                </div>
+              )}
+              {listed.length === 0 && listedRealized.length === 0 ? (
                 <div>
                   <EmptyState
-                    label="No budgets in force for this period — group a few categories into a bucket to start."
+                    label={sources.size > 0
+                      ? "budgets matching that filter — clear it to see the rest"
+                      : "budgets in force for this period — group a few categories into a bucket to start"}
                     onAdd={openNew}
                   />
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {model.views.map((v) => (
+                  {listed.map((v) => (
                     <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
                       versions={model.versions.get(v.line.seriesId)?.length ?? 1}
                       rows={model.rowsByLine.get(v.line.id) ?? []} accountName={accountName} />
@@ -770,13 +841,13 @@ export default function BudgetPage() {
 
               {/* Real spending in a period that predates the budget. Shown as
                   what happened, with no budget figure invented for it. */}
-              {model.realized.length > 0 && (
+              {listedRealized.length > 0 && (
                 <div>
                   <SectionTitle hint="real spending, no budget was in force">
                     Before these budgets existed
                   </SectionTitle>
                   <div className="space-y-2">
-                    {model.realized.map((r) => (
+                    {listedRealized.map((r) => (
                       <RealizedRow key={r.series.seriesId} s={r.series} spent={r.spent}
                         rows={r.rows} accountName={accountName} />
                     ))}
