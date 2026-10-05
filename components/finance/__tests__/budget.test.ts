@@ -5,7 +5,7 @@ import {
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
   budgetedForRange, monthsSpanned, monthsInRange, isMonthAligned, actualByCategory, budgetKind,
-  resolutionDate, versionsInWindow, listBudgetSeries, isExcludedFromBudget, budgetTransactions,
+  resolutionDate, versionsInWindow, listBudgetSeries, isExcludedFromBudget, budgetTransactions, totalOutflow,
   type BudgetLine,
 } from "@/components/finance/budget";
 import { BUDGET_SELECTION_SET } from "@/components/finance/data";
@@ -849,5 +849,70 @@ describe("budgetTransactions — the rows behind a bucket's number", () => {
 
   it("is empty for a bucket with no categories", () => {
     expect(budgetTransactions([tx({ id: "1" })] as any, w, [])).toEqual([]);
+  });
+});
+
+describe("per-pool overspend", () => {
+  const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+  const v = (over: any, spent: number) =>
+    computeLineView(line(over), w, new Map([[over.categories[0], spent]]), new Map(), "2026-09-30");
+
+  it("separates salary-funded overspend from equity-funded", () => {
+    // The distinction that matters: blowing the salary budget is a different
+    // problem from blowing the RSU budget.
+    const views = [
+      v({ id: "a", seriesId: "a", fundingSource: "SALARY", categories: ["Groceries"], amount: 2250 }, 2605),
+      v({ id: "b", seriesId: "b", fundingSource: "RSU",    categories: ["Flying"],    amount: 10000 }, 23719),
+    ];
+    const pools = summarizePools(views, {});
+    expect(pools.find((p) => p.source === "SALARY")!.overspend).toBeCloseTo(355, 0);
+    expect(pools.find((p) => p.source === "RSU")!.overspend).toBeCloseTo(13719, 0);
+  });
+
+  it("does not let an under-spent bucket pay for an over-spent one", () => {
+    const views = [
+      v({ id: "a", seriesId: "a", fundingSource: "SALARY", categories: ["Dining"],  amount: 1000 }, 1400),
+      v({ id: "b", seriesId: "b", fundingSource: "SALARY", categories: ["Grocery"], amount: 1000 }, 600),
+    ];
+    const [salary] = summarizePools(views, {});
+    expect(salary.overspend).toBe(400);     // not 0
+    expect(salary.spent).toBe(2000);
+  });
+});
+
+describe("totalOutflow — all money out, not just the budgeted part", () => {
+  const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+  const tx = (over: any) => ({
+    id: "t", accountId: "a", amount: -100, date: "2026-09-10", status: "POSTED",
+    type: "EXPENSE", category: "Dining", description: "x", ...over,
+  });
+
+  it("includes spend a budget never covered — this is the difference from the budget total", () => {
+    const rows = [
+      tx({ id: "1", amount: -100, category: "Dining" }),
+      tx({ id: "2", amount: -400, category: "Golf" }),              // no bucket
+      tx({ id: "3", amount: -900, spendGroupId: "trip" }),          // trip-tagged
+    ] as any;
+    // The budget view sees only the first.
+    expect(spendByCategory(rows, w).get("Dining")).toBe(100);
+    // Cash saw all three.
+    expect(totalOutflow(rows, w)).toBe(1400);
+  });
+
+  it("still excludes what never actually left", () => {
+    const rows = [
+      tx({ id: "1", amount: -100 }),
+      tx({ id: "2", amount: -5000, category: "Transfers" }),
+      tx({ id: "3", amount: -8000, category: "Credit Card Payment" }),
+      tx({ id: "4", amount: -300, status: "PENDING" }),
+      tx({ id: "5", amount: 250 }),
+      tx({ id: "6", amount: -700, date: "2026-10-05" }),
+    ] as any;
+    expect(totalOutflow(rows, w)).toBe(100);
+  });
+
+  it("counts a mortgage, because that money did leave", () => {
+    expect(totalOutflow([tx({ id: "1", amount: -3619.4, category: "Mortgage Payment" })] as any, w))
+      .toBeCloseTo(3619.4, 2);
   });
 });

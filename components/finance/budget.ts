@@ -348,6 +348,31 @@ export function spendByCategory(
 }
 
 /**
+ * All money that actually left in the window, whatever it was for.
+ *
+ * Deliberately NOT the sum of the budget rows. That figure counts only spend
+ * attributed to a budgeted bucket, so it silently omits categories nobody has
+ * budgeted, spend in a period before its bucket existed, and anything tagged to
+ * a trip — subtracting it from income produces a number that is neither the
+ * budget result nor the cash result. This one excludes only what never left
+ * (transfers between your own accounts, a card payment settling charges already
+ * counted), and so can honestly be called net.
+ */
+export function totalOutflow(txs: TransactionRecord[], window: DateRange): number {
+  let sum = 0;
+  for (const tx of txs) {
+    if (tx.status === "PENDING") continue;
+    const amt = tx.amount ?? 0;
+    if (amt >= 0) continue;
+    const date = tx.date ?? "";
+    if (date < window.fromIso || date > window.toIso) continue;
+    if (isExcludedFromBudget(effectiveCategory(tx))) continue;
+    sum += Math.abs(amt);
+  }
+  return sum;
+}
+
+/**
  * The rows behind a bucket's number, largest first.
  *
  * Shares countsTowardBudget with spendByCategory on purpose: a drill-down that
@@ -539,6 +564,8 @@ export type PoolView = {
   received: number;
   allocated: number;
   spent: number;
+  /** Sum of this pool's buckets that are over, un-netted. */
+  overspend: number;
   /** forecast − allocated. Negative is the honest "over-committed" signal. */
   unallocated: number;
   /** False when nothing declares this pool — the page asks for an income line. */
@@ -565,8 +592,11 @@ export function summarizePools(
     const received  = receivedBySource[source] ?? 0;
     const allocated = expenses.reduce((sum, v) => sum + v.budgeted, 0);
     const spent     = expenses.reduce((sum, v) => sum + v.spent, 0);
+    // Only the buckets actually over, not netted against the ones under —
+    // same reasoning as the page-level figure.
+    const overspend = expenses.reduce((sum, v) => sum + Math.max(0, v.spent - v.budgeted), 0);
     return {
-      source, forecast, received, allocated, spent,
+      source, forecast, received, allocated, spent, overspend,
       unallocated: forecast - allocated,
       declared: incomes.length > 0,
       views: expenses,

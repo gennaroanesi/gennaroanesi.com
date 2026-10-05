@@ -15,7 +15,7 @@ import {
   resolutionDate, versionsInWindow, listBudgetSeries,
   elapsedFraction, daysBetween, committedByCategory,
   computeLineView, summarizePools, unassignedCategories,
-  actualByCategory, budgetKind, budgetTransactions,
+  actualByCategory, budgetKind, budgetTransactions, totalOutflow,
   FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD,
   BUDGET_PERIODS, BUDGET_PERIOD_LABELS,
   type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
@@ -59,6 +59,16 @@ const STATUS_COLOR = {
   EXPENSE: { under: POSITIVE, on: FINANCE_COLOR, over: NEGATIVE },
   INCOME:  { under: NEGATIVE, on: FINANCE_COLOR, over: POSITIVE },
 } as const;
+
+/**
+ * How bad an overspend is depends on what was meant to pay for it. Salary is
+ * committed income you have already spent against; blowing that budget is a
+ * shortfall. Equity is lumpy and discretionary, so the same overspend there is
+ * a smaller problem. The colours say which.
+ */
+function overspendColor(source: string): string {
+  return source === "SALARY" ? NEGATIVE : WARNING;
+}
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -202,6 +212,7 @@ export default function BudgetPage() {
     const pools         = summarizePools([...views, ...incomeViews], received);
     const incomeTotal   = pools.reduce((s, p) => s + p.forecast, 0);
     const receivedTotal = pools.reduce((s, p) => s + p.received, 0);
+    const outflowTotal  = totalOutflow(txs, window);
 
     // Only the buckets actually over, not netted against the ones under. Being
     // $400 under on Dining does not pay for being $400 over on Travel: the
@@ -230,8 +241,10 @@ export default function BudgetPage() {
         pct: budgetedTotal > 0 ? spentTotal / budgetedTotal : null,
         income: incomeTotal,
         received: receivedTotal,
-        /** What actually happened to cash: money in minus money out. */
-        net: receivedTotal - spentTotal,
+        /** ALL money out, not just the budgeted part — see totalOutflow. */
+        outflow: outflowTotal,
+        /** What actually happened to cash: money in minus all money out. */
+        net: receivedTotal - outflowTotal,
         /** Income not promised to any budget — what you keep if you spend to plan. */
         unallocated: incomeTotal - budgetedTotal,
         overspend,
@@ -539,6 +552,35 @@ export default function BudgetPage() {
                           {fmtCurrency(model.overall.projected)} projected at this rate
                         </p>
                       )}
+
+                      {/* The aggregate hides the question that matters: which
+                          pool is over. Salary-funded overspend is a shortfall;
+                          equity-funded is elastic. */}
+                      {model.pools.filter((p) => p.allocated > 0).length > 1 && (
+                        <div className="mt-2 pt-2 border-t border-gray-100 dark:border-darkBorder space-y-1.5">
+                          {model.pools.filter((p) => p.allocated > 0).map((p) => {
+                            const over = p.spent > p.allocated;
+                            const c = over ? overspendColor(p.source) : POSITIVE;
+                            return (
+                              <div key={p.source}>
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                    {FUNDING_SOURCE_LABELS[p.source]}
+                                  </span>
+                                  <span className="text-[11px] tabular-nums" style={{ color: c }}>
+                                    {fmtCurrency(p.spent)} / {fmtCurrency(p.allocated)}
+                                    {over && ` · ${fmtCurrency(p.spent - p.allocated)} over`}
+                                  </span>
+                                </div>
+                                <div className="h-1 rounded-full bg-gray-100 dark:bg-white/10 mt-0.5 overflow-hidden">
+                                  <div className="h-full rounded-full"
+                                    style={{ width: `${Math.min(100, (p.spent / Math.max(1, p.allocated)) * 100)}%`, backgroundColor: c }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <p className="text-[11px] text-gray-400 mt-2">No spending budgets in force for this period.</p>
@@ -578,11 +620,18 @@ export default function BudgetPage() {
                     {model.views.filter((v) => v.spent > v.budgeted).length} of {model.views.length} budget
                     {model.views.length === 1 ? "" : "s"} exceeded
                   </p>
-                  <p className="text-[11px] mt-1">
-                    {model.overall.overspend > 0
-                      ? "Recovered by holding each to its budget."
-                      : "Nothing over yet."}
-                  </p>
+                  {model.overall.overspend > 0 ? (
+                    <div className="mt-1 space-y-0.5">
+                      {model.pools.filter((p) => p.overspend > 0).map((p) => (
+                        <p key={p.source} className="text-[11px]" style={{ color: overspendColor(p.source) }}>
+                          {fmtCurrency(p.overspend)} on {FUNDING_SOURCE_LABELS[p.source]}-funded
+                          {p.source === "SALARY" ? " — committed income" : ""}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] mt-1">Nothing over yet.</p>
+                  )}
                 </Card>
 
                 {/* Money in minus money out. The only card here about cash
@@ -595,12 +644,12 @@ export default function BudgetPage() {
                     {fmtCurrency(model.overall.net)}
                   </p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                    {fmtCurrency(model.overall.received)} received − {fmtCurrency(model.overall.spent)} spent
+                    {fmtCurrency(model.overall.received)} in − {fmtCurrency(model.overall.outflow)} out
                   </p>
-                  <p className="text-[11px] mt-1">
+                  <p className="text-[11px] mt-1 text-gray-500 dark:text-gray-400">
                     {model.overall.received === 0
                       ? "No income has landed in this period."
-                      : model.overall.net >= 0 ? "Kept." : "Spent more than arrived."}
+                      : "All spending, not only what a budget covers."}
                   </p>
                 </Card>
               </div>
