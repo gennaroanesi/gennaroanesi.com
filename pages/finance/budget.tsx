@@ -190,6 +190,12 @@ export default function BudgetPage() {
     for (const l of expenseLines) {
       rowsByLine.set(l.id, budgetTransactions(txs, window, bucketCategories(l)));
     }
+    // Per-category rows, for the categories no bucket covers. Same source as
+    // every other figure on the page, so the amounts agree.
+    const rowsByCategory = new Map<string, TransactionRecord[]>();
+    for (const cat of outflow.keys()) {
+      rowsByCategory.set(cat, budgetTransactions(txs, window, [cat]));
+    }
 
     const budgetedTotal = views.reduce((s, v) => s + v.budgeted, 0);
     const spentTotal    = views.reduce((s, v) => s + v.spent, 0);
@@ -200,6 +206,7 @@ export default function BudgetPage() {
       views,
       incomeViews,
       rowsByLine,
+      rowsByCategory,
       realized,
       overall: {
         budgeted: budgetedTotal,
@@ -604,14 +611,10 @@ export default function BudgetPage() {
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
                     Spending here counts against nothing. Every category needs a funding source — none is assumed.
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="divide-y divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-darkBorder">
                     {model.unassigned.map((u) => (
-                      <span key={u.category}
-                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px]"
-                        style={{ backgroundColor: withAlpha(WARNING, 0x22), color: WARNING }}>
-                        {u.category}
-                        <span className="tabular-nums opacity-80">{fmtCurrency(u.spent)}</span>
-                      </span>
+                      <UnassignedRow key={u.category} category={u.category} spent={u.spent}
+                        rows={model.rowsByCategory.get(u.category) ?? []} accountName={accountName} />
                     ))}
                   </div>
                 </Card>
@@ -1070,5 +1073,44 @@ function RealizedRow({ s, spent, rows, accountName }: {
       </div>
       <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} />
     </Card>
+  );
+}
+
+/** A category no budget covers. Expands like every other figure on the page —
+ *  deciding where spending belongs is much easier once you can see what it is. */
+function UnassignedRow({ category, spent, rows, accountName }: {
+  category: string; spent: number; rows: TransactionRecord[]; accountName: Map<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="py-1">
+      <button onClick={() => setOpen((x) => !x)} aria-expanded={open}
+        className="w-full flex items-center justify-between gap-2 py-2 text-left">
+        <span className="text-xs flex items-center gap-1.5">
+          <span className="text-gray-400">{open ? "▴" : "▾"}</span>
+          {category}
+          <span className="text-[10px] text-gray-400">
+            {rows.length} transaction{rows.length === 1 ? "" : "s"}
+          </span>
+        </span>
+        <span className="text-xs tabular-nums font-semibold" style={{ color: WARNING }}>{fmtCurrency(spent)}</span>
+      </button>
+      {open && (
+        <div className="max-h-80 overflow-y-auto border-t border-gray-100 dark:border-darkBorder">
+          {rows.map((t) => (
+            <div key={t.id} className="flex items-center gap-2 px-1 py-2">
+              <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
+              <span className="text-xs truncate flex-1">{t.description || "—"}</span>
+              <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
+                {accountName.get(t.accountId) ?? "—"}
+              </span>
+              <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
+                {fmtCurrency(Math.abs(t.amount ?? 0))}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
