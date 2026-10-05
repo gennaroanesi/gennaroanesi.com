@@ -156,17 +156,54 @@ export default function BudgetPage() {
       SALARY: income.salary, BONUS: income.bonus, RSU: income.rsu, OTHER: income.other,
     };
 
-    const views = inForce.map((l) =>
-      computeLineView(l, window, budgetKind(l) === "INCOME" ? new Map() : outflow, committed, today));
+    // Income lines feed the pools at the top; they are never rendered as budget
+    // rows. A salary shown both as a pool and as a row that "spends" nothing was
+    // the same fact twice, in two shapes that disagreed.
+    const expenseLines = inForce.filter((l) => budgetKind(l) !== "INCOME");
+    const incomeLines  = inForce.filter((l) => budgetKind(l) === "INCOME");
+    const views       = expenseLines.map((l) => computeLineView(l, window, outflow, committed, today));
+    const incomeViews = incomeLines.map((l) => computeLineView(l, window, new Map(), new Map(), today));
+
+    const series = listBudgetSeries(budgets, today);
+
+    // A period before a budget existed still has real spending. Show it against
+    // the bucket's own categories with no budget figure, rather than dumping it
+    // into "categories in no budget" as though it were a setup error.
+    const covered = new Set(expenseLines.map((l) => l.seriesId));
+    const realized = series
+      .filter((sx) => sx.kind !== "INCOME" && !covered.has(sx.seriesId))
+      .map((sx) => ({
+        series: sx,
+        spent: bucketCategories(sx.latest).reduce((sum, c) => sum + (outflow.get(c) ?? 0), 0),
+      }))
+      .filter((r) => r.spent > 0)
+      .sort((a, b) => b.spent - a.spent);
+
+    const budgetedTotal = views.reduce((s, v) => s + v.budgeted, 0);
+    const spentTotal    = views.reduce((s, v) => s + v.spent, 0);
 
     return {
       window,
       asOf,
       views,
+      incomeViews,
+      realized,
+      overall: {
+        budgeted: budgetedTotal,
+        spent: spentTotal,
+        remaining: budgetedTotal - spentTotal,
+        pct: budgetedTotal > 0 ? spentTotal / budgetedTotal : null,
+      },
       versions,
-      series: listBudgetSeries(budgets, today),
-      pools: summarizePools(views, received),
-      unassigned: unassignedCategories(outflow, inForce.filter((l) => budgetKind(l) !== "INCOME")),
+      series,
+      pools: summarizePools([...views, ...incomeViews], received),
+      // Categories no bucket covers AT ALL. A category whose bucket simply had
+      // no budget yet this period is reported above as realized spend, not here
+      // — listing it twice would make a historical period look misconfigured.
+      unassigned: unassignedCategories(
+        outflow,
+        [...expenseLines, ...realized.map((r) => r.series.latest)],
+      ),
       issues: validateBudgetHistory(budgets, asOf),
       elapsed: elapsedFraction(window, today),
       daysLeft: Math.max(0, daysBetween(today, window.toIso)),
@@ -424,40 +461,95 @@ export default function BudgetPage() {
                 </Card>
               )}
 
-              {/* Pools */}
-              {model.pools.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-                  {model.pools.map((p) => {
-                    const over = p.unallocated < 0;
-                    return (
-                      <Card key={p.source}>
-                        <p className="text-[10px] uppercase tracking-widest text-gray-400">{FUNDING_SOURCE_LABELS[p.source]}</p>
-                        {p.declared ? (
-                          <>
-                            <p className="text-lg font-bold mt-1">{fmtCurrency(p.forecast)}</p>
-                            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                              {fmtCurrency(p.received)} received · {fmtCurrency(p.allocated)} allocated
-                            </p>
-                            <p className="text-[11px] mt-0.5" style={{ color: over ? NEGATIVE : POSITIVE }}>
-                              {over ? `${fmtCurrency(-p.unallocated)} over-committed` : `${fmtCurrency(p.unallocated)} unallocated`}
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-lg font-bold mt-1 text-gray-400">—</p>
-                            <p className="text-[11px] mt-0.5" style={{ color: WARNING }}>
-                              No income budget declares this pool. {fmtCurrency(p.allocated)} allocated against nothing.
-                            </p>
-                          </>
+              {/* Overall + income pools. Everything that is money COMING IN
+                  lives here; the list below is only money going out. */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+                <Card>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400">Budget consumed</p>
+                  {model.overall.budgeted > 0 ? (
+                    <>
+                      <div className="flex items-baseline justify-between gap-2 mt-1">
+                        <span className="text-lg font-bold"
+                          style={{ color: model.overall.pct != null && model.overall.pct > model.elapsed + 0.05 ? NEGATIVE : POSITIVE }}>
+                          {fmtCurrency(model.overall.spent)}
+                        </span>
+                        <span className="text-xs text-gray-400">of {fmtCurrency(model.overall.budgeted)}</span>
+                      </div>
+                      <div className="relative h-2 rounded-full bg-gray-100 dark:bg-white/10 mt-2 overflow-hidden">
+                        <div className="h-full rounded-full"
+                          style={{
+                            width: `${Math.min(100, (model.overall.pct ?? 0) * 100)}%`,
+                            backgroundColor: model.overall.pct != null && model.overall.pct > model.elapsed + 0.05 ? NEGATIVE : POSITIVE,
+                          }} />
+                        {!model.closed && (
+                          <div className="absolute top-0 bottom-0 w-px bg-gray-400 dark:bg-gray-300"
+                            style={{ left: `${model.elapsed * 100}%` }} title="where you'd be exactly on pace" />
                         )}
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
+                      </div>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                        {model.overall.remaining >= 0
+                          ? `${fmtCurrency(model.overall.remaining)} left across ${model.views.length} budget${model.views.length === 1 ? "" : "s"}`
+                          : `${fmtCurrency(-model.overall.remaining)} over across ${model.views.length} budget${model.views.length === 1 ? "" : "s"}`}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-gray-400 mt-2">No spending budgets in force for this period.</p>
+                  )}
+                </Card>
 
-              {/* Buckets */}
-              {model.views.length === 0 ? (
+                {model.pools.map((p) => {
+                  const over = p.unallocated < 0;
+                  const lines = model.incomeViews.filter(
+                    (v) => (v.line.fundingSource ?? "OTHER") === p.source);
+                  return (
+                    <Card key={p.source}>
+                      <p className="text-[10px] uppercase tracking-widest text-gray-400">
+                        {FUNDING_SOURCE_LABELS[p.source]} income
+                      </p>
+                      {p.declared ? (
+                        <>
+                          <div className="flex items-baseline justify-between gap-2 mt-1">
+                            <span className="text-lg font-bold">{fmtCurrency(p.forecast)}</span>
+                            <span className="text-xs text-gray-400">{fmtCurrency(p.received)} received</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                            {fmtCurrency(p.allocated)} allocated to budgets
+                          </p>
+                          <p className="text-[11px] mt-0.5" style={{ color: over ? NEGATIVE : POSITIVE }}>
+                            {over ? `${fmtCurrency(-p.unallocated)} over-committed` : `${fmtCurrency(p.unallocated)} unallocated`}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-lg font-bold mt-1 text-gray-400">—</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: WARNING }}>
+                            No income budget declares this pool. {fmtCurrency(p.allocated)} allocated against nothing.
+                          </p>
+                        </>
+                      )}
+                      {lines.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-100 dark:border-darkBorder space-y-1">
+                          {lines.map((v) => (
+                            <div key={v.line.id} className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] truncate">{v.line.name}</span>
+                              <span className="flex items-center gap-2 flex-shrink-0">
+                                <span className="text-[11px] tabular-nums text-gray-500 dark:text-gray-400">
+                                  {fmtCurrency(v.budgeted)}
+                                </span>
+                                <button onClick={() => openEdit(v.line)} className="text-[11px] px-1 py-2 hover:underline"
+                                  style={{ color: FINANCE_COLOR }}>Edit</button>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Spending buckets — money going out only. */}
+              {model.views.length === 0 && model.realized.length === 0 ? (
                 <div className="mt-6">
                   <EmptyState
                     label="No budgets in force for this period — group a few categories into a bucket to start."
@@ -466,14 +558,40 @@ export default function BudgetPage() {
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
-                  {model.views.filter((v) => budgetKind(v.line) === "INCOME").map((v) => (
+                  {model.views.map((v) => (
                     <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
                       versions={model.versions.get(v.line.seriesId)?.length ?? 1} />
                   ))}
-                  {model.views.filter((v) => budgetKind(v.line) !== "INCOME").map((v) => (
-                    <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
-                      versions={model.versions.get(v.line.seriesId)?.length ?? 1} />
-                  ))}
+                </div>
+              )}
+
+              {/* Real spending in a period that predates the budget. Shown as
+                  what happened, with no budget figure invented for it. */}
+              {model.realized.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
+                    Spent before these budgets existed
+                  </p>
+                  <div className="space-y-2">
+                    {model.realized.map(({ series: sx, spent }) => (
+                      <Card key={sx.seriesId}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="min-w-0">
+                            <span className="text-sm font-semibold">{sx.name}</span>
+                            <span className="block text-[10px] text-gray-400 mt-0.5">
+                              {bucketCategories(sx.latest).join(", ")}
+                            </span>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <span className="text-base font-bold" style={{ color: NEGATIVE }}>{fmtCurrency(spent)}</span>
+                            <span className="block text-[11px] text-gray-400">
+                              no budget {sx.startsOn ? `until ${fmtDate(sx.startsOn)}` : "this period"}
+                            </span>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
               )}
 
