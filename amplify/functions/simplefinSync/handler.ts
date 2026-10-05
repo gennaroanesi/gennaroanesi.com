@@ -317,6 +317,10 @@ export const handler = async (event: Payload = {}) => {
     cats.forEach((cat, i) => {
       if (cat) {
         toClassify[i].category = cat;
+        // Marked LLM, not RULE: no rule reproduces this, so a later pass with
+        // better rules (or a better model) should be free to revisit it —
+        // which a plain "is it machine-assigned?" boolean couldn't express.
+        toClassify[i].categorySource = "LLM";
         classified++;
       }
     });
@@ -429,6 +433,7 @@ export const handler = async (event: Payload = {}) => {
       amount: d.amount,
       type: d.type as any,
       category: d.category,
+      categorySource: d.categorySource as any,
       description: d.description,
       date: d.date,
       status: d.status as any,
@@ -461,6 +466,7 @@ export const handler = async (event: Payload = {}) => {
       ...(u.patch.status          !== undefined ? { status: u.patch.status as any } : {}),
       ...(u.patch.importHash      !== undefined ? { importHash: u.patch.importHash } : {}),
       ...(u.patch.category        !== undefined ? { category: u.patch.category } : {}),
+      ...(u.patch.categorySource  !== undefined ? { categorySource: u.patch.categorySource } : {}),
       ...(u.patch.sfTransactionId !== undefined ? { sfTransactionId: u.patch.sfTransactionId } : {}),
     } as any);
     if (e?.length) {

@@ -527,6 +527,19 @@ const schema = a.schema({
       // financeHoldingLot via the trade fields below.
       type: a.enum(["INCOME", "EXPENSE", "TRANSFER", "BUY", "SELL"]),
       category: a.string(),
+      // Where `category` came from, so reclassification knows what it may
+      // overwrite. Before this existed, the sync had to *guess* authorship by
+      // asking "does the stored category still equal what the old description
+      // would infer?" — a proxy that silently clobbers a hand-picked category
+      // whenever it happens to coincide with a rule's output.
+      //   RULE   — matched category-rules.json; free to recompute any time.
+      //   LLM    — the classifier's fallback guess; safe to redo when rules or
+      //            the model improve, which a plain boolean couldn't express.
+      //   MANUAL — the user set it. Never touched by any automated pass.
+      // Null on rows that predate the field: their authorship is unknowable,
+      // so they keep the old look-machine-assigned heuristic (see
+      // shouldRecategorize in simplefinSync/engine.ts).
+      categorySource: a.enum(["RULE", "LLM", "MANUAL"]),
       description: a.string(),
       date: a.date().required(), // YYYY-MM-DD
       status: a.enum(["POSTED", "PENDING"]), // POSTED affects balance; PENDING is forecast only

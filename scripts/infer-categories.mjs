@@ -139,7 +139,7 @@ async function gql(query, variables = {}) {
 const LIST_TX = `
   query ListTx($filter: ModelFinanceTransactionFilterInput, $nextToken: String) {
     listFinanceTransactions(filter: $filter, limit: 500, nextToken: $nextToken) {
-      items { id type category description amount date }
+      items { id type category categorySource description amount date }
       nextToken
     }
   }`;
@@ -211,13 +211,20 @@ async function main() {
   console.log(`  ${all.length} total\n`);
 
   // Only INCOME/EXPENSE rows; only empty category unless --overwrite.
+  // A row the user categorized by hand (categorySource MANUAL) is never a
+  // candidate, not even under --overwrite: that flag exists to redo the
+  // machine's work, not to discard the user's.
+  let manualSkipped = 0;
   const candidates = all.filter((tx) => {
     if (tx.type !== "INCOME" && tx.type !== "EXPENSE") return false;
+    if (tx.categorySource === "MANUAL") { manualSkipped++; return false; }
     const hasCat = (tx.category ?? "").trim().length > 0;
     return OVERWRITE ? true : !hasCat;
   }).slice(0, LIMIT);
 
-  console.log(`${candidates.length} candidate rows (${OVERWRITE ? "overwrite mode" : "empty category only"}).\n`);
+  console.log(`${candidates.length} candidate rows (${OVERWRITE ? "overwrite mode" : "empty category only"}).`);
+  if (manualSkipped > 0) console.log(`  (skipped ${manualSkipped} manually-categorized row(s))`);
+  console.log("");
 
   // Rule pass.
   const planned = [];     // { tx, category, source }
@@ -270,9 +277,12 @@ async function main() {
 
   let ok = 0, fail = 0;
   for (let i = 0; i < planned.length; i++) {
-    const { tx, category } = planned[i];
+    const { tx, category, source } = planned[i];
     try {
-      await gql(UPDATE_TX, { input: { id: tx.id, category } });
+      // Record authorship alongside the value so the sync's re-infer knows
+      // this is machine-assigned and may be revisited later.
+      const categorySource = source === "llm" ? "LLM" : "RULE";
+      await gql(UPDATE_TX, { input: { id: tx.id, category, categorySource } });
       ok++;
       if ((i + 1) % 50 === 0) console.log(`  …updated ${i + 1}/${planned.length}`);
     } catch (e) {

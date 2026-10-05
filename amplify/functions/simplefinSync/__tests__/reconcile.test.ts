@@ -6,7 +6,7 @@ import {
 
 const draft = (over: Partial<TxDraft> = {}): TxDraft => ({
   accountId: "acc1", date: "2026-09-11", amount: 5156.46, description: "Meta Payroll",
-  type: "INCOME", status: "POSTED", category: "Income", ticker: null,
+  type: "INCOME", status: "POSTED", category: "Income", categorySource: "RULE", ticker: null,
   importHash: "hash-new", notes: "sf:TRN-1", sfTransactionId: "TRN-1", ...over,
 });
 
@@ -115,6 +115,82 @@ describe("shouldRecategorize", () => {
   });
   it("says nothing when the new description infers nothing", () => {
     expect(shouldRecategorize("Meta Payroll", "mystery", "Income", infer)).toBeUndefined();
+  });
+
+  // ── Authorship (categorySource) ──────────────────────────────────────────
+  // The legacy cases above are the null-source fallback; these pin what the
+  // stored source changes.
+
+  it("never overwrites MANUAL, even when the stored category looks machine-assigned", () => {
+    // "Golf" is exactly what the old description infers, so the legacy proxy
+    // would have called this machine-assigned and clobbered it. This is the
+    // case the field exists to fix.
+    expect(shouldRecategorize("Golf Galaxy", "Meta Payroll", "Golf", infer, "MANUAL")).toBeUndefined();
+  });
+
+  it("refreshes a RULE category even when it does NOT match the old description", () => {
+    // Legacy would preserve "Dolce" here on the guess that a human chose it.
+    // With the source known to be RULE, there is nothing to protect.
+    expect(shouldRecategorize("Golf Galaxy", "Meta Payroll", "Dolce", infer, "RULE")).toBe("Income");
+  });
+
+  it("refreshes an LLM guess once a rule can speak to the row", () => {
+    expect(shouldRecategorize("Golf Galaxy", "Meta Payroll", "Shopping", infer, "LLM")).toBe("Income");
+  });
+
+  it("falls back to the legacy heuristic when the source is unknown", () => {
+    expect(shouldRecategorize("Golf Galaxy", "Meta Payroll", "Golf", infer, null)).toBe("Income");
+    expect(shouldRecategorize("Golf Galaxy", "Meta Payroll", "Dolce", infer, null)).toBeUndefined();
+  });
+
+  it("MANUAL outranks even an empty stored category", () => {
+    // A user who deliberately cleared a category has said something too.
+    expect(shouldRecategorize("mystery", "Meta Payroll", "", infer, "MANUAL")).toBeUndefined();
+  });
+});
+
+describe("reconcileDraft — category authorship", () => {
+  const infer = (d: string) => (/payroll/i.test(d) ? "Income" : /golf/i.test(d) ? "Golf" : null);
+  const d = (over: any = {}) => draft({ description: "Meta Payroll", ...over });
+
+  const stored = (over: any = {}) => ({
+    id: "t1", sfTransactionId: "TRN-1", date: "2026-09-20",
+    description: "Golf Galaxy", status: "PENDING", amount: -10,
+    category: "Golf", importHash: "h", notes: null, ...over,
+  });
+
+  it("stamps RULE when it rewrites a category", () => {
+    const r = reconcileDraft(d(), buildDedupIndex([stored() as any]), infer);
+    expect(r.action === "update" && r.patch.category).toBe("Income");
+    expect(r.action === "update" && r.patch.categorySource).toBe("RULE");
+  });
+
+  it("leaves both category and source untouched on a MANUAL row", () => {
+    const r = reconcileDraft(d(), buildDedupIndex([stored({ categorySource: "MANUAL" }) as any]), infer);
+    expect(r.action === "update" && r.patch.category).toBeUndefined();
+    expect(r.action === "update" && r.patch.categorySource).toBeUndefined();
+    // …but the description still gets repaired. MANUAL pins the category only.
+    expect(r.action === "update" && r.patch.description).toBe("Meta Payroll");
+  });
+});
+
+describe("sfTxToDraft — category authorship", () => {
+  const acct = { id: "acc1", name: "AMEX", type: "CREDIT", currentBalance: 0 };
+  const sf = (over: any = {}) => ({
+    id: "TRN-9", posted: "2026-09-21", transactedAt: null, amount: -42,
+    description: "NETFLIX.COM", payee: "Netflix", pending: false, ...over,
+  });
+
+  it("marks a rule-matched draft RULE", () => {
+    const out = sfTxToDraft(sf() as any, acct as any);
+    expect(out?.category).toBeTruthy();
+    expect(out?.categorySource).toBe("RULE");
+  });
+
+  it("leaves the source null when nothing matched, so the LLM pass can claim it", () => {
+    const out = sfTxToDraft(sf({ description: "ZZQX UNKNOWABLE 99", payee: "" }) as any, acct as any);
+    expect(out?.category).toBeNull();
+    expect(out?.categorySource).toBeNull();
   });
 });
 

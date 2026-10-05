@@ -283,6 +283,12 @@ export function ImportPanel(props: ImportPanelProps) {
           amount:      amt,
           type:        type as any,
           category:    row.category || inferCategory({ description: row.description, type, amount: amt }, catRules) || null,
+          // RULE, not MANUAL, even when the CSV carried its own category column:
+          // that is the bank's labelling, not a decision the user made in this
+          // app, and pinning it MANUAL would make it un-reclassifiable forever.
+          // A category the user actually picks goes through TransactionPanel or
+          // the inline editor, both of which stamp MANUAL.
+          categorySource: "RULE" as any,
           description: row.description,
           date:        row.date,
           status:      "POSTED" as any,
@@ -379,6 +385,7 @@ export function ImportPanel(props: ImportPanelProps) {
             amount,
             type:        "EXPENSE" as any,
             category:    "Transfers",
+            categorySource: "RULE" as any,   // structural, from the Schwab action code
             description: row.description || labelForSchwabAction(row.action),
             date:        row.date,
             status:      "POSTED" as any,
@@ -409,6 +416,7 @@ export function ImportPanel(props: ImportPanelProps) {
             amount,
             type:        "BUY" as any,
             category:    row.action === "REINVEST_SHARES" ? "Dividend reinvestment" : "Investments",
+            categorySource: "RULE" as any,   // structural, from the Schwab action code
             description: row.description || `Buy ${qty} ${row.symbol}`,
             date:        row.date,
             status:      "POSTED" as any,
@@ -467,6 +475,7 @@ export function ImportPanel(props: ImportPanelProps) {
             amount,
             type:              "SELL" as any,
             category:          "Investments",
+            categorySource:    "RULE" as any, // structural, from the Schwab action code
             description:       row.description || `Sell ${qty} ${row.symbol}`,
             date:              row.date,
             status:            "POSTED" as any,

@@ -142,7 +142,7 @@ async function main() {
       classified++;
       console.log(`  ${cat.padEnd(16)} ← ${(t.description ?? "").slice(0, 50)}`);
       if (!DRY) {
-        await gql(`mutation($in: UpdateFinanceTransactionInput!){ updateFinanceTransaction(input:$in){ id } }`, { in: { id: t.id, category: cat } });
+        await gql(`mutation($in: UpdateFinanceTransactionInput!){ updateFinanceTransaction(input:$in){ id } }`, { in: { id: t.id, category: cat, categorySource: "LLM" } });
         written++;
       }
     }

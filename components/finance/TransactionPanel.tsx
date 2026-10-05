@@ -407,6 +407,10 @@ export function TransactionPanel(props: TransactionPanelProps) {
           amount:            effectiveAmount,
           type:              txType as any,
           category:          txDraft.category ?? null,
+          // Hand-entered row: the category is the user's, so no automated pass
+          // may overwrite it later. (Rule-derived categories come from the
+          // SimpleFIN sync and the CSV importer, which stamp RULE themselves.)
+          categorySource:    (txDraft.category ?? null) ? "MANUAL" : null,
           description:       description,
           date:              txDraft.date!,
           status:            (txDraft.status ?? "POSTED") as any,
@@ -458,12 +462,20 @@ export function TransactionPanel(props: TransactionPanelProps) {
       } else if (mode === "edit" && editingTx) {
         const prev = editingTx;
         const editingTrade = isTradeType(prev.type as any);
+        // Only claim authorship when the category actually moved. Saving the
+        // panel to change a date or a spend group must not silently relabel a
+        // RULE-assigned category as MANUAL and freeze it against future
+        // reclassification.
+        const categoryChanged = (prev.category ?? null) !== (txDraft.category ?? null);
         await mutate(client.models.financeTransaction.update({
           id:          prev.id,
           accountId:   editingTrade ? prev.accountId : txDraft.accountId!,
           amount:      editingTrade ? prev.amount    : txDraft.amount!,
           type:        editingTrade ? (prev.type as any) : ((txDraft.type ?? "EXPENSE") as any),
           category:    txDraft.category ?? null,
+          ...(categoryChanged
+            ? { categorySource: ((txDraft.category ?? null) ? "MANUAL" : null) as any }
+            : {}),
           description: txDraft.description ?? null,
           date:        txDraft.date!,
           status:      (txDraft.status ?? "POSTED") as any,

@@ -155,11 +155,22 @@ export async function fetchTransactions(q: TransactionQuery = {}): Promise<Trans
 // Selection sets for raw index queries. Typed-client index queries are
 // unusable against this schema (VariableTypeMismatch — see fetchTransactions),
 // so the raw queries need explicit field lists. Keep in sync with the models.
-const TX_FIELDS = `id accountId amount type category description date status
-  goalId spendGroupId toAccountId importHash recurringId ticker quantity price
+// Same hand-maintained-list hazard as BUDGET_FIELDS below: a field on the model
+// but missing here reads back `undefined`, not as an error. `sfTransactionId`
+// was missing until categorySource was added — harmless only because nothing on
+// the read path consumed it yet. data.test.ts pins this against the model's own
+// scalar fields so the next omission fails loudly.
+const TX_FIELDS = `id accountId amount type category categorySource description date status
+  goalId spendGroupId toAccountId importHash sfTransactionId recurringId ticker quantity price
   fees lotId consumedCostBasis lotConsumptions notes lineItems createdAt updatedAt`;
 
+/** The fields fetchTransactions requests — exported so a test can check nothing is missing. */
+export const TX_SELECTION_SET = TX_FIELDS;
+
 const INVOICE_LINK_FIELDS = `id invoiceId transactionId amount createdAt updatedAt`;
+
+/** The fields the invoice-link queries request — exported for the same guard test. */
+export const INVOICE_LINK_SELECTION_SET = INVOICE_LINK_FIELDS;
 
 // MUST list every field budget.ts reads. A raw query returns exactly what it
 // asks for, so a field added to the model and forgotten here comes back

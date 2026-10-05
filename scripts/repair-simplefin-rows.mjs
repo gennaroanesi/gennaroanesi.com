@@ -109,7 +109,7 @@ const accName = new Map(accounts.map((a) => [a.id, a.name]));
 
 const txs = await pageAll("listFinanceTransactions",
   `query($nextToken:String){listFinanceTransactions(limit:1000,nextToken:$nextToken){items{
-     id accountId amount date status description category notes spendGroupId goalId importHash
+     id accountId amount date status description category categorySource notes spendGroupId goalId importHash
      ${HAS_ID_COLUMN ? "sfTransactionId" : ""}
    } nextToken}}`);
 
@@ -233,14 +233,16 @@ function inferCategory(description, amount, type) {
   return type === "INCOME" ? "Income" : null;
 }
 /** Mirrors shouldRecategorize in engine.ts: only refresh a machine-assigned category. */
-function nextCategory(oldDesc, newDesc, stored, amount, type) {
+function nextCategory(oldDesc, newDesc, stored, amount, type, storedSource) {
+  if (storedSource === "MANUAL") return undefined;          // user owns it, unconditionally
   const fromOld = inferCategory(oldDesc, amount, type);
   const fromNew = inferCategory(newDesc, amount, type);
   if (fromNew === null || fromNew === fromOld) return undefined;
   const cur = (stored ?? "").trim();
   if (cur === "") return fromNew;
-  if (cur === (fromOld ?? "")) return fromNew;
-  return undefined;   // user-owned
+  if (storedSource === "RULE" || storedSource === "LLM") return fromNew;
+  if (cur === (fromOld ?? "")) return fromNew;              // legacy: looks machine-assigned
+  return undefined;   // legacy + unrecognized → leave alone
 }
 
 if (PHASES.has("F")) {
@@ -254,8 +256,8 @@ if (PHASES.has("F")) {
     const raw = (f.description || f.payee || "").trim();
     if (!raw || raw === (t.description ?? "").trim()) continue;
     const patch = { description: raw };
-    const cat = nextCategory(t.description ?? "", raw, t.category, t.amount, t.amount >= 0 ? "INCOME" : "EXPENSE");
-    if (cat !== undefined) patch.category = cat;
+    const cat = nextCategory(t.description ?? "", raw, t.category, t.amount, t.amount >= 0 ? "INCOME" : "EXPENSE", t.categorySource);
+    if (cat !== undefined) { patch.category = cat; patch.categorySource = cat ? "RULE" : null; }
     const u = already.get(t.id);
     if (u) { Object.assign(u.patch, patch); u.why += " + raw descriptor"; }
     else updates.push({ row: t, patch, why: "raw descriptor" });

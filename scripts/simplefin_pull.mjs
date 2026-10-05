@@ -347,6 +347,9 @@ function sfTxToDraft(sfTx, financeAccount) {
     type,
     status:     sfTx.pending ? "PENDING" : "POSTED",
     category:   category ?? null,
+    // Machine-assigned by the rule table / structural defaults above, so a
+    // later pass may revisit it. Only a human edit yields "MANUAL".
+    categorySource: category ? "RULE" : null,
     ticker,                            // set for BUY/SELL; null otherwise
     importHash: importHash(sfTx.posted, sfTx.amount, description),
     // Trace back to the SF tx id for debugging future dedup issues.
@@ -376,8 +379,8 @@ function markSelfTransfers(drafts) {
       if (a.accountId === b.accountId) continue;
       if (Math.abs(a.amount + b.amount) > 0.005) continue;
       // Pair found.
-      a.type = "TRANSFER"; a.toAccountId = b.accountId; a.category = "Transfers";
-      b.type = "TRANSFER"; b.toAccountId = a.accountId; b.category = "Transfers";
+      a.type = "TRANSFER"; a.toAccountId = b.accountId; a.category = "Transfers"; a.categorySource = "RULE";
+      b.type = "TRANSFER"; b.toAccountId = a.accountId; b.category = "Transfers"; b.categorySource = "RULE";
       // Rebuild hashes since type has changed (importHash is on amount/desc, not type,
       // so it stays the same — but the description-only hash still uniquely identifies
       // each side). No update needed to the hash.

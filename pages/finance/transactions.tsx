@@ -26,29 +26,52 @@ import { CATEGORY_RULES, effectiveCategory, UNCATEGORIZED } from "@/components/f
 
 const CATEGORY_LIST_ID = "tx-category-options";
 
+/** Human-readable authorship of a stored category, for the cell's tooltip. */
+const SOURCE_LABEL: Record<string, string> = {
+  MANUAL: "You set this category — automated passes leave it alone",
+  RULE:   "Matched a categorization rule — may be recomputed",
+  LLM:    "Guessed by the classifier — may be revisited",
+};
+
 /** Inline category editor: a datalist-backed typeahead. Stops row-click
  *  propagation so editing doesn't open the full edit panel. Commits on
- *  blur / Enter when the value changed. */
+ *  blur / Enter when the value changed.
+ *
+ *  A manually-set category carries a dot: it is the one state where the value
+ *  is pinned against the SimpleFIN sync's re-infer and the backfill scripts, so
+ *  "why didn't this get recategorized?" is answerable by looking at the row. */
 function CategoryCell({
   tx, onSave,
 }: { tx: TransactionRecord; onSave: (id: string, category: string) => void }) {
   const [val, setVal] = React.useState(tx.category ?? "");
   React.useEffect(() => { setVal(tx.category ?? ""); }, [tx.id, tx.category]);
   const commit = () => { if ((tx.category ?? "") !== val.trim()) onSave(tx.id, val.trim()); };
+  const source = tx.categorySource ?? null;
   return (
-    <input
-      list={CATEGORY_LIST_ID}
-      value={val}
-      placeholder="—"
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setVal(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        if (e.key === "Escape") { setVal(tx.category ?? ""); (e.target as HTMLInputElement).blur(); }
-      }}
-      className="w-28 bg-transparent border border-transparent rounded px-1 py-0.5 text-xs text-gray-500 dark:text-gray-300 hover:border-gray-300 dark:hover:border-darkBorder focus:border-gray-400 dark:focus:border-gray-500 focus:outline-none"
-    />
+    <span className="inline-flex items-center gap-1">
+      <input
+        list={CATEGORY_LIST_ID}
+        value={val}
+        placeholder="—"
+        title={source ? SOURCE_LABEL[source] : undefined}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") { setVal(tx.category ?? ""); (e.target as HTMLInputElement).blur(); }
+        }}
+        className="w-24 sm:w-28 bg-transparent border border-transparent rounded px-1 py-0.5 text-xs text-gray-500 dark:text-gray-300 hover:border-gray-300 dark:hover:border-darkBorder focus:border-gray-400 dark:focus:border-gray-500 focus:outline-none"
+      />
+      {source === "MANUAL" && (
+        <span
+          aria-label="Set manually"
+          title={SOURCE_LABEL.MANUAL}
+          className="shrink-0 w-1.5 h-1.5 rounded-full"
+          style={{ backgroundColor: WARNING }}
+        />
+      )}
+    </span>
   );
 }
 
@@ -83,14 +106,18 @@ export default function TransactionsPage() {
   const [bulkRecurringId, setBulkRecurringId] = useState("");
   const [savingCats,      setSavingCats]      = useState(false);
 
+  // Every write through here is a human typing or picking a category, inline or
+  // in bulk — so it is stamped MANUAL and no automated pass (the SimpleFIN
+  // sync's re-infer, the backfill scripts) will overwrite it again.
   const saveCategory = useCallback(async (ids: string[], category: string) => {
     const value = category.trim() || null;
-    setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, category: value } as TransactionRecord) : t)));
+    const source = value ? "MANUAL" : null;
+    setTransactions((prev) => prev.map((t) => (ids.includes(t.id) ? ({ ...t, category: value, categorySource: source } as TransactionRecord) : t)));
     setSavingCats(true);
     try {
       const failures: unknown[] = [];
       for (const id of ids) {
-        try { await mutate(client.models.financeTransaction.update({ id, category: value })); }
+        try { await mutate(client.models.financeTransaction.update({ id, category: value, categorySource: source } as any)); }
         catch (e) { console.error("category update failed", id, e); failures.push(e); }
       }
       if (failures.length) reportError(failures[0], "Category update");

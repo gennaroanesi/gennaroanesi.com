@@ -24,6 +24,12 @@ export type FinAccount = {
 
 export type TxType = "INCOME" | "EXPENSE" | "TRANSFER" | "BUY" | "SELL";
 
+/**
+ * Where a row's `category` came from. Mirrors the financeTransaction.categorySource
+ * enum; null means "unknown" (a row written before the field existed).
+ */
+export type CategorySource = "RULE" | "LLM" | "MANUAL";
+
 export type TxDraft = {
   accountId: string;
   date: string;
@@ -32,6 +38,8 @@ export type TxDraft = {
   type: TxType;
   status: "POSTED" | "PENDING";
   category: string | null;
+  /** Authorship of `category` — "RULE" whenever a rule or structural type decided it. */
+  categorySource: CategorySource | null;
   ticker: string | null;
   toAccountId?: string | null;
   importHash: string;
@@ -148,6 +156,10 @@ export function sfTxToDraft(sfTx: SfTransaction, finAccount: FinAccount, rules?:
     type,
     status: sfTx.pending ? "PENDING" : "POSTED",
     category: category ?? null,
+    // Everything decided above came from the rule table or the structural
+    // type/account defaults, so it is machine-assigned and freely recomputable.
+    // The LLM fallback runs later (in the handler) and restamps what it fills.
+    categorySource: category ? "RULE" : null,
     ticker,
     importHash: importHash(sfTx.posted, sfTx.amount, description),
     notes: `sf:${sfTx.id}`,
@@ -175,9 +187,14 @@ export function markSelfTransfers(drafts: TxDraft[]): number {
       a.type = "TRANSFER";
       a.toAccountId = b.accountId;
       a.category = "Transfers";
+      // Structural, derived from the pairing — machine-assigned either way, but
+      // say so explicitly: a draft that matched no rule arrived here with a null
+      // source and would otherwise keep it despite now carrying a category.
+      a.categorySource = "RULE";
       b.type = "TRANSFER";
       b.toAccountId = a.accountId;
       b.category = "Transfers";
+      b.categorySource = "RULE";
       used.add(i);
       used.add(j);
       paired++;
@@ -197,6 +214,7 @@ export type ExistingTx = {
   description?: string | null;
   status?: string | null;
   category?: string | null;
+  categorySource?: string | null;
   importHash?: string | null;
   sfTransactionId?: string | null;
   notes?: string | null;
@@ -254,6 +272,8 @@ export type TxPatch = {
   status?: "POSTED" | "PENDING";
   importHash?: string;
   category?: string | null;
+  /** Always written together with `category`, so authorship never goes stale. */
+  categorySource?: CategorySource | null;
   sfTransactionId?: string;
 };
 
@@ -303,9 +323,22 @@ export function reconcileDraft(
     if (patch.date || patch.description) patch.importHash = draft.importHash;
 
     if (patch.description && inferForDescription) {
-      const next = shouldRecategorize(oldDesc, newDesc, existing.category ?? null, inferForDescription);
-      if (next !== undefined) patch.category = next;
+      const next = shouldRecategorize(
+        oldDesc, newDesc, existing.category ?? null, inferForDescription,
+        existing.categorySource ?? null,
+      );
+      if (next !== undefined) {
+        patch.category = next;
+        // A rule produced this, so say so — otherwise a row rewritten here
+        // would keep a stale "LLM" (or null) source and be mis-judged later.
+        patch.categorySource = next ? "RULE" : null;
+      }
     }
+
+    // Backfill authorship for a legacy row we are leaving categorized as-is.
+    // Deliberately NOT done: a null source is the honest answer for a row whose
+    // category predates the field, and guessing "RULE" here would hand the sync
+    // permission to overwrite a category the user may have picked by hand.
 
     return Object.keys(patch).length > 0
       ? { action: "update", id: existing.id, patch, draft }
@@ -332,27 +365,41 @@ export function reconcileDraft(
  * The new category for a row whose description changed, or undefined to leave
  * it alone.
  *
- * A stored category is only overwritten when it still equals what the OLD
- * description would have inferred — i.e. it looks machine-assigned. Anything
- * else (a hand-picked category, an LLM fallback that no rule reproduces) is
- * treated as deliberate and preserved. This matters because the descriptions
- * being repaired are exactly the ones that were classified from truncated text:
- * "Certificate of Origin Meta" becoming "Meta Payroll" should re-file as
- * payroll, but a row the user manually moved to "Dolce" should stay there.
+ * This matters because the descriptions being repaired are exactly the ones
+ * that were classified from truncated text: "Certificate of Origin Meta"
+ * becoming "Meta Payroll" should re-file as payroll, but a row the user
+ * manually moved to "Dolce" must stay there.
+ *
+ * Authorship decides, in two regimes:
+ *
+ *  - `storedSource` known (rows written since categorySource existed) —
+ *    MANUAL is never overwritten, full stop. RULE and LLM are refreshed
+ *    whenever the new description infers something different.
+ *
+ *  - `storedSource` null (legacy rows) — fall back to the old proxy: overwrite
+ *    only while the stored category still equals what the OLD description
+ *    would have inferred, i.e. while it *looks* machine-assigned. That proxy
+ *    is wrong exactly when a hand-picked category coincides with a rule's
+ *    output, which is why the field exists; it is kept only because a legacy
+ *    row's authorship genuinely cannot be recovered.
  */
 export function shouldRecategorize(
   oldDescription: string,
   newDescription: string,
   storedCategory: string | null,
   infer: (description: string) => string | null,
+  storedSource?: string | null,
 ): string | null | undefined {
+  if (storedSource === "MANUAL") return undefined;                     // user owns it, unconditionally
+
   const fromOld = infer(oldDescription);
   const fromNew = infer(newDescription);
   if (fromNew === null || fromNew === fromOld) return undefined;      // nothing better to say
   const stored = (storedCategory ?? "").trim();
-  if (stored === "" ) return fromNew;                                  // never categorized
-  if (stored === (fromOld ?? "")) return fromNew;                      // machine-assigned → refresh
-  return undefined;                                                    // user-owned → leave alone
+  if (stored === "") return fromNew;                                   // never categorized
+  if (storedSource === "RULE" || storedSource === "LLM") return fromNew; // known machine-assigned
+  if (stored === (fromOld ?? "")) return fromNew;                      // legacy: looks machine-assigned
+  return undefined;                                                    // legacy + unrecognized → leave alone
 }
 
 // ── Balance derivation ────────────────────────────────────────────────────────

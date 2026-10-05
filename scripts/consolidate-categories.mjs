@@ -83,18 +83,21 @@ async function main() {
   const gql = async (query, variables) => { const res = await fetch(cfg.appsyncUrl, { method: "POST", headers: { "Content-Type": "application/json", Authorization: JWT }, body: JSON.stringify({ query, variables }) }); const j = await res.json(); if (j.errors) throw new Error(JSON.stringify(j.errors)); return j.data; };
 
   let items = [], tok = null;
-  do { const d = await gql(`query($n:String){ listFinanceTransactions(limit:1000, nextToken:$n){ items{ id description amount category } nextToken } }`, { n: tok }); items.push(...d.listFinanceTransactions.items); tok = d.listFinanceTransactions.nextToken; } while (tok);
+  do { const d = await gql(`query($n:String){ listFinanceTransactions(limit:1000, nextToken:$n){ items{ id description amount category categorySource } nextToken } }`, { n: tok }); items.push(...d.listFinanceTransactions.items); tok = d.listFinanceTransactions.nextToken; } while (tok);
 
-  const updates = [];       // { id, from, to } for direct/delivery
+  const updates = [];       // { id, from, to, src } for direct/delivery
   const orphanRows = [];    // rows needing LLM
+  let manualSkipped = 0;
   for (const t of items) {
+    // A hand-picked category outranks every pass in this script.
+    if (t.categorySource === "MANUAL") { manualSkipped++; continue; }
     const cur = (t.category ?? "").trim();
     if (DELIVERY.test(t.description ?? "")) {
       // Only reroute dining/empty rows; preserve intentional buckets (Dolce, …).
-      if (DELIVERY_OVERRIDABLE.has(cur)) updates.push({ id: t.id, from: cur || "(none)", to: "Food Delivery", desc: t.description });
+      if (DELIVERY_OVERRIDABLE.has(cur)) updates.push({ id: t.id, from: cur || "(none)", to: "Food Delivery", desc: t.description, src: "RULE" });
       continue;
     }
-    if (cur in REMAP) { updates.push({ id: t.id, from: cur, to: REMAP[cur], desc: t.description }); continue; }
+    if (cur in REMAP) { updates.push({ id: t.id, from: cur, to: REMAP[cur], desc: t.description, src: "RULE" }); continue; }
     if (ORPHANS.has(cur) && !P2P.test(t.description ?? "")) orphanRows.push(t);
   }
 
@@ -105,14 +108,14 @@ async function main() {
     for (let i = 0; i < orphanRows.length; i += 60) {
       const chunk = orphanRows.slice(i, i + 60);
       const cats = await classify(anthropic, chunk.map((t) => ({ description: t.description, amount: t.amount })));
-      chunk.forEach((t, j) => { if (cats[j] && cats[j] !== (t.category ?? "").trim()) orphanUpdates.push({ id: t.id, from: (t.category ?? "").trim(), to: cats[j], desc: t.description }); });
+      chunk.forEach((t, j) => { if (cats[j] && cats[j] !== (t.category ?? "").trim()) orphanUpdates.push({ id: t.id, from: (t.category ?? "").trim(), to: cats[j], desc: t.description, src: "LLM" }); });
     }
   }
 
   const all = [...updates, ...orphanUpdates];
   const byMove = {};
   for (const u of all) { const k = `${u.from} → ${u.to}`; (byMove[k] = byMove[k] || []).push(u); }
-  console.log(`Total tx: ${items.length} | changes: ${all.length}\n`);
+  console.log(`Total tx: ${items.length} | changes: ${all.length}${manualSkipped ? ` | ${manualSkipped} manual left alone` : ""}\n`);
   for (const [move, list] of Object.entries(byMove).sort((a, b) => b[1].length - a[1].length)) {
     console.log(`${String(list.length).padStart(4)}  ${move}`);
     if (list.length <= 8) for (const u of list) console.log(`         · ${(u.desc ?? "").slice(0, 55)}`);
@@ -120,7 +123,7 @@ async function main() {
   if (DRY) { console.log("\nDRY RUN — nothing written."); return; }
 
   let written = 0;
-  for (const u of all) { await gql(`mutation($in: UpdateFinanceTransactionInput!){ updateFinanceTransaction(input:$in){ id } }`, { in: { id: u.id, category: u.to } }); written++; if (written % 50 === 0) console.log(`  …${written}/${all.length}`); }
+  for (const u of all) { await gql(`mutation($in: UpdateFinanceTransactionInput!){ updateFinanceTransaction(input:$in){ id } }`, { in: { id: u.id, category: u.to, categorySource: u.src } }); written++; if (written % 50 === 0) console.log(`  …${written}/${all.length}`); }
   console.log(`\nDone. ${written} transactions recategorized.`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

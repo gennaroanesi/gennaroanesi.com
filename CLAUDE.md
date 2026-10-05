@@ -117,6 +117,45 @@ Scripts that do both (e.g. `archive-charts.mjs`) accept a JWT for mutations and 
 
 ---
 
+## 7b. Transaction category authorship (`categorySource`)
+
+`financeTransaction.categorySource` records WHO chose `category`, so automated
+passes know what they may overwrite. Any code that writes `category` must write
+this too.
+
+| Value | Meaning | May an automated pass overwrite it? |
+|---|---|---|
+| `RULE` | matched `category-rules.json`, or a structural default (TRANSFER, BUY/SELL, self-transfer pairing, a CSV's own category column) | yes |
+| `LLM` | the Haiku fallback classifier's guess | yes — redo it when rules or the model improve |
+| `MANUAL` | the user set it in the UI | **never** |
+| `null` | row predates the field; authorship unknowable | legacy heuristic only (below) |
+
+- **Writers**: `simplefinSync` (engine + handler), `simplefin_pull.mjs`,
+  `ImportPanel` → `RULE`/`LLM`. `TransactionPanel` and the inline/bulk editor on
+  `/finance/transactions` → `MANUAL`.
+- `TransactionPanel` stamps `MANUAL` **only when the category actually changed** —
+  saving the panel to edit a date must not relabel a `RULE` category and freeze it.
+- **Readers** that must skip `MANUAL`: `shouldRecategorize` (engine.ts),
+  `infer-categories.mjs` (even under `--overwrite`), `consolidate-categories.mjs`,
+  `repair-simplefin-rows.mjs`, and any new backfill or audit.
+- **Legacy rows** (`null`) fall back to the old proxy: overwrite only while the
+  stored category still equals what the OLD description would infer, i.e. while it
+  *looks* machine-assigned. That proxy is wrong exactly when a hand-picked category
+  coincides with a rule's output — which is why the field exists. It is kept only
+  because a pre-field row's authorship genuinely cannot be recovered.
+- `categorySource` is **not backfillable**. Existing rows start `null`; a row
+  becomes `MANUAL` by being re-saved in the UI, or via
+  `scripts/mark-manual-categories.mjs` (description substring + expected category,
+  `--dry` first).
+
+**Raw-GraphQL selection sets**: `TX_FIELDS` / `BUDGET_FIELDS` / `INVOICE_LINK_FIELDS`
+in `components/finance/data.ts` are hand-maintained. A field on the model but
+missing there reads back `undefined` — not an error (`kind` was missing once and
+every income budget read as a spending bucket). `components/finance/__tests__/data.test.ts`
+parses `amplify/data/resource.ts` and fails when a declared scalar isn't requested.
+
+---
+
 ## 8. ForeFlight CSV import
 
 - ForeFlight exports contain two tables in one CSV: **Aircraft Table** (top) and **Flights Table** (below)
