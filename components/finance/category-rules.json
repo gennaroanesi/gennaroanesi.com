@@ -7,8 +7,10 @@
 
     { "pattern": "/starting balance/i", "category": "Transfers" },
     { "pattern": "/zelle|venmo|cash app|paypal transfer|paypal\\s+inst xfer|transfer to|transfer from|online transfer|realtime transfer|\\bxfer\\b|wire transfer|domestic wire|ach transfer|to savings|to sav |to checking|to chk |to brokerage|to sfcu|internal transfer|wise us inc|wise 888|transferwise/i", "category": "Transfers" },
+    { "pattern": "/to hmg |hmg 8553|mortgage pmt|mortgage payment/i", "category": "Mortgage Payment" },
+    { "pattern": "/bmwfs|bmw bank|auto loan|car loan|car payment/i", "category": "Car Payment" },
+    { "pattern": "/loan pmt|loan payment|student loan|sofi/i", "category": "Loan Payment" },
     { "pattern": "/payment,?\\s*-?\\s*thank you|cardmember serv|card payment|card online payment|credit card payment|autopay.*card|card.*autopay|amex.*epayment|amex.*payment|american express ach|discover.*payment|capital one.*pymt|chase credit crd|online payment to|mobile payment|prime visa payment|visa payment|payment to chase card|comenity pay|credit repaymen|applecard|apple card|gsbank payment|(?:chase|apple|american express|amex|citi|citibank|discover|capital one|wells fargo|synchrony|comenity|barclays|us bank|bank of america)\\s+credit card|^paypal\\s+purchase\\s*$|^\\s*payment\\s*$|^\\s*pay off card balance\\s*$/i", "category": "Credit Card Payment" },
-    { "pattern": "/bmwfs|bmw bank|to hmg |hmg 8553|mortgage pmt|mortgage payment|loan pmt|loan payment|auto loan|student loan|sofi/i", "category": "Loan Payment" },
     { "pattern": "/^buy \\d|^sell \\d|^cash for (buy|sell) |\\bswppx\\b|\\bvti\\b|\\bvoo\\b|\\bvxus\\b| shares of |reinvest|brokerage buy|div reinvest/i", "category": "Investments" },
 
     { "pattern": "/\\brefund\\b|credit voucher|merchandise credit|returned merchandise|return of goods/i", "category": "Refund" },
@@ -19,7 +21,10 @@
     { "pattern": "/overdraft fee|overdraft charge|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|renewal member|foreign transaction fee|return(?:ed)? payment fee|return(?:ed)? check fee|nsf fee/i", "category": "Fees" },
     { "pattern": "/return(?:ed)? check|return(?:ed)? payment|payment return(?:ed)?|check return(?:ed)?|\\bnsf\\b|insufficient funds|payment reversal|reversal of payment|declined payment/i", "category": "Credit Card Payment" },
 
-    { "pattern": "/insurance|geico|state farm|progressive|allstate|liberty mutual|policy pmt|premium|briteco|jewelers[- _]?mutual|trupanion|nationwide pet|car rental protection/i", "category": "Insurance" },
+    { "pattern": "/mortgage insurance|\\bpmi\\b/i", "category": "Mortgage Insurance" },
+    { "pattern": "/homeowners insurance|home ?owner'?s? ins|hazard insurance|home insurance|flood insurance/i", "category": "Home Insurance" },
+    { "pattern": "/geico|prem coll|auto insurance|car insurance|progressive|\\bstate farm\\b|car rental protection/i", "category": "Car Insurance" },
+    { "pattern": "/insurance|allstate|liberty mutual|policy pmt|premium|briteco|jewelers[- _]?mutual|trupanion|nationwide pet/i", "category": "Insurance" },
 
     { "pattern": "/netflix|spotify|hulu|disney\\+|disney plus|hbo|\\bmax\\.|youtube|apple\\.com\\/bill|prime video|patreon|substack|icloud|google storage|google \\*|google\\*|dropbox|adobe|notion|chatgpt|openai|anthropic|claude\\.ai|microsoft|msbill|twilio|espn|paramount|logo diffusion|650 industries|expo|vercel|cursor|render\\.com|amazon web services|\\baws\\b|tello|boingo|prime global|subscription|kindle unltd|amazon prime|prime video|walmart\\+ member|\\baudible\\b|amazon music|sirius ?xm/i", "category": "Subscriptions" },
 

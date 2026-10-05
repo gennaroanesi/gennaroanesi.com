@@ -65,7 +65,7 @@ describe("inferCategory — direction (refunds)", () => {
     expect(inferCategory({ description: "Interest Paid", type: "INCOME", amount: 4 })).toBe("Income");
     expect(inferCategory({ description: "Chase Credit Card", type: "INCOME", amount: 2865.14 })).toBe("Credit Card Payment");
     expect(inferCategory({ description: "Online Transfer from CHK", type: "INCOME", amount: 500 })).toBe("Transfers");
-    expect(inferCategory({ description: "Mortgage Payment", type: "INCOME", amount: 100 })).toBe("Loan Payment");
+    expect(inferCategory({ description: "Mortgage Payment", type: "INCOME", amount: 100 })).toBe("Mortgage Payment");
   });
 
   it("matches explicit refund wording in either direction", () => {
@@ -100,7 +100,7 @@ describe("inferCategory — bare card payments", () => {
   it("does not swallow descriptions that merely contain the word", () => {
     expect(inferCategory({ description: "Return Payment Fee", type: "EXPENSE", amount: -29 })).toBe("Fees");
     expect(inferCategory({ description: "VENMO PAYMENT 1042005633463", type: "EXPENSE", amount: -35 })).toBe("Transfers");
-    expect(inferCategory({ description: "Mortgage Payment", type: "EXPENSE", amount: -3000 })).toBe("Loan Payment");
+    expect(inferCategory({ description: "Mortgage Payment", type: "EXPENSE", amount: -3000 })).toBe("Mortgage Payment");
   });
 });
 
@@ -227,7 +227,7 @@ describe("rules against raw bank descriptors", () => {
     ["QT 4135 OUTSIDE/QUIKROUND ROCK TX",                "Gas/Transport"],
     ["AplPay NJT RAIL MY-TNEWARK NJ",                    "Gas/Transport"],
     ["NATIONWIDE PET 800-540-2016 OH",                   "Insurance"],
-    ["PREM CAR RENTAL PROTECTION 800-228-6855",          "Insurance"],
+    ["PREM CAR RENTAL PROTECTION 800-228-6855",          "Car Insurance"],
     ["CITI CARD ONLINE PAYMENT XXXXXXXXXXX3717",         "Credit Card Payment"],
     ["ONLINE PAYMENT, THANK YOU",                        "Credit Card Payment"],
   ];
@@ -238,5 +238,49 @@ describe("rules against raw bank descriptors", () => {
   it("still reads a real rent payment as Rent/Mortgage", () => {
     expect(inferCategory({ description: "RENT PAYMENT APRIL", type: "EXPENSE", amount: -2000 })).toBe("Rent/Mortgage");
     expect(inferCategory({ description: "MONTHLY RENT", type: "EXPENSE", amount: -2000 })).toBe("Rent/Mortgage");
+  });
+});
+
+describe("loan and insurance categories are split by what they pay for", () => {
+  const cases: Array<[string, string]> = [
+    // A mortgage and a car loan were both "Loan Payment", so neither could be
+    // budgeted or reviewed separately.
+    ["Online Payment 30949821830 TO HMG 8553 09/25",  "Mortgage Payment"],
+    ["MORTGAGE PMT",                                   "Mortgage Payment"],
+    ["BMW BANK         BMWFS PYMT 361760365",          "Car Payment"],
+    ["AUTO LOAN PAYMENT",                              "Car Payment"],
+    ["SOFI STUDENT LOAN",                              "Loan Payment"],
+
+    // Three different policies that all used to read "Insurance".
+    ["MORTGAGE INSURANCE",                             "Mortgage Insurance"],
+    ["HOMEOWNERS INSURANCE",                           "Home Insurance"],
+    ["GEICO            PREM COLL",                     "Car Insurance"],
+    ["GEICO PREM COLL PPD ID: XXXXXX5853",             "Car Insurance"],
+    ["PREM CAR RENTAL PROTECTION 800-228-6855",        "Car Insurance"],
+    ["TRUPANION TRUPANION.COM WA",                     "Insurance"],
+    ["JEWELERS-MUTUAL-PMNT800-558-6411 WI",            "Insurance"],
+    ["BRITECO INC.        312-809-9100        IL",     "Insurance"],
+  ];
+  it.each(cases)("%s → %s", (description, expected) => {
+    expect(inferCategory({ description, type: "EXPENSE", amount: -1 })).toBe(expected);
+  });
+
+  it("keeps the specific insurance rules above the generic one", () => {
+    // "MORTGAGE INSURANCE" contains the bare word the generic rule matches, so
+    // ordering is what makes the split work at all.
+    expect(inferCategory({ description: "MORTGAGE INSURANCE", type: "EXPENSE", amount: -1 }))
+      .not.toBe("Insurance");
+  });
+
+  it("still treats every debt-service category as outside the P&L", () => {
+    for (const c of ["Loan Payment", "Mortgage Payment", "Car Payment"]) {
+      expect(isExcludedFromPnl(c)).toBe(true);
+    }
+  });
+
+  it("does not read a mortgage payment as rent", () => {
+    // Rent/Mortgage sits below and matches the bare word "mortgage".
+    expect(inferCategory({ description: "Online Payment To HMG 8553", type: "EXPENSE", amount: -1 }))
+      .toBe("Mortgage Payment");
   });
 });

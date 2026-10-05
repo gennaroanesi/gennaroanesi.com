@@ -60,7 +60,12 @@ export const REFUND_CATEGORY = "Refund";
 export const EXCLUDED_FROM_PNL = new Set<string>([
   "Transfers",
   "Credit Card Payment",
-  "Loan Payment", // debt paydown — moves cash → equity, net-worth-affecting, not consumption
+  // Debt paydown — moves cash → equity, net-worth-affecting, not consumption.
+  // Split by what is being paid off, because "Loan Payment" lumped a mortgage
+  // and a car together and neither could be budgeted or reviewed on its own.
+  "Loan Payment",
+  "Mortgage Payment",
+  "Car Payment",
   INVESTMENT_CATEGORY,
 ]);
 

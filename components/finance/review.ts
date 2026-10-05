@@ -491,7 +491,10 @@ export function summarizeExpenses(
 
 /** Categories treated as non-discretionary. Everything else is lifestyle. */
 export const ESSENTIAL_CATEGORIES = new Set<string>([
-  "Rent/Mortgage", "Utilities", "Bills & Utilities", "Groceries", "Insurance",
+  "Rent/Mortgage", "Utilities", "Bills & Utilities", "Groceries",
+  // Insurance split by what is insured: a car policy, PMI and a homeowners
+  // policy are three different decisions, and lumping them hid which one moved.
+  "Insurance", "Car Insurance", "Mortgage Insurance", "Home Insurance",
   "Medical", "Health", "Gas/Transport", "Dolce",
 ]);
 
@@ -516,7 +519,9 @@ export const NON_INCOME_CATEGORIES = new Set<string>([
 ]);
 
 /** Debt-service categories — real cash out, but they build equity. */
-export const DEBT_SERVICE_CATEGORIES = new Set<string>(["Loan Payment"]);
+export const DEBT_SERVICE_CATEGORIES = new Set<string>([
+  "Loan Payment", "Mortgage Payment", "Car Payment",
+]);
 
 /**
  * Tickers whose share sales are employer equity (RSU) rather than personal
