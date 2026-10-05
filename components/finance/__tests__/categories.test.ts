@@ -11,7 +11,7 @@ import {
 
 describe("inferCategory", () => {
   it("matches a plain merchant substring rule", () => {
-    expect(inferCategory({ description: "NETFLIX.COM", type: "EXPENSE" })).toBe("Subscriptions");
+    expect(inferCategory({ description: "NETFLIX.COM", type: "EXPENSE" })).toBe("Media");
     expect(inferCategory({ description: "SHELL OIL 12345", type: "EXPENSE" })).toBe("Gas/Transport");
   });
 
@@ -222,11 +222,11 @@ describe("rules against raw bank descriptors", () => {
     ["UNITED      XXXXXXXXX8502",                        "Travel"],
     ["CROWNE PLAZA MIDTOWNNEW YORK NY",                  "Travel"],
     ["AVIS RENT-A-CAR",                                  "Travel"],   // not Rent/Mortgage
-    ["ATT PAYMENT PPD ID: XXXXXX1004",                   "Utilities"],
+    ["ATT PAYMENT PPD ID: XXXXXX1004",                   "Mobile"],
     ["NTTA AUTOCHARGE 972-818-6882 TX",                  "Gas/Transport"],
     ["QT 4135 OUTSIDE/QUIKROUND ROCK TX",                "Gas/Transport"],
     ["AplPay NJT RAIL MY-TNEWARK NJ",                    "Gas/Transport"],
-    ["NATIONWIDE PET 800-540-2016 OH",                   "Insurance"],
+    ["NATIONWIDE PET 800-540-2016 OH",                   "Dolce"],
     ["PREM CAR RENTAL PROTECTION 800-228-6855",          "Car Insurance"],
     ["CITI CARD ONLINE PAYMENT XXXXXXXXXXX3717",         "Credit Card Payment"],
     ["ONLINE PAYMENT, THANK YOU",                        "Credit Card Payment"],
@@ -282,5 +282,61 @@ describe("loan and insurance categories are split by what they pay for", () => {
     // Rent/Mortgage sits below and matches the bare word "mortgage".
     expect(inferCategory({ description: "Online Payment To HMG 8553", type: "EXPENSE", amount: -1 }))
       .toBe("Mortgage Payment");
+  });
+});
+
+describe("Subscriptions broken up by what the subscription is for", () => {
+  const cases: Array<[string, string]> = [
+    // Software & AI was 43% of the old bucket and invisible inside it.
+    ["ANTHROPIC* CLAUDE SUSAN FRANCISCO       CA", "Software & AI"],
+    ["CLAUDE.AI SUBSCRIPTISAN FRANCISCO       CA", "Software & AI"],
+    ["ADOBE Adobe Systems SAN JOSE CA",            "Software & AI"],
+    ["CS ADDTL STORAGE AdoSAN JOSE            CA", "Software & AI"],
+    ["GOOGLE*WORKSPACE 91DCC GOOGLE.COM",          "Software & AI"],
+    ["MICROSOFT           MSBILL.INFO",            "Software & AI"],
+    ["LINK.COM* SIMPLEFIN SOUTH SAN FRANCISCO CA", "Software & AI"],
+
+    ["HBO Max NEW YORK NY",                        "Media"],
+    ["PP*SPOTIFY*P46EED9EXX XXXXXX7733 NY",        "Media"],
+    ["Kindle Unltd*4F29F1873",                     "Media"],
+    ["NYTIMES* NEW YORK USA",                      "Media"],
+    ["X CORP. PAID FEATUREBASTROP             TX", "Media"],
+    ["SIRIUS XM RADIO INC.888-635-5144        NY", "Media"],
+
+    // Opaque by nature: the descriptor never says what was bought.
+    ["APPLE.COM/BILL      INTERNET CHARGE     CA", "Apple services"],
+
+    ["TELLO US TELLO US   ATLANTA             GA", "Mobile"],
+    ["011 GLOBAL          877-800-9717        FL", "Mobile"],
+    ["AT&T MOBILITY PAYMEN800-288-2020 TX",        "Mobile"],
+    ["ATT PAYMENT PPD ID: XXXXXX1004",             "Mobile"],
+
+    ["AMAZON PRIME*SF0M93N83",                     "Memberships"],
+    ["Walmart+ Member 09/28009666546 AR",          "Memberships"],
+
+    // These are the thing itself, billed monthly — not "a subscription".
+    ["FLIGHTAWARE LLC 713-877-9010 TX",            "Flying"],
+    ["HYDROW SUBSCRIPTION BOSTON MA",              "Health"],
+    ["ACTIVE N FIT DIRECT XXXXXX2746 CA",          "Health"],
+    ["STARLINK INTERNET STARLINK.COM CA",          "Utilities"],
+
+    // Corrections.
+    ["NATIONWIDE PET 800-540-2016 OH",             "Dolce"],
+    ["ROVER.COM* PET SVCS.SEATTLE WA",             "Dolce"],
+    ["GDP=FOREST FAMILY DEROUND ROCK TX",          "Health"],
+    ["TFK-AUSTIN DOMAIN TXAUSTIN TX",              "Dining"],
+  ];
+  it.each(cases)("%s → %s", (description, expected) => {
+    expect(inferCategory({ description, type: "EXPENSE", amount: -1 })).toBe(expected);
+  });
+
+  it("keeps an Apple Store purchase as hardware, not an Apple service", () => {
+    expect(inferCategory({ description: "APPLE ONLINE STORE  CUPERTINO CA", type: "EXPENSE", amount: -1 }))
+      .toBe("Electronics");
+  });
+
+  it("leaves a genuine remainder in Subscriptions", () => {
+    expect(inferCategory({ description: "SOME SUBSCRIPTION SERVICE", type: "EXPENSE", amount: -1 }))
+      .toBe("Subscriptions");
   });
 });
