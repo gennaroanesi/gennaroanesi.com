@@ -199,6 +199,20 @@ export default function BudgetPage() {
 
     const budgetedTotal = views.reduce((s, v) => s + v.budgeted, 0);
     const spentTotal    = views.reduce((s, v) => s + v.spent, 0);
+    const pools         = summarizePools([...views, ...incomeViews], received);
+    const incomeTotal   = pools.reduce((s, p) => s + p.forecast, 0);
+
+    // Only the buckets actually over, not netted against the ones under. Being
+    // $400 under on Dining does not pay for being $400 over on Travel: the
+    // money is already gone, and netting would report a problem as fine.
+    const overspend = views.reduce((s, v) => s + Math.max(0, v.spent - v.budgeted), 0);
+
+    // Where the whole period lands if the current rate holds. Meaningless
+    // before any time has passed, and for a closed period the answer is simply
+    // what happened.
+    const elapsed = elapsedFraction(window, today);
+    const closed  = window.toIso < today;
+    const projected = closed ? spentTotal : (elapsed > 0.02 ? spentTotal / elapsed : null);
 
     return {
       window,
@@ -213,10 +227,15 @@ export default function BudgetPage() {
         spent: spentTotal,
         remaining: budgetedTotal - spentTotal,
         pct: budgetedTotal > 0 ? spentTotal / budgetedTotal : null,
+        income: incomeTotal,
+        /** Income not promised to any budget — what you keep if you spend to plan. */
+        unallocated: incomeTotal - budgetedTotal,
+        overspend,
+        projected,
       },
       versions,
       series,
-      pools: summarizePools([...views, ...incomeViews], received),
+      pools,
       // Categories no bucket covers AT ALL. A category whose bucket simply had
       // no budget yet this period is reported above as realized spend, not here
       // — listing it twice would make a historical period look misconfigured.
@@ -481,9 +500,8 @@ export default function BudgetPage() {
                 </Card>
               )}
 
-              {/* Overall + income pools. Everything that is money COMING IN
-                  lives here; the list below is only money going out. */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+              {/* Row 1 — the period at a glance. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
                 <Card>
                   <p className="text-[10px] uppercase tracking-widest text-gray-400">Budget consumed</p>
                   {model.overall.budgeted > 0 ? (
@@ -517,6 +535,81 @@ export default function BudgetPage() {
                   )}
                 </Card>
 
+                {/* Income not promised to any budget — what you keep if you
+                    spend exactly to plan. Negative means the budgets promise
+                    more than the income declares. */}
+                <Card>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400">Unallocated income</p>
+                  <p className="text-lg font-bold mt-1"
+                    style={{ color: model.overall.unallocated < 0 ? NEGATIVE : POSITIVE }}>
+                    {fmtCurrency(model.overall.unallocated)}
+                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {fmtCurrency(model.overall.income)} declared − {fmtCurrency(model.overall.budgeted)} budgeted
+                  </p>
+                  <p className="text-[11px] mt-1" style={{ color: model.overall.unallocated < 0 ? NEGATIVE : "inherit" }}>
+                    {model.overall.income === 0
+                      ? "No income declared for this period."
+                      : model.overall.unallocated >= 0
+                        ? "Saved if you spend exactly to budget."
+                        : "Budgets promise more than the declared income."}
+                  </p>
+                </Card>
+
+                {/* Only the buckets actually over — not netted against the ones
+                    under, because being under on one does not pay for the other. */}
+                <Card>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400">Over budget</p>
+                  <p className="text-lg font-bold mt-1"
+                    style={{ color: model.overall.overspend > 0 ? NEGATIVE : POSITIVE }}>
+                    {fmtCurrency(model.overall.overspend)}
+                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {model.views.filter((v) => v.spent > v.budgeted).length} of {model.views.length} budget
+                    {model.views.length === 1 ? "" : "s"} exceeded
+                  </p>
+                  <p className="text-[11px] mt-1">
+                    {model.overall.overspend > 0
+                      ? "Recovered by holding each to its budget."
+                      : "Nothing over yet."}
+                  </p>
+                </Card>
+
+                {/* Where the period lands if the current rate holds. */}
+                <Card>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400">
+                    {model.closed ? "Final spend" : "Projected spend"}
+                  </p>
+                  {model.overall.projected == null ? (
+                    <>
+                      <p className="text-lg font-bold mt-1 text-gray-400">—</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                        Too early in the period to project a rate.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-lg font-bold mt-1"
+                        style={{ color: model.overall.projected > model.overall.budgeted ? NEGATIVE : POSITIVE }}>
+                        {fmtCurrency(model.overall.projected)}
+                      </p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                        {model.closed ? "actual" : "at the current rate"} vs {fmtCurrency(model.overall.budgeted)} budgeted
+                      </p>
+                      <p className="text-[11px] mt-1"
+                        style={{ color: model.overall.projected > model.overall.budgeted ? NEGATIVE : POSITIVE }}>
+                        {model.overall.projected > model.overall.budgeted
+                          ? `${fmtCurrency(model.overall.projected - model.overall.budgeted)} over`
+                          : `${fmtCurrency(model.overall.budgeted - model.overall.projected)} under`}
+                      </p>
+                    </>
+                  )}
+                </Card>
+              </div>
+
+              {/* Row 2 — income. Everything money COMING IN lives here; the
+                  list below is only money going out. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
                 {model.pools.map((p) => {
                   const over = p.unallocated < 0;
                   const lines = model.incomeViews.filter(
