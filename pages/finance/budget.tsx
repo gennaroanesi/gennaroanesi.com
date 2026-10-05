@@ -201,6 +201,7 @@ export default function BudgetPage() {
     const spentTotal    = views.reduce((s, v) => s + v.spent, 0);
     const pools         = summarizePools([...views, ...incomeViews], received);
     const incomeTotal   = pools.reduce((s, p) => s + p.forecast, 0);
+    const receivedTotal = pools.reduce((s, p) => s + p.received, 0);
 
     // Only the buckets actually over, not netted against the ones under. Being
     // $400 under on Dining does not pay for being $400 over on Travel: the
@@ -228,6 +229,9 @@ export default function BudgetPage() {
         remaining: budgetedTotal - spentTotal,
         pct: budgetedTotal > 0 ? spentTotal / budgetedTotal : null,
         income: incomeTotal,
+        received: receivedTotal,
+        /** What actually happened to cash: money in minus money out. */
+        net: receivedTotal - spentTotal,
         /** Income not promised to any budget — what you keep if you spend to plan. */
         unallocated: incomeTotal - budgetedTotal,
         overspend,
@@ -477,11 +481,6 @@ export default function BudgetPage() {
           {!loading && model && (
             <>
               {/* Window */}
-              <p className="text-xs text-gray-400">
-                {model.closed
-                  ? "Period closed"
-                  : `${Math.round(model.elapsed * 100)}% elapsed · ${model.daysLeft} day${model.daysLeft === 1 ? "" : "s"} left`}
-              </p>
 
               {/* History problems — these are datastore invariants nothing else enforces. */}
               {model.issues.length > 0 && (
@@ -501,7 +500,12 @@ export default function BudgetPage() {
               )}
 
               {/* Row 1 — the period at a glance. */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+              <SectionTitle hint={model.closed
+                ? "period closed"
+                : `${Math.round(model.elapsed * 100)}% elapsed · ${model.daysLeft} day${model.daysLeft === 1 ? "" : "s"} left`}>
+                Overview
+              </SectionTitle>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Card>
                   <p className="text-[10px] uppercase tracking-widest text-gray-400">Budget consumed</p>
                   {model.overall.budgeted > 0 ? (
@@ -529,6 +533,12 @@ export default function BudgetPage() {
                           ? `${fmtCurrency(model.overall.remaining)} left across ${model.views.length} budget${model.views.length === 1 ? "" : "s"}`
                           : `${fmtCurrency(-model.overall.remaining)} over across ${model.views.length} budget${model.views.length === 1 ? "" : "s"}`}
                       </p>
+                      {!model.closed && model.overall.projected != null && (
+                        <p className="text-[11px] mt-0.5"
+                          style={{ color: model.overall.projected > model.overall.budgeted ? NEGATIVE : POSITIVE }}>
+                          {fmtCurrency(model.overall.projected)} projected at this rate
+                        </p>
+                      )}
                     </>
                   ) : (
                     <p className="text-[11px] text-gray-400 mt-2">No spending budgets in force for this period.</p>
@@ -575,41 +585,30 @@ export default function BudgetPage() {
                   </p>
                 </Card>
 
-                {/* Where the period lands if the current rate holds. */}
+                {/* Money in minus money out. The only card here about cash
+                    rather than plan, and the one that still means something
+                    once the period has closed. */}
                 <Card>
-                  <p className="text-[10px] uppercase tracking-widest text-gray-400">
-                    {model.closed ? "Final spend" : "Projected spend"}
+                  <p className="text-[10px] uppercase tracking-widest text-gray-400">Net this period</p>
+                  <p className="text-lg font-bold mt-1"
+                    style={{ color: model.overall.net >= 0 ? POSITIVE : NEGATIVE }}>
+                    {fmtCurrency(model.overall.net)}
                   </p>
-                  {model.overall.projected == null ? (
-                    <>
-                      <p className="text-lg font-bold mt-1 text-gray-400">—</p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                        Too early in the period to project a rate.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-lg font-bold mt-1"
-                        style={{ color: model.overall.projected > model.overall.budgeted ? NEGATIVE : POSITIVE }}>
-                        {fmtCurrency(model.overall.projected)}
-                      </p>
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                        {model.closed ? "actual" : "at the current rate"} vs {fmtCurrency(model.overall.budgeted)} budgeted
-                      </p>
-                      <p className="text-[11px] mt-1"
-                        style={{ color: model.overall.projected > model.overall.budgeted ? NEGATIVE : POSITIVE }}>
-                        {model.overall.projected > model.overall.budgeted
-                          ? `${fmtCurrency(model.overall.projected - model.overall.budgeted)} over`
-                          : `${fmtCurrency(model.overall.budgeted - model.overall.projected)} under`}
-                      </p>
-                    </>
-                  )}
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {fmtCurrency(model.overall.received)} received − {fmtCurrency(model.overall.spent)} spent
+                  </p>
+                  <p className="text-[11px] mt-1">
+                    {model.overall.received === 0
+                      ? "No income has landed in this period."
+                      : model.overall.net >= 0 ? "Kept." : "Spent more than arrived."}
+                  </p>
                 </Card>
               </div>
 
               {/* Row 2 — income. Everything money COMING IN lives here; the
                   list below is only money going out. */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
+              <SectionTitle hint={`${fmtCurrency(model.overall.income)} declared`}>Income</SectionTitle>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {model.pools.map((p) => {
                   const over = p.unallocated < 0;
                   const lines = model.incomeViews.filter(
@@ -661,16 +660,21 @@ export default function BudgetPage() {
                 })}
               </div>
 
-              {/* Spending buckets — money going out only. */}
+              {/* Row 3 — spending buckets, money going out only. */}
+              <SectionTitle hint={model.views.length > 0
+                ? `${fmtCurrency(model.overall.spent)} of ${fmtCurrency(model.overall.budgeted)}`
+                : undefined}>
+                Budgets
+              </SectionTitle>
               {model.views.length === 0 && model.realized.length === 0 ? (
-                <div className="mt-6">
+                <div>
                   <EmptyState
                     label="No budgets in force for this period — group a few categories into a bucket to start."
                     onAdd={openNew}
                   />
                 </div>
               ) : (
-                <div className="mt-4 space-y-3">
+                <div className="space-y-3">
                   {model.views.map((v) => (
                     <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
                       versions={model.versions.get(v.line.seriesId)?.length ?? 1}
@@ -682,10 +686,10 @@ export default function BudgetPage() {
               {/* Real spending in a period that predates the budget. Shown as
                   what happened, with no budget figure invented for it. */}
               {model.realized.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">
-                    Spent before these budgets existed
-                  </p>
+                <div>
+                  <SectionTitle hint="real spending, no budget was in force">
+                    Before these budgets existed
+                  </SectionTitle>
                   <div className="space-y-2">
                     {model.realized.map((r) => (
                       <RealizedRow key={r.series.seriesId} s={r.series} spent={r.spent}
@@ -697,9 +701,13 @@ export default function BudgetPage() {
 
               {/* Unassigned — deliberately loud: there is no default funding source. */}
               {model.unassigned.length > 0 && (
-                <Card className="mt-4">
+                <>
+                <SectionTitle hint={`${fmtCurrency(model.unassigned.reduce((a, u) => a + u.spent, 0))} unbudgeted`}>
+                  In no budget
+                </SectionTitle>
+                <Card>
                   <p className="text-sm font-semibold mb-1" style={{ color: WARNING }}>
-                    {model.unassigned.length} categor{model.unassigned.length === 1 ? "y" : "ies"} in no budget
+                    {model.unassigned.length} categor{model.unassigned.length === 1 ? "y" : "ies"} with no budget
                   </p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
                     Spending here counts against nothing. Every category needs a funding source — none is assumed.
@@ -711,11 +719,15 @@ export default function BudgetPage() {
                     ))}
                   </div>
                 </Card>
+                </>
               )}
               {/* Every budget that exists, in force or not. A period view cannot
                   show a budget staged for next year or retired last spring. */}
               {model.series.length > 0 && (
-                <div className="mt-6">
+                <div>
+                  <SectionTitle hint={`${model.series.length} in total, in force or not`}>
+                    All budgets
+                  </SectionTitle>
                   <button
                     onClick={() => setShowAll((x) => !x)}
                     className="text-xs py-3 hover:underline"
@@ -973,6 +985,16 @@ export default function BudgetPage() {
         )}
       </div>
     </FinanceLayout>
+  );
+}
+
+/** Matches the Review page's section heading exactly. */
+function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <div className="flex items-baseline justify-between mb-3 gap-2 flex-wrap mt-8">
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-purple dark:text-rose">{children}</h2>
+      {hint && <span className="text-xs text-gray-400">{hint}</span>}
+    </div>
   );
 }
 
