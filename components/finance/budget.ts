@@ -325,23 +325,45 @@ export function elapsedFraction(window: DateRange, todayIso: string): number {
  *    Note this is NARROWER than the Review's P&L exclusion: debt service and
  *    investing are excluded from consumption but are very much budgeted.
  */
+export function countsTowardBudget(tx: TransactionRecord, window: DateRange): boolean {
+  if (tx.status === "PENDING") return false;
+  if ((tx as any).spendGroupId) return false;
+  if ((tx.amount ?? 0) >= 0) return false;
+  const date = tx.date ?? "";
+  if (date < window.fromIso || date > window.toIso) return false;
+  return !isExcludedFromBudget(effectiveCategory(tx));
+}
+
 export function spendByCategory(
   txs: TransactionRecord[],
   window: DateRange,
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const tx of txs) {
-    if (tx.status === "PENDING") continue;
-    if ((tx as any).spendGroupId) continue;
-    const amt = tx.amount ?? 0;
-    if (amt >= 0) continue;
-    const date = tx.date ?? "";
-    if (date < window.fromIso || date > window.toIso) continue;
+    if (!countsTowardBudget(tx, window)) continue;
     const cat = effectiveCategory(tx);
-    if (isExcludedFromBudget(cat)) continue;
-    out.set(cat, (out.get(cat) ?? 0) + Math.abs(amt));
+    out.set(cat, (out.get(cat) ?? 0) + Math.abs(tx.amount ?? 0));
   }
   return out;
+}
+
+/**
+ * The rows behind a bucket's number, largest first.
+ *
+ * Shares countsTowardBudget with spendByCategory on purpose: a drill-down that
+ * can disagree with the total it opens is worse than no drill-down, because it
+ * teaches you to distrust both. Anything excluded from the figure is excluded
+ * here, so the list always sums to what the row says.
+ */
+export function budgetTransactions(
+  txs: TransactionRecord[],
+  window: DateRange,
+  categories: string[],
+): TransactionRecord[] {
+  const want = new Set(categories);
+  return txs
+    .filter((tx) => countsTowardBudget(tx, window) && want.has(effectiveCategory(tx)))
+    .sort((a, b) => Math.abs(b.amount ?? 0) - Math.abs(a.amount ?? 0));
 }
 
 /**

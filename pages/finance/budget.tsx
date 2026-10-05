@@ -5,9 +5,9 @@ import FinanceLayout from "@/layouts/finance";
 import { mutate, reportError, notifyError } from "@/components/common/mutate";
 import {
   client, listAll, fetchTransactions, fetchBudgets,
-  FINANCE_COLOR, fmtCurrency, fmtDate, todayIso,
+  FINANCE_COLOR, fmtCurrency, fmtDate, todayIso, amountColor,
   inputCls, labelCls, SaveButton, EmptyState,
-  type TransactionRecord, type RecurringRecord,
+  type TransactionRecord, type RecurringRecord, type AccountRecord,
 } from "@/components/finance/_shared";
 import { occurrencesInWindow } from "@/components/finance/cashflow";
 import {
@@ -15,12 +15,13 @@ import {
   resolutionDate, versionsInWindow, listBudgetSeries,
   elapsedFraction, daysBetween, committedByCategory,
   computeLineView, summarizePools, unassignedCategories,
-  actualByCategory, budgetKind,
+  actualByCategory, budgetKind, budgetTransactions,
   FUNDING_SOURCES, FUNDING_SOURCE_LABELS, DEFAULT_PERIOD,
   BUDGET_PERIODS, BUDGET_PERIOD_LABELS,
   type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
   type BudgetSeries,
 } from "@/components/finance/budget";
+import { effectiveCategory } from "@/components/finance/categories";
 import { periodRange, summarizeIncomeSources, type Period } from "@/components/finance/review";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { SlideOverPanel, PageTitle, PageLoading, Card, Badge } from "@/components/common/ui";
@@ -110,6 +111,11 @@ export default function BudgetPage() {
 
   useEffect(() => { if (authState === "authenticated") fetchData(); }, [authState, fetchData]);
 
+  const accountName = useMemo(
+    () => new Map((accounts as AccountRecord[]).map((a) => [a.id, a.name])),
+    [accounts],
+  );
+
   const availableYears = useMemo(() => {
     const ys = new Set<number>([THIS_YEAR]);
     for (const t of txs) if (t.date) ys.add(Number(t.date.slice(0, 4)));
@@ -175,9 +181,15 @@ export default function BudgetPage() {
       .map((sx) => ({
         series: sx,
         spent: bucketCategories(sx.latest).reduce((sum, c) => sum + (outflow.get(c) ?? 0), 0),
+        rows: budgetTransactions(txs, window, bucketCategories(sx.latest)),
       }))
       .filter((r) => r.spent > 0)
       .sort((a, b) => b.spent - a.spent);
+
+    const rowsByLine = new Map<string, TransactionRecord[]>();
+    for (const l of expenseLines) {
+      rowsByLine.set(l.id, budgetTransactions(txs, window, bucketCategories(l)));
+    }
 
     const budgetedTotal = views.reduce((s, v) => s + v.budgeted, 0);
     const spentTotal    = views.reduce((s, v) => s + v.spent, 0);
@@ -187,6 +199,7 @@ export default function BudgetPage() {
       asOf,
       views,
       incomeViews,
+      rowsByLine,
       realized,
       overall: {
         budgeted: budgetedTotal,
@@ -560,7 +573,8 @@ export default function BudgetPage() {
                 <div className="mt-4 space-y-3">
                   {model.views.map((v) => (
                     <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
-                      versions={model.versions.get(v.line.seriesId)?.length ?? 1} />
+                      versions={model.versions.get(v.line.seriesId)?.length ?? 1}
+                      rows={model.rowsByLine.get(v.line.id) ?? []} accountName={accountName} />
                   ))}
                 </div>
               )}
@@ -573,23 +587,9 @@ export default function BudgetPage() {
                     Spent before these budgets existed
                   </p>
                   <div className="space-y-2">
-                    {model.realized.map(({ series: sx, spent }) => (
-                      <Card key={sx.seriesId}>
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="min-w-0">
-                            <span className="text-sm font-semibold">{sx.name}</span>
-                            <span className="block text-[10px] text-gray-400 mt-0.5">
-                              {bucketCategories(sx.latest).join(", ")}
-                            </span>
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <span className="text-base font-bold" style={{ color: NEGATIVE }}>{fmtCurrency(spent)}</span>
-                            <span className="block text-[11px] text-gray-400">
-                              no budget {sx.startsOn ? `until ${fmtDate(sx.startsOn)}` : "this period"}
-                            </span>
-                          </div>
-                        </div>
-                      </Card>
+                    {model.realized.map((r) => (
+                      <RealizedRow key={r.series.seriesId} s={r.series} spent={r.spent}
+                        rows={r.rows} accountName={accountName} />
                     ))}
                   </div>
                 </div>
@@ -886,9 +886,11 @@ function nextDayIso(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function BucketRow({ v, onEdit, closed, versions }: {
+function BucketRow({ v, onEdit, closed, versions, rows, accountName }: {
   v: BudgetLineView; onEdit: (l: BudgetLine) => void; closed: boolean; versions: number;
+  rows: TransactionRecord[]; accountName: Map<string, string>;
 }) {
+  const [open, setOpen] = useState(false);
   const income = budgetKind(v.line) === "INCOME";
   const color = STATUS_COLOR[income ? "INCOME" : "EXPENSE"][v.status];
   const spentPct    = v.budgeted > 0 ? Math.min(100, (v.spent / v.budgeted) * 100) : 0;
@@ -951,7 +953,54 @@ function BucketRow({ v, onEdit, closed, versions }: {
           {!closed && v.safeDailyRemaining > 0 && ` · ${fmtCurrency(v.safeDailyRemaining)}/day`}
         </span>
       </div>
+
+      <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} />
     </Card>
+  );
+}
+
+/**
+ * The rows behind a figure. Shares budgetTransactions with the total it sits
+ * under, so the list always adds up to the number it opened from — a breakdown
+ * that can disagree with its own headline is worse than none.
+ */
+function TransactionList({ txs, accountName, open, onToggle }: {
+  txs: TransactionRecord[];
+  accountName: Map<string, string>;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (txs.length === 0) {
+    return <p className="text-[11px] text-gray-400 mt-2">No transactions in this period.</p>;
+  }
+  const total = txs.reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+  return (
+    <>
+      <button onClick={onToggle} aria-expanded={open}
+        className="text-[11px] py-3 hover:underline" style={{ color: FINANCE_COLOR }}>
+        {open ? "Hide" : "Show"} {txs.length} transaction{txs.length === 1 ? "" : "s"} {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <div className="-mx-1 border-t border-gray-100 dark:border-darkBorder max-h-96 overflow-y-auto">
+          {txs.map((t) => (
+            <div key={t.id} className="flex items-center gap-2 px-1 py-2 rounded hover:bg-gray-50 dark:hover:bg-white/5">
+              <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
+              <span className="text-xs truncate flex-1">{t.description || "—"}</span>
+              <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
+                {effectiveCategory(t)} · {accountName.get(t.accountId) ?? "—"}
+              </span>
+              <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
+                {fmtCurrency(Math.abs(t.amount ?? 0))}
+              </span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between px-1 py-2 border-t border-gray-100 dark:border-darkBorder">
+            <span className="text-[11px] text-gray-400">{txs.length} transactions</span>
+            <span className="text-xs font-semibold tabular-nums">{fmtCurrency(total)}</span>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -994,5 +1043,32 @@ function SeriesRow({ s, onEdit }: { s: BudgetSeries; onEdit: (l: BudgetLine) => 
         <button onClick={() => onEdit(s.latest)} className="px-2 py-2 hover:underline" style={{ color: FINANCE_COLOR }}>Edit</button>
       </td>
     </tr>
+  );
+}
+
+/** A bucket's real spending in a period that predates its budget. Same
+ *  drill-down as a budgeted row, so every figure on the page opens. */
+function RealizedRow({ s, spent, rows, accountName }: {
+  s: BudgetSeries; spent: number; rows: TransactionRecord[]; accountName: Map<string, string>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="min-w-0">
+          <span className="text-sm font-semibold">{s.name}</span>
+          <span className="block text-[10px] text-gray-400 mt-0.5">
+            {bucketCategories(s.latest).join(", ")}
+          </span>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <span className="text-base font-bold" style={{ color: NEGATIVE }}>{fmtCurrency(spent)}</span>
+          <span className="block text-[11px] text-gray-400">
+            no budget {s.startsOn ? `until ${fmtDate(s.startsOn)}` : "this period"}
+          </span>
+        </div>
+      </div>
+      <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} />
+    </Card>
   );
 }

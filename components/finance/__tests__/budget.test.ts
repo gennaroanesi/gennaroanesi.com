@@ -5,7 +5,7 @@ import {
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
   budgetedForRange, monthsSpanned, monthsInRange, isMonthAligned, actualByCategory, budgetKind,
-  resolutionDate, versionsInWindow, listBudgetSeries, isExcludedFromBudget,
+  resolutionDate, versionsInWindow, listBudgetSeries, isExcludedFromBudget, budgetTransactions,
   type BudgetLine,
 } from "@/components/finance/budget";
 import { BUDGET_SELECTION_SET } from "@/components/finance/data";
@@ -806,5 +806,48 @@ describe("the raw-GraphQL selection set covers every field budget.ts reads", () 
     const requested = new Set(BUDGET_SELECTION_SET.split(/\s+/).filter(Boolean));
     const missing = READ_BY_ENGINE.filter((f) => !requested.has(f));
     expect(missing).toEqual([]);
+  });
+});
+
+describe("budgetTransactions — the rows behind a bucket's number", () => {
+  const w = { fromIso: "2026-09-01", toIso: "2026-09-30", label: "2026-09" };
+  const tx = (over: any) => ({
+    id: "t", accountId: "a", amount: -100, date: "2026-09-10", status: "POSTED",
+    type: "EXPENSE", category: "Dining", description: "x", ...over,
+  });
+
+  it("always sums to exactly what spendByCategory reports", () => {
+    // The invariant that makes a drill-down trustworthy. Every exclusion below
+    // is one that would otherwise make the list disagree with its own total.
+    const rows = [
+      tx({ id: "1", amount: -40 }),
+      tx({ id: "2", amount: -60, category: "Groceries" }),
+      tx({ id: "3", amount: -500, status: "PENDING" }),
+      tx({ id: "4", amount: -300, spendGroupId: "trip" }),
+      tx({ id: "5", amount: 25 }),                                  // a refund
+      tx({ id: "6", amount: -900, category: "Transfers" }),
+      tx({ id: "7", amount: -70, date: "2026-10-02" }),             // out of window
+    ] as any;
+    const cats = ["Dining", "Groceries"];
+    const listed = budgetTransactions(rows, w, cats)
+      .reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+    const totals = spendByCategory(rows, w);
+    const headline = cats.reduce((s, c) => s + (totals.get(c) ?? 0), 0);
+    expect(listed).toBe(headline);
+    expect(listed).toBe(100);
+  });
+
+  it("returns only the bucket's own categories, largest first", () => {
+    const rows = [
+      tx({ id: "1", amount: -40, category: "Dining" }),
+      tx({ id: "2", amount: -250, category: "Dining" }),
+      tx({ id: "3", amount: -999, category: "Flying" }),
+    ] as any;
+    const got = budgetTransactions(rows, w, ["Dining"]);
+    expect(got.map((t) => t.id)).toEqual(["2", "1"]);
+  });
+
+  it("is empty for a bucket with no categories", () => {
+    expect(budgetTransactions([tx({ id: "1" })] as any, w, [])).toEqual([]);
   });
 });
