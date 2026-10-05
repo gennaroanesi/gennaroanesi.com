@@ -66,6 +66,35 @@ const STATUS_COLOR = {
  * shortfall. Equity is lumpy and discretionary, so the same overspend there is
  * a smaller problem. The colours say which.
  */
+/**
+ * The per-funding-source breakdown under a metric card. One shape for all of
+ * them, because the whole point is comparing the same three pools across
+ * cards; a different visual per card would make that harder, not clearer.
+ */
+function PoolBreakdown({ rows }: {
+  rows: Array<{ source: FundingSource; detail: string; pct: number; color: string }>;
+}) {
+  if (rows.length < 2) return null;
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-100 dark:border-darkBorder space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.source}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">
+              {FUNDING_SOURCE_LABELS[r.source]}
+            </span>
+            <span className="text-[11px] tabular-nums" style={{ color: r.color }}>{r.detail}</span>
+          </div>
+          <div className="h-1 rounded-full bg-gray-100 dark:bg-white/10 mt-0.5 overflow-hidden">
+            <div className="h-full rounded-full"
+              style={{ width: `${Math.max(0, Math.min(100, r.pct * 100))}%`, backgroundColor: r.color }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function overspendColor(source: string): string {
   return source === "SALARY" ? NEGATIVE : WARNING;
 }
@@ -556,31 +585,15 @@ export default function BudgetPage() {
                       {/* The aggregate hides the question that matters: which
                           pool is over. Salary-funded overspend is a shortfall;
                           equity-funded is elastic. */}
-                      {model.pools.filter((p) => p.allocated > 0).length > 1 && (
-                        <div className="mt-2 pt-2 border-t border-gray-100 dark:border-darkBorder space-y-1.5">
-                          {model.pools.filter((p) => p.allocated > 0).map((p) => {
-                            const over = p.spent > p.allocated;
-                            const c = over ? overspendColor(p.source) : POSITIVE;
-                            return (
-                              <div key={p.source}>
-                                <div className="flex items-baseline justify-between gap-2">
-                                  <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                    {FUNDING_SOURCE_LABELS[p.source]}
-                                  </span>
-                                  <span className="text-[11px] tabular-nums" style={{ color: c }}>
-                                    {fmtCurrency(p.spent)} / {fmtCurrency(p.allocated)}
-                                    {over && ` · ${fmtCurrency(p.spent - p.allocated)} over`}
-                                  </span>
-                                </div>
-                                <div className="h-1 rounded-full bg-gray-100 dark:bg-white/10 mt-0.5 overflow-hidden">
-                                  <div className="h-full rounded-full"
-                                    style={{ width: `${Math.min(100, (p.spent / Math.max(1, p.allocated)) * 100)}%`, backgroundColor: c }} />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <PoolBreakdown rows={model.pools.filter((p) => p.allocated > 0).map((p) => {
+                        const over = p.spent > p.allocated;
+                        return {
+                          source: p.source,
+                          detail: `${fmtCurrency(p.spent)} / ${fmtCurrency(p.allocated)}`,
+                          pct: p.spent / Math.max(1, p.allocated),
+                          color: over ? overspendColor(p.source) : POSITIVE,
+                        };
+                      })} />
                     </>
                   ) : (
                     <p className="text-[11px] text-gray-400 mt-2">No spending budgets in force for this period.</p>
@@ -606,6 +619,20 @@ export default function BudgetPage() {
                         ? "Saved if you spend exactly to budget."
                         : "Budgets promise more than the declared income."}
                   </p>
+                  {/* Bar shows how much of each pool is already promised. */}
+                  <PoolBreakdown rows={model.pools
+                    .filter((p) => p.forecast > 0 || p.allocated > 0)
+                    .map((p) => {
+                      const free = p.forecast - p.allocated;
+                      return {
+                        source: p.source,
+                        detail: p.forecast === 0
+                          ? `${fmtCurrency(p.allocated)} with no income`
+                          : `${fmtCurrency(free)} free of ${fmtCurrency(p.forecast)}`,
+                        pct: p.forecast > 0 ? p.allocated / p.forecast : 1,
+                        color: free < 0 || p.forecast === 0 ? overspendColor(p.source) : POSITIVE,
+                      };
+                    })} />
                 </Card>
 
                 {/* Only the buckets actually over — not netted against the ones
@@ -621,14 +648,23 @@ export default function BudgetPage() {
                     {model.views.length === 1 ? "" : "s"} exceeded
                   </p>
                   {model.overall.overspend > 0 ? (
-                    <div className="mt-1 space-y-0.5">
-                      {model.pools.filter((p) => p.overspend > 0).map((p) => (
-                        <p key={p.source} className="text-[11px]" style={{ color: overspendColor(p.source) }}>
-                          {fmtCurrency(p.overspend)} on {FUNDING_SOURCE_LABELS[p.source]}-funded
-                          {p.source === "SALARY" ? " — committed income" : ""}
+                    <>
+                      {model.pools.some((p) => p.source === "SALARY" && p.overspend > 0) && (
+                        <p className="text-[11px] mt-1" style={{ color: NEGATIVE }}>
+                          {fmtCurrency(model.pools.find((p) => p.source === "SALARY")!.overspend)} of it
+                          against committed income.
                         </p>
-                      ))}
-                    </div>
+                      )}
+                      {/* Bar shows where the overspend is concentrated. */}
+                      <PoolBreakdown rows={model.pools
+                        .filter((p) => p.overspend > 0)
+                        .map((p) => ({
+                          source: p.source,
+                          detail: fmtCurrency(p.overspend),
+                          pct: p.overspend / Math.max(1, model.overall.overspend),
+                          color: overspendColor(p.source),
+                        }))} />
+                    </>
                   ) : (
                     <p className="text-[11px] mt-1">Nothing over yet.</p>
                   )}
