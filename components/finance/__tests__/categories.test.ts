@@ -340,3 +340,22 @@ describe("Subscriptions broken up by what the subscription is for", () => {
       .toBe("Subscriptions");
   });
 });
+
+describe("merchants that were split across categories", () => {
+  const cases: Array<[string, string]> = [
+    // A shooting range, filed across SHTF, Shopping and Dining.
+    ["RANGE USA BLUE ASH 7BLUE ASH            OH", "SHTF"],
+    ["RANGE USA ROUND ROCKROUND ROCK          TX", "SHTF"],
+    // Coffee, filed across Groceries, Dining and Shopping.
+    ["GREEN APE LLC*WP*GRELAGO VISTA TX",          "Groceries"],
+    // A golf apparel brand, read as a restaurant.
+    ["SUNDAY RED CARLSBAD CA",                     "Apparel"],
+  ];
+  it.each(cases)("%s → %s", (description, expected) => {
+    expect(inferCategory({ description, type: "EXPENSE", amount: -1 })).toBe(expected);
+  });
+
+  it("still reads an actual shooting-range charge as SHTF", () => {
+    expect(inferCategory({ description: "AUSTIN GUN RANGE", type: "EXPENSE", amount: -1 })).toBe("SHTF");
+  });
+});

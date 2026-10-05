@@ -34,7 +34,7 @@
 
     { "pattern": "/trupanion|dogtopia|banfield|barkin|doginhaus|petco|petsmart|chewy|purely provisions|rover\\.com|nationwide pet|veterin|animal hospital|animal clinic/i", "category": "Dolce" },
     { "pattern": "/cirrus owner|mooneyspace|foreflight|flightaware|\\baopa\\b|avionics|garmin pilot|sporty|aviation|aircraft|flight school|100ll|avgas|jeppesen|\\bfbo\\b|million air|signature flight|atlantic aviation|above and beyond|us flight club/i", "category": "Flying" },
-    { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range|\\baxil\\b|security equipment|\\bsabre\\b|bfg com/i", "category": "SHTF" },
+    { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range|range usa|\\baxil\\b|security equipment|\\bsabre\\b|bfg com/i", "category": "SHTF" },
     { "pattern": "/reverb\\.com|reverb com|sweetwater|guitar center|\\bfender\\b|gibson guitar|thomann/i", "category": "Guitar" },
     { "pattern": "/richemont|cartier|van cleef|\\bbezel\\b|dufrane|\\bomega\\b|\\brolex\\b|tudor watch|watches|jeweler|jewelry|bucherer|hodinkee|watchbox|crown & caliber/i", "category": "Watches/Jewelry" },
     { "pattern": "/brian harris bmw|carmax|\\bbmw\\b|autozone|o'reilly|discount tire|jiffy lube|car wash|shipyourcarnow|ship your car|\\bdmv\\b|toll tag|valvoline|tesla supercharg/i", "category": "Car" },
@@ -44,7 +44,7 @@
     { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|spectrum|starlink|internet|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy/i", "category": "Utilities" },
     { "pattern": "/mortgage|rent payment|\\brent\\b(?!-a-car)|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
 
-    { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
+    { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|green ape|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
     { "pattern": "/doordash|uber ?eats|grubhub|postmates|seamless|caviar|deliveroo|gopuff/i", "category": "Food Delivery" },
     { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro|porte noire|tfk-/i", "category": "Dining" },
 
@@ -56,7 +56,7 @@
     { "pattern": "/carpet warehouse|\\bcarpet\\b|home depot|lowe's|lowes|\\bikea\\b|container store|wayfair|ferguson|sherwin|floor & decor|real green|lawn care|\\bhvac\\b|plumber|electrician|wine enthusiast|wine fridge|cloudfree|olibra|bond home|laguiole/i", "category": "Home" },
     { "pattern": "/pypl payin4|payin4|pay in 4|paypal \\*pypl/i", "category": "Shopping" },
     { "pattern": "/celestron|precision camera|best buy|bestbuy|mac mini|apple online store|apple store|\\bb&h\\b|b and h photo|micro center|microcenter|newegg|logitech|\\bgopro\\b|\\bdji\\b|framework computer|sonos|\\bnvidia\\b/i", "category": "Electronics" },
-    { "pattern": "/\\bsmcp\\b|sandro|maje|luca faloni|mack weldon|hugo boss|falkeusa|\\bfalke\\b|\\bnike\\b|uniqlo|lululemon|\\bzara\\b|nordstrom|bonobos|suitsupply|ralph lauren|brooks brothers|mikonos leather|leather sh|dover saddlery/i", "category": "Apparel" },
+    { "pattern": "/\\bsmcp\\b|sandro|maje|luca faloni|mack weldon|hugo boss|falkeusa|\\bfalke\\b|\\bnike\\b|uniqlo|lululemon|\\bzara\\b|nordstrom|bonobos|suitsupply|sunday red|ralph lauren|brooks brothers|mikonos leather|leather sh|dover saddlery/i", "category": "Apparel" },
     { "pattern": "/amazon|amzn/i", "category": "Amazon" },
     { "pattern": "/\\bcarv\\b|snowboard|\\bskis\\b|ski rental|ski patrol|epic pass|ikon pass|vail resort|breckenridge|park city mountain/i", "category": "Ski" },
     { "pattern": "/red tool|harbor freight|\\bdewalt\\b|milwaukee tool|home hardware|ace hardware|fastenal|grainger/i", "category": "Tools" },
