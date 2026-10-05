@@ -410,3 +410,30 @@ describe("Gas/Transport split by what the money bought", () => {
     }
   });
 });
+
+describe("movement that only looks structural", () => {
+  it("reads a wire FEE as a fee, not as the wire", () => {
+    // "domestic wire" matched the fee line and dropped $25 out of the P&L.
+    expect(inferCategory({ description: "ONLINE DOMESTIC WIRE FEE", type: "EXPENSE", amount: -25 }))
+      .toBe("Fees");
+    expect(inferCategory({ description: "WIRE TRANSFER FEE", type: "EXPENSE", amount: -30 }))
+      .toBe("Fees");
+  });
+
+  it("still reads an actual wire as a transfer", () => {
+    expect(inferCategory({ description: "ONLINE DOMESTIC WIRE TO ESCROW", type: "EXPENSE", amount: -50000 }))
+      .toBe("Transfers");
+  });
+
+  it("reads Purely Provisions as a restaurant, not pet supplies", () => {
+    expect(inferCategory({ description: "PURELY PROVISIONS 73ROUND ROCK TX", type: "EXPENSE", amount: -1 }))
+      .toBe("Dining");
+  });
+
+  it("reads a transfer to another of your own accounts as a transfer", () => {
+    expect(inferCategory({
+      description: "Online Transfer XXXXXXX2492 to Investor Checking Schwab ########1079",
+      type: "EXPENSE", amount: -3000,
+    })).toBe("Transfers");
+  });
+});

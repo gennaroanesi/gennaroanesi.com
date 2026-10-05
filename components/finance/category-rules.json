@@ -6,7 +6,7 @@
     { "pattern": "/interest paid|dividend|div pmt/i", "category": "Income" },
 
     { "pattern": "/starting balance/i", "category": "Transfers" },
-    { "pattern": "/zelle|venmo|cash app|paypal transfer|paypal\\s+inst xfer|transfer to|transfer from|online transfer|realtime transfer|\\bxfer\\b|wire transfer|domestic wire|ach transfer|to savings|to sav |to checking|to chk |to brokerage|to sfcu|internal transfer|wise us inc|wise 888|transferwise/i", "category": "Transfers" },
+    { "pattern": "/zelle|venmo|cash app|paypal transfer|paypal\\s+inst xfer|transfer to|transfer from|online transfer|realtime transfer|\\bxfer\\b|wire transfer(?! fee)|domestic wire(?! fee)|ach transfer|to savings|to sav |to checking|to chk |to brokerage|to sfcu|internal transfer|wise us inc|wise 888|transferwise/i", "category": "Transfers" },
     { "pattern": "/to hmg |hmg 8553|mortgage pmt|mortgage payment/i", "category": "Mortgage Payment" },
     { "pattern": "/bmwfs|bmw bank|auto loan|car loan|car payment/i", "category": "Car Payment" },
     { "pattern": "/loan pmt|loan payment|student loan|sofi/i", "category": "Loan Payment" },
@@ -18,7 +18,7 @@
 
     { "pattern": "/us treas tax|treas tax pymt|irs |tax pmt|franchise tax|property tax|dept of revenue|treasury|turbotax|h&r block|tax prep/i", "category": "Taxes" },
     { "pattern": "/atm withdrawal|cash withdrawal|\\batm\\b|withdrawal \\d/i", "category": "Cash/ATM" },
-    { "pattern": "/overdraft fee|overdraft charge|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|renewal member|foreign transaction fee|return(?:ed)? payment fee|return(?:ed)? check fee|nsf fee/i", "category": "Fees" },
+    { "pattern": "/overdraft fee|overdraft charge|service fee|monthly fee|atm fee|late fee|finance charge|interest charge|pay over time|annual fee|membership fee|renewal membership|renewal member|foreign transaction fee|return(?:ed)? payment fee|return(?:ed)? check fee|nsf fee|wire fee|wire transfer fee/i", "category": "Fees" },
     { "pattern": "/return(?:ed)? check|return(?:ed)? payment|payment return(?:ed)?|check return(?:ed)?|\\bnsf\\b|insufficient funds|payment reversal|reversal of payment|declined payment/i", "category": "Credit Card Payment" },
 
     { "pattern": "/mortgage insurance|\\bpmi\\b/i", "category": "Mortgage Insurance" },
@@ -32,7 +32,7 @@
     { "pattern": "/at&t|\\batt payment\\b|at&t mobility|t-mobile|tmobile|verizon|\\btello\\b|011 global|boingo|mint mobile|google fi/i", "category": "Mobile" },
     { "pattern": "/amazon prime|walmart\\+ ?member|wmt plus|prime global|costco member|sam's club member|\\baaa\\b/i", "category": "Memberships" },
 
-    { "pattern": "/trupanion|dogtopia|banfield|barkin|doginhaus|petco|petsmart|chewy|purely provisions|rover\\.com|nationwide pet|veterin|animal hospital|animal clinic/i", "category": "Dolce" },
+    { "pattern": "/trupanion|dogtopia|banfield|barkin|doginhaus|petco|petsmart|chewy|rover\\.com|nationwide pet|veterin|animal hospital|animal clinic/i", "category": "Dolce" },
     { "pattern": "/cirrus owner|mooneyspace|foreflight|flightaware|\\baopa\\b|avionics|garmin pilot|sporty|aviation|aircraft|flight school|100ll|avgas|jeppesen|\\bfbo\\b|million air|signature flight|atlantic aviation|above and beyond|us flight club/i", "category": "Flying" },
     { "pattern": "/beretta|brownells|staccato|palmetto state|gunbroker|ammunition|\\bammo\\b|sig sauer|smith & wesson|magpul|texanbox|primary arms|optics planet|midwayusa|rifle club|gun club|shooting range|gun range|range usa|\\baxil\\b|security equipment|\\bsabre\\b|bfg com/i", "category": "SHTF" },
     { "pattern": "/reverb\\.com|reverb com|sweetwater|guitar center|\\bfender\\b|gibson guitar|thomann/i", "category": "Guitar" },
@@ -46,7 +46,7 @@
 
     { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco(?! ?gas)|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|green ape|twin liquors|\\bliquors\\b/i", "category": "Groceries" },
     { "pattern": "/doordash|uber ?eats|grubhub|postmates|seamless|caviar|deliveroo|gopuff/i", "category": "Food Delivery" },
-    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro|porte noire|tfk-/i", "category": "Dining" },
+    { "pattern": "/restaurant|cafe|coffee|starbucks|dunkin|mcdonald|chipotle|pizza|sushi|taco|grill|kitchen|bar &|brewing|diner|bakery|tst\\*|north italia|whiskey cake|snooze|terry black|smith & wollensky|rosewood|pain quotidien|benugo|pitch 25|frost gelato|torchy|hopdoddy|salt traders|gelato|steakhouse|bistro|porte noire|purely provisions|tfk-/i", "category": "Dining" },
 
     { "pattern": "/shell|chevron|exxon|\\bmobil\\b|\\bbp \\b|valero|texaco|gas station|\\bfuel\\b|sunoco|circle k|buc-ee|quiktrip|outside/quik|inside/quik|\\bqt \\d|\\b76 \\b|racetrac|costco gas|united gas|chargepoint|\\bev charg/i", "category": "Fuel" },
     { "pattern": "/\\bntta\\b|tollway|\\btoll\\b|toll tag|e-zpass|ezpass|sunpass|fastrak/i", "category": "Tolls" },
