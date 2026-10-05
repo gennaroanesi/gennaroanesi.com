@@ -5,10 +5,11 @@ import {
   previousDay, monthStart, monthEnd, daysBetween, DEFAULT_PERIOD,
   seedFromHistory, computeLineView, summarizePools, unassignedCategories,
   budgetedForRange, monthsSpanned, monthsInRange, isMonthAligned, actualByCategory, budgetKind,
-  resolutionDate, versionsInWindow, listBudgetSeries,
+  resolutionDate, versionsInWindow, listBudgetSeries, isExcludedFromBudget,
   type BudgetLine,
 } from "@/components/finance/budget";
 import { BUDGET_SELECTION_SET } from "@/components/finance/data";
+import { isExcludedFromPnl } from "@/components/finance/categories";
 
 const line = (over: Partial<BudgetLine> & { id: string }): BudgetLine => ({
   seriesId: over.seriesId ?? `s-${over.id}`, name: "Dining", categories: ["Dining"],
@@ -487,17 +488,33 @@ describe("spendByCategory — balance-sheet movement is not spend", () => {
     type: "EXPENSE", category: "Dining", description: "x", ...over,
   });
 
-  it("ignores transfers, card payments, loan payments and investments", () => {
-    // Counting a card payment AND the charge it settles double-counts the purchase.
+  it("ignores only what would double-count or isn't real movement", () => {
     const got = spendByCategory([
       tx({ id: "1", category: "Transfers",           amount: -13977 }),
       tx({ id: "2", category: "Credit Card Payment", amount: -8139 }),
-      tx({ id: "3", category: "Loan Payment",        amount: -5619 }),
-      tx({ id: "4", category: "Investments",         amount: -3000 }),
-      tx({ id: "5", category: "Dining",              amount: -60 }),
+      tx({ id: "3", category: "Loan principal",      amount: -5619 }),
+      tx({ id: "4", category: "Dining",              amount: -60 }),
     ] as any, w);
     expect([...got.keys()]).toEqual(["Dining"]);
-    expect(got.get("Dining")).toBe(60);
+  });
+
+  it("DOES count a mortgage and other debt service — that is the point of a budget", () => {
+    // These are excluded from the Review's P&L because they are not
+    // consumption. They are still the most budgeted numbers in a household, and
+    // reusing the P&L set made a mortgage bucket read $0 forever.
+    const got = spendByCategory([
+      tx({ id: "1", category: "Loan Payment", amount: -3619.40 }),
+      tx({ id: "2", category: "Investments",  amount: -2000 }),
+    ] as any, w);
+    expect(got.get("Loan Payment")).toBe(3619.4);
+    expect(got.get("Investments")).toBe(2000);
+  });
+
+  it("differs deliberately from the Review's P&L exclusion", () => {
+    expect(isExcludedFromBudget("Loan Payment")).toBe(false);
+    expect(isExcludedFromPnl("Loan Payment")).toBe(true);
+    expect(isExcludedFromBudget("Transfers")).toBe(true);
+    expect(isExcludedFromPnl("Transfers")).toBe(true);
   });
 
   it("seedFromHistory applies the same exclusion by default", () => {

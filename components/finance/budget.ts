@@ -15,10 +15,37 @@
  */
 
 import type { TransactionRecord, RecurringRecord } from "./data";
-import { effectiveCategory, isExcludedFromPnl } from "./categories";
+import { effectiveCategory } from "./categories";
 import type { DateRange } from "./review";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Categories a budget must never count — a DIFFERENT set from review.ts
+ * EXCLUDED_FROM_PNL, and deliberately narrower.
+ *
+ * The Review excludes debt service and investing because neither is
+ * consumption: paying down a mortgage moves cash to equity. A BUDGET is not
+ * about consumption, it is about money leaving on a schedule you plan for — and
+ * a mortgage is the most budgeted number in most households. Reusing the P&L
+ * set made it literally impossible to budget: the payments are categorised
+ * Loan Payment, so the bucket read $0 spent no matter what landed.
+ *
+ * What stays excluded is only what would double-count or isn't real movement:
+ *  - Transfers: money between your own accounts.
+ *  - Credit Card Payment: the charge it settles was already counted.
+ *  - Loan principal: the balance-sheet side of a loan payment, recorded on the
+ *    loan account; the cash side is the Loan Payment row on the funding account.
+ */
+export const EXCLUDED_FROM_BUDGET = new Set<string>([
+  "Transfers",
+  "Credit Card Payment",
+  "Loan principal",
+]);
+
+export function isExcludedFromBudget(category: string): boolean {
+  return EXCLUDED_FROM_BUDGET.has(category);
+}
 
 export const FUNDING_SOURCES = ["SALARY", "BONUS", "RSU", "OTHER"] as const;
 export type FundingSource = (typeof FUNDING_SOURCES)[number];
@@ -294,10 +321,9 @@ export function elapsedFraction(window: DateRange, todayIso: string): number {
  *  - inflows and non-POSTED rows — a budget measures money actually gone;
  *  - group-tagged rows, which belong to their trip/project budget. Without this
  *    one trip eats Dining for the quarter and every other line reads as fine;
- *  - balance-sheet movement (Transfers, Credit Card Payment, Loan Payment,
- *    Investments). Paying a card is not spending — the charge it settles was
- *    already counted — so counting both double-counts every purchase. The same
- *    exclusion review.ts spendOf applies.
+ *  - movement that would double-count or isn't real (see EXCLUDED_FROM_BUDGET).
+ *    Note this is NARROWER than the Review's P&L exclusion: debt service and
+ *    investing are excluded from consumption but are very much budgeted.
  */
 export function spendByCategory(
   txs: TransactionRecord[],
@@ -312,7 +338,7 @@ export function spendByCategory(
     const date = tx.date ?? "";
     if (date < window.fromIso || date > window.toIso) continue;
     const cat = effectiveCategory(tx);
-    if (isExcludedFromPnl(cat)) continue;
+    if (isExcludedFromBudget(cat)) continue;
     out.set(cat, (out.get(cat) ?? 0) + Math.abs(amt));
   }
   return out;
@@ -389,7 +415,7 @@ export function seedFromHistory(
     const m = (tx.date ?? "").slice(0, 7);
     if (!months.includes(m)) continue;
     const cat = effectiveCategory(tx);
-    if (isExcludedFromPnl(cat) || excludeCategories.has(cat)) continue;
+    if (isExcludedFromBudget(cat) || excludeCategories.has(cat)) continue;
     if (!byCat.has(cat)) byCat.set(cat, new Map());
     const mm = byCat.get(cat)!;
     mm.set(m, (mm.get(m) ?? 0) + Math.abs(amt));
@@ -623,7 +649,7 @@ export function actualByCategory(
     const date = tx.date ?? "";
     if (date < range.fromIso || date > range.toIso) continue;
     const cat = effectiveCategory(tx);
-    if (isExcludedFromPnl(cat)) continue;   // a card payment landing is not income
+    if (isExcludedFromBudget(cat)) continue;   // a card payment landing is not income
     out.set(cat, (out.get(cat) ?? 0) + amt);
   }
   return out;
