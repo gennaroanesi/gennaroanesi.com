@@ -41,7 +41,7 @@
     { "pattern": "/sports medicine|sportsmedi|physical therapy|\\bchiro|central park surgery|dermatolog|pharmacy|cvs|walgreens|rite aid|hospital|clinic|dental|dentist|urgent care|labcorp|quest diag/i", "category": "Medical" },
     { "pattern": "/orangetheory|otf |speediance|planet fitness|lifetime fitness|life time|equinox|peloton|\\bgym\\b|crossfit|\\byoga\\b|pilates|\\bhims\\b|hims inc|hydrow|active ?n ?fit|active & fit|forest family/i", "category": "Health" },
 
-    { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|spectrum|starlink|internet|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy/i", "category": "Utilities" },
+    { "pattern": "/electric|water util|gas util|utility|comcast|xfinity|spectrum|starlink|internet|coned|pg&e|duke energy|sewer|trash|city of round ro|austin energy|reliant energy|atmos energy|city of georgetown/i", "category": "Utilities" },
     { "pattern": "/mortgage|rent payment|\\brent\\b(?!-a-car)|apartment|leasing|property mgmt|hoa /i", "category": "Rent/Mortgage" },
 
     { "pattern": "/whole foods|wholefds|central market|trader joe|safeway|kroger|aldi|wegmans|publix|\\bheb\\b|h-e-b|costco(?! ?gas)|sam's club|grocery|supermarket|sprouts|food lion|meijer|brazilmkt|brazil mkt|green ape|twin liquors|\\bliquors\\b/i", "category": "Groceries" },

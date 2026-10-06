@@ -326,6 +326,19 @@ describe("Subscriptions broken up by what the subscription is for", () => {
     ["ROVER.COM* PET SVCS.SEATTLE WA",             "Dolce"],
     ["GDP=FOREST FAMILY DEROUND ROCK TX",          "Health"],
     ["TFK-AUSTIN DOMAIN TXAUSTIN TX",              "Dining"],
+
+    // Energy/gas providers by name. No rule covered these, so the LLM fallback
+    // guessed per descriptor variant and split the same bills across Utilities
+    // and Home — the masked SimpleFIN form landed in one, the raw form in the
+    // other. "UTIL PYMT" in the Atmos descriptor matches none of the generic
+    // keywords (`gas util`, `utility`), hence the explicit names.
+    ["Reliant Energy 0121D PPD ID: 8760655567",                        "Utilities"],
+    ["Reliant Energy 0121D PPD ID: XXXXXX5567",                        "Utilities"],
+    ["Reliant Energy   0121D      000019434970    TEL ID: 8760655567", "Utilities"],
+    ["ATMOS ENERGY RCR UTIL PYMT  003058075829    WEB ID: 9000000091", "Utilities"],
+    ["ATMOS ENERGY SGL UTIL PYMT  003058075829    WEB ID: 9000000090", "Utilities"],
+    ["ORIG CO NAME:ATMOS ENERGY RCR CO ENTRY DESCR:UTIL PYMT SEC:WEB", "Utilities"],
+    ["CITY OF GEORGETOWN",                                             "Utilities"],
   ];
   it.each(cases)("%s → %s", (description, expected) => {
     expect(inferCategory({ description, type: "EXPENSE", amount: -1 })).toBe(expected);
@@ -358,6 +371,23 @@ describe("merchants that were split across categories", () => {
 
   it("still reads an actual shooting-range charge as SHTF", () => {
     expect(inferCategory({ description: "AUSTIN GUN RANGE", type: "EXPENSE", amount: -1 })).toBe("SHTF");
+  });
+
+  // The energy providers are matched by name on purpose. A generic `energy` or
+  // `nrg` keyword would have been shorter and would have swept up all three of
+  // these, each of which is correctly somewhere else.
+  it("does not let the energy-provider names claim unrelated rows", () => {
+    // NRG Stadium concessions. No rule covers it either way (it sits in Dining
+    // in prod from the LLM fallback) — what matters here is that the Utilities
+    // rule doesn't claim it, which a generic `nrg` keyword would have.
+    expect(inferCategory({ description: "ARMK NRG STADIUM CONC", type: "EXPENSE", amount: -1 }))
+      .not.toBe("Utilities");
+    // Holdings, not power bills. Structurally safe because BUY/SELL short-circuit
+    // ahead of the rule table — asserted so a future reorder can't break it.
+    expect(inferCategory({ description: "STATE STREET ENERGY SELECT SECTOR SPDR ETF", type: "BUY", amount: -1 }))
+      .toBe("Investments");
+    expect(inferCategory({ description: "VISTRA CORP", type: "BUY", amount: -1 }))
+      .toBe("Investments");                 // a utility *stock*
   });
 });
 

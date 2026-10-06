@@ -12,10 +12,13 @@
  * is for someone to say which rows they actually set by hand — either by
  * re-saving the row in the UI, or by naming it here.
  *
- * Matching is by description substring (case-insensitive), because a row's id
- * is not something a person has to hand. Every match is printed before any
- * write, and --dry is the default-safe way to see the blast radius first:
- * a too-broad pattern pinning the wrong rows is the failure mode to avoid.
+ * Matching is by description substring (case-insensitive, whitespace-collapsed),
+ * because a row's id is not something a person has to hand. Whitespace is
+ * normalized on BOTH sides: bank descriptors pad fields out with runs of spaces
+ * ("VENMO PAYMENT      1051308071231  WEB ID: …"), so a pattern copied from a
+ * UI that collapses them silently matches nothing. Every match is printed
+ * before any write, and --dry shows the blast radius first: a too-broad pattern
+ * pinning the wrong rows is the failure mode to avoid.
  *
  * Auth: Cognito JWT (admin writes) — COGNITO_USER / COGNITO_PASSWORD.
  *
@@ -70,6 +73,9 @@ const UPDATE = `mutation($in: UpdateFinanceTransactionInput!){
 
 const money = (n) => `${n < 0 ? "-" : ""}$${Math.abs(n ?? 0).toFixed(2)}`;
 
+/** Lowercase with runs of whitespace collapsed to one space. */
+const norm = (s) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
 async function main() {
   console.log(`env: ${cfg.name ?? (process.argv.find((a) => a.startsWith("--env=")) ?? "--env=prod").slice(6)}`);
 
@@ -102,8 +108,8 @@ async function main() {
   const planned = [];
   const mismatched = [];
   for (const t of targets) {
-    const needle = t.match.toLowerCase();
-    const hits = items.filter((x) => (x.description ?? "").toLowerCase().includes(needle));
+    const needle = norm(t.match);
+    const hits = items.filter((x) => norm(x.description).includes(needle));
     if (hits.length === 0) {
       console.log(`!  no match for "${t.match}"`);
       continue;
@@ -111,7 +117,7 @@ async function main() {
     console.log(`"${t.match}" → ${hits.length} row(s)`);
     for (const h of hits) {
       const cur = (h.category ?? "").trim();
-      const line = `   ${h.date}  ${money(h.amount).padStart(11)}  [${cur || "(none)"}]  ${(h.description ?? "").slice(0, 58)}`;
+      const line = `   ${h.date}  ${money(h.amount).padStart(11)}  [${cur || "(none)"}]  ${(h.description ?? "").replace(/\s+/g, " ").slice(0, 58)}`;
       if (t.category && cur !== t.category) {
         mismatched.push({ row: h, expected: t.category });
         console.log(`${line}   ✗ expected [${t.category}] — skipped`);
