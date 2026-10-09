@@ -260,6 +260,8 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Per-checking-account projection over the window.
+  // accountId → closing balance per date, populated by the loop below.
+  const timelineById = new Map<string, Array<{ date: string; balance: number }>>();
   const projections = checking.map((acc) => {
     // An occurrence affects this account either as its source (apply amount) or,
     // for a transfer, as its destination (apply the opposite amount = money in).
@@ -284,21 +286,52 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     let minBalance = running;
     let minDate = today;
     const dips: Array<{ date: string; balance: number; description: string }> = [];
+    // Closing balance per date, so the card allocator below can ask what is
+    // actually in the account ON a due date rather than at the end of the
+    // window. One entry per date: the balance after ALL of that date's events.
+    const timeline: Array<{ date: string; balance: number }> = [];
     for (const e of events) {
       running += e.effAmount;
       if (running < minBalance) { minBalance = running; minDate = e.date; }
       if (running < 0) dips.push({ date: e.date, balance: running, description: e.description });
+      const last = timeline[timeline.length - 1];
+      if (last && last.date === e.date) last.balance = running;
+      else timeline.push({ date: e.date, balance: running });
     }
+    timelineById.set(acc.id, timeline);
     // Per-account required buffer (0 = none). Only accounts the user flags with
     // a minBalance get buffer warnings — most checking/cash accounts don't.
     const acctBuffer = Math.max(0, acc.minBalance ?? 0);
     return { id: acc.id, name: acc.name, start: acc.currentBalance ?? 0, minBalance, minDate, end: running, buffer: acctBuffer, dips };
   });
 
+  /** Projected closing balance of one account on `dateIso`. */
+  const balanceOn = (accId: string, startBal: number, dateIso: string): number => {
+    let bal = startBal;
+    for (const pt of timelineById.get(accId) ?? []) {
+      if (pt.date > dateIso) break;
+      bal = pt.balance;
+    }
+    return bal;
+  };
+
+  /**
+   * Spendable cash above every account's buffer, as of a given date.
+   *
+   * This is the fix for a suggestion that could not be acted on: the allocator
+   * used to spend the END-of-window surplus at each card's due date, so income
+   * arriving AFTER a due date still funded a payment made ON it. With a
+   * biweekly salary and a due date early in the window that overstated what was
+   * payable by a whole paycheck — "pay $7,032.31 on AMEX, due 10/10" when
+   * 10/10 would hold $5,193.16 and the second $5,600 landed on 10/23.
+   */
+  const availableOn = (dateIso: string): number =>
+    projections.reduce((s, p) => s + Math.max(0, balanceOn(p.id, p.start, dateIso) - p.buffer), 0);
+
   // Surplus available for card paydowns: cash you'll have ABOVE each account's
-  // buffer by the END of the window (after income lands). End-based, not the
-  // trough — the dip warnings below handle any mid-window shortfall separately,
-  // and cards are paid at their due date once the paycheck has arrived.
+  // buffer by the END of the window (after all income lands). Reported as-is
+  // ("surplus by end of window"), but it is NOT the budget for a payment made
+  // earlier than that — see availableOn.
   const surplus = projections.reduce((s, p) => s + Math.max(0, p.end - p.buffer), 0);
 
   // Money-move suggestions when an account dips below its own buffer (or goes
@@ -335,18 +368,36 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
 
   // Allocation: statement-due-first, then avalanche (highest APR).
   const actions: Array<{ card: string; amount: number; reason: string }> = [];
-  let remaining = surplus;
   const paidByCard = new Map<string, number>();
-  // 1) Cover statements due in window (soonest first) to dodge interest.
+  // 1) Cover statements due in window (soonest first) to dodge interest, each
+  //    limited by the cash on hand ON ITS OWN DUE DATE. `allocated` carries
+  //    earlier payments forward, since money spent on the 10th is no longer
+  //    there on the 19th. A card whose due date arrives before the cash does is
+  //    skipped rather than suggested — and `continue`, not `break`, because a
+  //    later due date may well be affordable when an earlier one isn't.
+  let allocated = 0;
   for (const s of [...statementsDue].sort((a, b) => a.dueDate.localeCompare(b.dueDate))) {
-    if (remaining <= 0) break;
-    const pay = Math.min(remaining, s.approxAmount);
+    const avail = availableOn(s.dueDate) - allocated;
+    if (avail <= 0.5) continue;
+    const pay = Math.min(avail, s.approxAmount);
     if (pay <= 0.5) continue;
     paidByCard.set(s.id, (paidByCard.get(s.id) ?? 0) + pay);
-    actions.push({ card: s.card, amount: round2(pay), reason: `statement due ${s.dueDate}` });
-    remaining -= pay;
+    // Say so when the suggestion doesn't clear the statement: "pay $2,682 on a
+    // $50,884 balance" is only sound advice if it's visibly a partial payment.
+    const partial = pay < s.approxAmount - 0.5;
+    actions.push({
+      card: s.card,
+      amount: round2(pay),
+      reason: partial
+        ? `partial — statement due ${s.dueDate}, ${fmt(round2(avail))} on hand then`
+        : `statement due ${s.dueDate}`,
+    });
+    allocated += pay;
   }
-  // 2) Remaining surplus → highest-APR card with balance left. Unknown APR sorts last.
+  // 2) Anything still spare by the END of the window (after the last paycheck)
+  //    goes to the highest-APR balance. Equivalent to availableOn(horizonIso).
+  let remaining = Math.max(0, surplus - allocated);
+  //    Highest-APR card with balance left. Unknown APR sorts last.
   const byApr = [...cards]
     .filter((c) => Math.abs(Math.min(0, c.currentBalance ?? 0)) - (paidByCard.get(c.id) ?? 0) > 0.5)
     .sort((a, b) => (b.apr ?? -1) - (a.apr ?? -1));
@@ -356,7 +407,16 @@ export function analyzeCashflow(accounts: Account[], recurrings: Recurring[], op
     const pay = Math.min(remaining, owedLeft);
     if (pay <= 0.5) continue;
     paidByCard.set(c.id, (paidByCard.get(c.id) ?? 0) + pay);
-    actions.push({ card: c.name, amount: round2(pay), reason: c.apr != null ? `highest APR ${(c.apr * 100).toFixed(1)}%` : "paydown" });
+    // Dated explicitly: this is spare cash at the END of the window, not money
+    // available today, and saying so keeps it from reading as another "pay this
+    // now" line alongside the due-date actions above.
+    actions.push({
+      card: c.name,
+      amount: round2(pay),
+      reason: c.apr != null
+        ? `spare by ${horizonIso} — highest APR ${(c.apr * 100).toFixed(1)}%`
+        : `spare by ${horizonIso} — paydown`,
+    });
     remaining -= pay;
   }
 
