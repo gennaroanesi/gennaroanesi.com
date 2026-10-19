@@ -21,7 +21,7 @@ import {
   type BudgetLine, type BudgetLineView, type FundingSource, type BudgetPeriod, type BudgetKind,
   type BudgetSeries,
 } from "@/components/finance/budget";
-import { effectiveCategory } from "@/components/finance/categories";
+import { CATEGORY_RULES, effectiveCategory } from "@/components/finance/categories";
 import { periodRange, summarizeIncomeSources, type Period } from "@/components/finance/review";
 import { POSITIVE, NEGATIVE, WARNING, withAlpha } from "@/lib/colors";
 import { SlideOverPanel, PageTitle, PageLoading, Card, Badge } from "@/components/common/ui";
@@ -52,6 +52,15 @@ type Panel =
   | null;
 
 type EditMode = "correct" | "change";
+
+/** Props bundle threaded through every row-render component so each tx
+ *  row can expose an inline category selector + save back to the DB
+ *  without ferrying three unrelated props at every call site. */
+type ReclassifyProps = {
+  categoryVocab:    string[];
+  reclassifyingId:  string | null;
+  onReclassify:     (txId: string, newCategory: string) => void;
+};
 
 /** Status is a fact (above/below budget); the colour is the judgment, and it
  *  flips by kind — under-spending is good, under-earning is not. */
@@ -157,6 +166,46 @@ export default function BudgetPage() {
   const accountName = useMemo(
     () => new Map((accounts as AccountRecord[]).map((a) => [a.id, a.name])),
     [accounts],
+  );
+
+  // Category vocabulary for the inline reclassify selector on every tx row.
+  // Mirrors /finance/review and /finance/transactions: in-use categories
+  // ∪ the built-in rule table ∪ a baseline of common buckets.
+  const categoryVocab = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of txs) if (t.category) s.add(t.category);
+    for (const r of CATEGORY_RULES) s.add(r.category);
+    ["Uncategorized", "Transfers", "Credit Card Payment", "Investments", "Income", "Cash/ATM"].forEach((c) => s.add(c));
+    return Array.from(s).sort();
+  }, [txs]);
+
+  // Which tx is mid-write; used to dim the row + disable its select so a
+  // user can't fire a second update before the first resolves.
+  const [reclassifyingId, setReclassifyingId] = useState<string | null>(null);
+
+  // Optimistic category patch: writes `financeTransaction.update` and
+  // reflects the change in local tx state immediately so budget bars /
+  // category totals recompute without a refetch. Rolls back on failure.
+  const reclassifyTx = useCallback(async (txId: string, newCategory: string) => {
+    const target = newCategory.trim() || null;
+    const prev = txs.find((t) => t.id === txId);
+    if (!prev || (prev.category ?? "") === (target ?? "")) return;
+    setReclassifyingId(txId);
+    setTxs((p) => p.map((t) => t.id === txId ? ({ ...t, category: target } as TransactionRecord) : t));
+    try {
+      await mutate(client.models.financeTransaction.update({ id: txId, category: target }));
+    } catch (e) {
+      setTxs((p) => p.map((t) => t.id === txId ? ({ ...t, category: prev.category } as TransactionRecord) : t));
+      reportError(e, "Reclassify");
+    } finally {
+      setReclassifyingId(null);
+    }
+  }, [txs]);
+
+  // Bundled so every row-render component takes one prop instead of three.
+  const reclassify = useMemo<ReclassifyProps>(
+    () => ({ categoryVocab, reclassifyingId, onReclassify: reclassifyTx }),
+    [categoryVocab, reclassifyingId, reclassifyTx],
   );
 
   const availableYears = useMemo(() => {
@@ -834,7 +883,8 @@ export default function BudgetPage() {
                   {listed.map((v) => (
                     <BucketRow key={v.line.id} v={v} onEdit={openEdit} closed={model.closed}
                       versions={model.versions.get(v.line.seriesId)?.length ?? 1}
-                      rows={model.rowsByLine.get(v.line.id) ?? []} accountName={accountName} />
+                      rows={model.rowsByLine.get(v.line.id) ?? []} accountName={accountName}
+                      reclassify={reclassify} />
                   ))}
                 </div>
               )}
@@ -849,7 +899,7 @@ export default function BudgetPage() {
                   <div className="space-y-2">
                     {listedRealized.map((r) => (
                       <RealizedRow key={r.series.seriesId} s={r.series} spent={r.spent}
-                        rows={r.rows} accountName={accountName} />
+                        rows={r.rows} accountName={accountName} reclassify={reclassify} />
                     ))}
                   </div>
                 </div>
@@ -871,7 +921,8 @@ export default function BudgetPage() {
                   <div className="divide-y divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-darkBorder">
                     {model.unassigned.map((u) => (
                       <UnassignedRow key={u.category} category={u.category} spent={u.spent}
-                        rows={model.rowsByCategory.get(u.category) ?? []} accountName={accountName} />
+                        rows={model.rowsByCategory.get(u.category) ?? []} accountName={accountName}
+                        reclassify={reclassify} />
                     ))}
                   </div>
                 </Card>
@@ -1160,9 +1211,10 @@ function nextDayIso(iso: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function BucketRow({ v, onEdit, closed, versions, rows, accountName }: {
+function BucketRow({ v, onEdit, closed, versions, rows, accountName, reclassify }: {
   v: BudgetLineView; onEdit: (l: BudgetLine) => void; closed: boolean; versions: number;
   rows: TransactionRecord[]; accountName: Map<string, string>;
+  reclassify: ReclassifyProps;
 }) {
   const [open, setOpen] = useState(false);
   const income = budgetKind(v.line) === "INCOME";
@@ -1228,7 +1280,7 @@ function BucketRow({ v, onEdit, closed, versions, rows, accountName }: {
         </span>
       </div>
 
-      <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} />
+      <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} reclassify={reclassify} />
     </Card>
   );
 }
@@ -1238,11 +1290,12 @@ function BucketRow({ v, onEdit, closed, versions, rows, accountName }: {
  * under, so the list always adds up to the number it opened from — a breakdown
  * that can disagree with its own headline is worse than none.
  */
-function TransactionList({ txs, accountName, open, onToggle }: {
+function TransactionList({ txs, accountName, open, onToggle, reclassify }: {
   txs: TransactionRecord[];
   accountName: Map<string, string>;
   open: boolean;
   onToggle: () => void;
+  reclassify: ReclassifyProps;
 }) {
   if (txs.length === 0) {
     return <p className="text-[11px] text-gray-400 mt-2">No transactions in this period.</p>;
@@ -1256,18 +1309,37 @@ function TransactionList({ txs, accountName, open, onToggle }: {
       </button>
       {open && (
         <div className="-mx-1 border-t border-gray-100 dark:border-darkBorder max-h-96 overflow-y-auto">
-          {txs.map((t) => (
-            <div key={t.id} className="flex items-center gap-2 px-1 py-2 rounded hover:bg-gray-50 dark:hover:bg-white/5">
-              <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
-              <span className="text-xs truncate flex-1">{t.description || "—"}</span>
-              <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
-                {effectiveCategory(t)} · {accountName.get(t.accountId) ?? "—"}
-              </span>
-              <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
-                {fmtCurrency(Math.abs(t.amount ?? 0))}
-              </span>
-            </div>
-          ))}
+          {txs.map((t) => {
+            const busy = reclassify.reclassifyingId === t.id;
+            const cur = t.category ?? "";
+            return (
+              <div key={t.id}
+                className="flex items-center gap-2 px-1 py-2 rounded hover:bg-gray-50 dark:hover:bg-white/5"
+                style={busy ? { opacity: 0.5 } : undefined}>
+                <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
+                <span className="text-xs truncate flex-1">{t.description || "—"}</span>
+                <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
+                  {accountName.get(t.accountId) ?? "—"}
+                </span>
+                {/* Inline category selector — change the bucket for a tx
+                    without leaving the budget. See /finance/review for the
+                    same affordance in the category-detail block. */}
+                <select
+                  disabled={busy}
+                  value={cur}
+                  onChange={(e) => reclassify.onReclassify(t.id, e.target.value)}
+                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-[11px] px-1.5 py-0.5 text-gray-700 dark:text-gray-200 max-w-[140px] flex-shrink-0"
+                  title="Move this transaction to another category"
+                >
+                  {cur && !reclassify.categoryVocab.includes(cur) && <option value={cur}>{cur}</option>}
+                  {reclassify.categoryVocab.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
+                  {fmtCurrency(Math.abs(t.amount ?? 0))}
+                </span>
+              </div>
+            );
+          })}
           <div className="flex items-center justify-between px-1 py-2 border-t border-gray-100 dark:border-darkBorder">
             <span className="text-[11px] text-gray-400">{txs.length} transactions</span>
             <span className="text-xs font-semibold tabular-nums">{fmtCurrency(total)}</span>
@@ -1322,8 +1394,9 @@ function SeriesRow({ s, onEdit }: { s: BudgetSeries; onEdit: (l: BudgetLine) => 
 
 /** A bucket's real spending in a period that predates its budget. Same
  *  drill-down as a budgeted row, so every figure on the page opens. */
-function RealizedRow({ s, spent, rows, accountName }: {
+function RealizedRow({ s, spent, rows, accountName, reclassify }: {
   s: BudgetSeries; spent: number; rows: TransactionRecord[]; accountName: Map<string, string>;
+  reclassify: ReclassifyProps;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1342,15 +1415,16 @@ function RealizedRow({ s, spent, rows, accountName }: {
           </span>
         </div>
       </div>
-      <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} />
+      <TransactionList txs={rows} accountName={accountName} open={open} onToggle={() => setOpen((x) => !x)} reclassify={reclassify} />
     </Card>
   );
 }
 
 /** A category no budget covers. Expands like every other figure on the page —
  *  deciding where spending belongs is much easier once you can see what it is. */
-function UnassignedRow({ category, spent, rows, accountName }: {
+function UnassignedRow({ category, spent, rows, accountName, reclassify }: {
   category: string; spent: number; rows: TransactionRecord[]; accountName: Map<string, string>;
+  reclassify: ReclassifyProps;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1368,18 +1442,35 @@ function UnassignedRow({ category, spent, rows, accountName }: {
       </button>
       {open && (
         <div className="max-h-80 overflow-y-auto border-t border-gray-100 dark:border-darkBorder">
-          {rows.map((t) => (
-            <div key={t.id} className="flex items-center gap-2 px-1 py-2">
-              <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
-              <span className="text-xs truncate flex-1">{t.description || "—"}</span>
-              <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
-                {accountName.get(t.accountId) ?? "—"}
-              </span>
-              <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
-                {fmtCurrency(Math.abs(t.amount ?? 0))}
-              </span>
-            </div>
-          ))}
+          {rows.map((t) => {
+            const busy = reclassify.reclassifyingId === t.id;
+            const cur = t.category ?? "";
+            return (
+              <div key={t.id} className="flex items-center gap-2 px-1 py-2"
+                style={busy ? { opacity: 0.5 } : undefined}>
+                <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
+                <span className="text-xs truncate flex-1">{t.description || "—"}</span>
+                <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
+                  {accountName.get(t.accountId) ?? "—"}
+                </span>
+                {/* Inline category selector — moves this row out of
+                    "Unassigned" by giving it a bucket a budget covers. */}
+                <select
+                  disabled={busy}
+                  value={cur}
+                  onChange={(e) => reclassify.onReclassify(t.id, e.target.value)}
+                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-[11px] px-1.5 py-0.5 text-gray-700 dark:text-gray-200 max-w-[140px] flex-shrink-0"
+                  title="Move this transaction to another category"
+                >
+                  {cur && !reclassify.categoryVocab.includes(cur) && <option value={cur}>{cur}</option>}
+                  {reclassify.categoryVocab.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
+                  {fmtCurrency(Math.abs(t.amount ?? 0))}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
