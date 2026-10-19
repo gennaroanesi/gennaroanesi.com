@@ -53,13 +53,16 @@ type Panel =
 
 type EditMode = "correct" | "change";
 
-/** Props bundle threaded through every row-render component so each tx
- *  row can expose an inline category selector + save back to the DB
- *  without ferrying three unrelated props at every call site. */
+/** Props bundle threaded through every row-render component. Each row
+ *  shows a small "move" button; clicking it opens a dropdown for that
+ *  row (one at a time, so the budget stays uncluttered). State lives
+ *  on BudgetPage so the open row survives re-renders of the big trees. */
 type ReclassifyProps = {
   categoryVocab:    string[];
   reclassifyingId:  string | null;
   onReclassify:     (txId: string, newCategory: string) => void;
+  editingId:        string | null;
+  setEditingId:     (id: string | null) => void;
 };
 
 /** Status is a fact (above/below budget); the colour is the judgment, and it
@@ -182,6 +185,9 @@ export default function BudgetPage() {
   // Which tx is mid-write; used to dim the row + disable its select so a
   // user can't fire a second update before the first resolves.
   const [reclassifyingId, setReclassifyingId] = useState<string | null>(null);
+  // Which row has its "move" selector open. One at a time so the budget
+  // doesn't balloon into a wall of dropdowns.
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
 
   // Optimistic category patch: writes `financeTransaction.update` and
   // reflects the change in local tx state immediately so budget bars /
@@ -202,10 +208,16 @@ export default function BudgetPage() {
     }
   }, [txs]);
 
-  // Bundled so every row-render component takes one prop instead of three.
+  // Bundled so every row-render component takes one prop instead of five.
   const reclassify = useMemo<ReclassifyProps>(
-    () => ({ categoryVocab, reclassifyingId, onReclassify: reclassifyTx }),
-    [categoryVocab, reclassifyingId, reclassifyTx],
+    () => ({
+      categoryVocab,
+      reclassifyingId,
+      onReclassify: reclassifyTx,
+      editingId: editingCatId,
+      setEditingId: setEditingCatId,
+    }),
+    [categoryVocab, reclassifyingId, reclassifyTx, editingCatId],
   );
 
   const availableYears = useMemo(() => {
@@ -1286,6 +1298,46 @@ function BucketRow({ v, onEdit, closed, versions, rows, accountName, reclassify 
 }
 
 /**
+ * Reclassify affordance for a single row. Collapsed state is a tiny `Move`
+ * button; clicking it swaps that button for a category <select> (one at a
+ * time across the whole page). Picking a category writes immediately and
+ * closes; blurring without a pick also closes.
+ */
+function ReclassifyCell({ tx, reclassify }: { tx: TransactionRecord; reclassify: ReclassifyProps }) {
+  const busy = reclassify.reclassifyingId === tx.id;
+  const open = reclassify.editingId === tx.id;
+  const cur = tx.category ?? "";
+  if (!open) {
+    return (
+      <button
+        onClick={() => reclassify.setEditingId(tx.id)}
+        disabled={busy}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-darkBorder text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-500 flex-shrink-0 disabled:opacity-50"
+        title={cur ? `Move from "${cur}" to another category` : "Set a category"}
+      >
+        Move
+      </button>
+    );
+  }
+  return (
+    <select
+      autoFocus
+      disabled={busy}
+      value={cur}
+      onChange={(e) => {
+        reclassify.onReclassify(tx.id, e.target.value);
+        reclassify.setEditingId(null);
+      }}
+      onBlur={() => reclassify.setEditingId(null)}
+      className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-[11px] px-1.5 py-0.5 text-gray-700 dark:text-gray-200 max-w-[160px] flex-shrink-0"
+    >
+      {cur && !reclassify.categoryVocab.includes(cur) && <option value={cur}>{cur}</option>}
+      {reclassify.categoryVocab.map((c) => <option key={c} value={c}>{c}</option>)}
+    </select>
+  );
+}
+
+/**
  * The rows behind a figure. Shares budgetTransactions with the total it sits
  * under, so the list always adds up to the number it opened from — a breakdown
  * that can disagree with its own headline is worse than none.
@@ -1311,7 +1363,6 @@ function TransactionList({ txs, accountName, open, onToggle, reclassify }: {
         <div className="-mx-1 border-t border-gray-100 dark:border-darkBorder max-h-96 overflow-y-auto">
           {txs.map((t) => {
             const busy = reclassify.reclassifyingId === t.id;
-            const cur = t.category ?? "";
             return (
               <div key={t.id}
                 className="flex items-center gap-2 px-1 py-2 rounded hover:bg-gray-50 dark:hover:bg-white/5"
@@ -1319,21 +1370,9 @@ function TransactionList({ txs, accountName, open, onToggle, reclassify }: {
                 <span className="text-[11px] text-gray-400 tabular-nums flex-shrink-0 w-16">{fmtDate(t.date)}</span>
                 <span className="text-xs truncate flex-1">{t.description || "—"}</span>
                 <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
-                  {accountName.get(t.accountId) ?? "—"}
+                  {effectiveCategory(t)} · {accountName.get(t.accountId) ?? "—"}
                 </span>
-                {/* Inline category selector — change the bucket for a tx
-                    without leaving the budget. See /finance/review for the
-                    same affordance in the category-detail block. */}
-                <select
-                  disabled={busy}
-                  value={cur}
-                  onChange={(e) => reclassify.onReclassify(t.id, e.target.value)}
-                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-[11px] px-1.5 py-0.5 text-gray-700 dark:text-gray-200 max-w-[140px] flex-shrink-0"
-                  title="Move this transaction to another category"
-                >
-                  {cur && !reclassify.categoryVocab.includes(cur) && <option value={cur}>{cur}</option>}
-                  {reclassify.categoryVocab.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <ReclassifyCell tx={t} reclassify={reclassify} />
                 <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
                   {fmtCurrency(Math.abs(t.amount ?? 0))}
                 </span>
@@ -1444,7 +1483,6 @@ function UnassignedRow({ category, spent, rows, accountName, reclassify }: {
         <div className="max-h-80 overflow-y-auto border-t border-gray-100 dark:border-darkBorder">
           {rows.map((t) => {
             const busy = reclassify.reclassifyingId === t.id;
-            const cur = t.category ?? "";
             return (
               <div key={t.id} className="flex items-center gap-2 px-1 py-2"
                 style={busy ? { opacity: 0.5 } : undefined}>
@@ -1453,18 +1491,7 @@ function UnassignedRow({ category, spent, rows, accountName, reclassify }: {
                 <span className="text-[10px] text-gray-400 flex-shrink-0 hidden sm:inline">
                   {accountName.get(t.accountId) ?? "—"}
                 </span>
-                {/* Inline category selector — moves this row out of
-                    "Unassigned" by giving it a bucket a budget covers. */}
-                <select
-                  disabled={busy}
-                  value={cur}
-                  onChange={(e) => reclassify.onReclassify(t.id, e.target.value)}
-                  className="rounded border border-gray-200 dark:border-darkBorder bg-white dark:bg-darkElevated text-[11px] px-1.5 py-0.5 text-gray-700 dark:text-gray-200 max-w-[140px] flex-shrink-0"
-                  title="Move this transaction to another category"
-                >
-                  {cur && !reclassify.categoryVocab.includes(cur) && <option value={cur}>{cur}</option>}
-                  {reclassify.categoryVocab.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <ReclassifyCell tx={t} reclassify={reclassify} />
                 <span className="text-xs tabular-nums flex-shrink-0" style={{ color: amountColor(t.amount ?? 0) }}>
                   {fmtCurrency(Math.abs(t.amount ?? 0))}
                 </span>
