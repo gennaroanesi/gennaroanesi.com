@@ -223,8 +223,14 @@ export default function BudgetPage() {
   const availableYears = useMemo(() => {
     const ys = new Set<number>([THIS_YEAR]);
     for (const t of txs) if (t.date) ys.add(Number(t.date.slice(0, 4)));
+    // Also include years that a budget line is scheduled to start/end in, so a
+    // plan for next year is reachable before any transactions have landed.
+    for (const b of budgets) {
+      if (b.effectiveFrom) ys.add(Number(b.effectiveFrom.slice(0, 4)));
+      if (b.effectiveTo)   ys.add(Number(b.effectiveTo.slice(0, 4)));
+    }
     return [...ys].sort((a, b) => b - a);
-  }, [txs]);
+  }, [txs, budgets]);
 
   const period: Period = useMemo(() => {
     switch (pKind) {
