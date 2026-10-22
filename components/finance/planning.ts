@@ -130,6 +130,9 @@ const ADDITIONAL_MEDICARE_TAX_THRESHOLDS: Record<FilingStatus, number> = {
 // IRS supplemental wage flat rate (Pub 15, Section 7) — applies to bonuses /
 // RSU vesting / commissions up to $1M cumulative per employer per year.
 // Above $1M, the rate jumps to 37%; the planner does not model that step.
+// Used as a fallback when YTD supplemental data isn't rich enough to infer
+// the employer's actual rate (which routinely differs: aggregate-method or
+// large-vest employers withhold 30-37% rather than the flat 22%).
 const SUPPLEMENTAL_FED_RATE = 0.22;
 
 // 401(k) elective deferral limit (employee contribution cap, IRC §402(g)).
@@ -635,7 +638,15 @@ export function projectFromPaychecks(args: {
   }
   const projectedRsuGross       = ytdRsuGross + projectedAdditionalRsu;
   const projectedBonusGross     = ytdBonusGross; // bonuses held flat — no extrapolation
-  const additionalSupplementalFedWh = projectedAdditionalRsu * SUPPLEMENTAL_FED_RATE;
+  // Rate at which the employer withholds federal tax on supplemental wages.
+  // Prefer the per-person effective rate observed in YTD (ytdSupplementalFedWh
+  // / supplementalYtd) over the IRS flat 22%, because large-vest employers
+  // routinely withhold 30-37% using the aggregate method. Falls back to the
+  // flat rate when no supplemental has happened yet (no signal to infer from).
+  const effectiveSupplementalRate = supplementalYtd > 0 && ytdSupplementalFedWh > 0
+    ? ytdSupplementalFedWh / supplementalYtd
+    : SUPPLEMENTAL_FED_RATE;
+  const additionalSupplementalFedWh = projectedAdditionalRsu * effectiveSupplementalRate;
 
   // ── Combine ─────────────────────────────────────────────────────────
   const projectedTaxableWage   = projectedSalaryTaxable + projectedRsuGross + projectedBonusGross;
