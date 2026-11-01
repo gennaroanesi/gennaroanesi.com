@@ -1,5 +1,8 @@
-/* Typekit is loaded via a <link> in pages/_document.tsx (parallel, non-blocking)
-   rather than a CSS @import here, which serialized on the critical path. */
+/* Fonts are self-hosted via next/font (config/fonts.ts) and exposed as CSS
+   variables on :root from pages/_app.tsx — NOT _document.tsx, where the
+   next/font loader doesn't run on the Pages Router. Don't set font-family
+   literally anywhere below — go through var(--font-sans) / var(--font-mono)
+   so there is one source of truth. */
 
 @tailwind base;
 @tailwind components;
@@ -7,16 +10,18 @@
 
 /* ── Cesium font override ───────────────────────────────────────────────────
    Cesium's widget stylesheet injects its own font-family rules. This forces
-   all Cesium UI elements to use the site font instead. */
+   all Cesium UI elements to use the site font instead.
+   Historical note: because this rule targets descendants directly and carries
+   !important, it was for a long time the ONLY place the custom font actually
+   rendered — the site-wide rule was being overridden by `font-sans` on body. */
 .cesium-widget,
 .cesium-widget * {
-  font-family: "source-sans-pro", sans-serif !important;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif !important;
 }
 
 @layer base {
   html {
     scroll-behavior: smooth;
-    font-family: "source-sans-pro", sans-serif;
     font-weight: 400;
     font-style: normal;
   }

@@ -10,6 +10,16 @@ export default {
   ],
   theme: {
     extend: {
+      // Without this, `font-sans` / `font-mono` keep Tailwind's built-in system
+      // stacks — which is exactly how the site spent a long time loading a web
+      // font that never rendered: globals.css set the font on `html`, while
+      // `<body class="font-sans">` overrode it for everything inside. The
+      // variables come from next/font (config/fonts.ts) via _app.tsx, which is
+      // the only place the loader runs on the Pages Router.
+      fontFamily: {
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+      },
       colors: {
         primary:    "#BCABAE",
         secondary:  "#4e5e53",
